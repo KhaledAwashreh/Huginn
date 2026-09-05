@@ -102,9 +102,11 @@ flowchart TB
     end
 
     subgraph GOLD["gold schema — dimensional model"]
-        GD["Company dimension<br/>ICP-filter status + enrichment<br/>SCD Type 2, surrogate key, is_current flag"]
+        GD["Company dimension<br/>current state only, one row per company"]
+        GH["CompanyHistory<br/>written only when a tracked field changes"]
         GF["CompanySignal fact table"]
         GF --> GD
+        GD -.->|"superseded values move here"| GH
     end
 
     MATCH["Matching step — deferred, KAN-18"]
@@ -121,7 +123,11 @@ flowchart TB
 
 **Silver.** Per-source staging tables conform each source to a common shape without merging across sources — HN's cleaning logic and YC's stay independently inspectable. A single cross-source `resolved_signals` table then runs entity resolution (§6) — still at event grain, one row per original signal, with the raw company name replaced by a resolved canonical identifier. This deliberately stops short of splitting into separate company and signal tables: verified against Databricks and Kimball (`architecture-notes/industry-references-elt-medallion.md`), that dimensional split is standard Gold work, not Silver's. Silver is current-state upsert only; Bronze already preserves full raw history, and Silver doesn't re-solve that problem. One accepted trade-off: if an entity-resolution merge later turns out wrong, there's no recorded prior state at or below Silver to diagnose or roll back from.
 
-**Gold.** A dimensional model built from Silver's resolved signals: a `Company` dimension (every company Silver has resolved and evaluated against the ICP filter — stage, sector, recency — at least once) and a `CompanySignal` fact table, plus enrichment on the dimension — the team-composition/soft-signal heuristic, run only on companies that already passed the filter. ICP-filter-pass is itself a tracked attribute on the dimension, not a gate on whether the row exists — a company that later stops passing keeps its history rather than disappearing. The `Company` dimension is versioned as SCD Type 2 — `valid_from`/`valid_to`, an explicit `is_current` flag, and a surrogate key that's new per version while the durable key (domain) stays stable — using a hybrid Type 1/Type 2 column classification: cosmetic fields overwrite in place, while filter status, stage/sector classification, funding-recency bucket, and enrichment output each trigger a new version. The exact column-by-column split is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional — it may move in a later architecture pass.
+**Gold.** A dimensional model built from Silver's resolved signals: a `Company` dimension and a `CompanySignal` fact table, plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter). `Company` covers every company Silver has resolved and evaluated against the filter at least once. ICP-filter-pass is a tracked attribute on the row, not a gate on whether the row exists. A company that later stops passing keeps its record rather than disappearing.
+
+History is tracked with a current-plus-history split (ADR-0002), not a single versioned table. `Company` holds exactly one row per company, always, overwritten in place whenever any field changes. `CompanyHistory` gets a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`): the superseded values move there with a `ValidFrom`/`ValidTo` window, and the new values overwrite `Company` in place. Cosmetic Type 1 fields overwrite in `Company` with no history kept at all. The exact column-by-column classification is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional. It may move in a later architecture pass.
+
+This design was chosen over a single SCD Type 2 table specifically because every scoring read needs current state, and Type 2 makes that read depend on remembering an `IsCurrent` filter every time. Splitting current from history removes that filter entirely from the hot path: reading `Company` can never return a stale version, because nothing else lives in that table.
 
 **Matching**, the step that turns a Gold row into an operational `Match`, is explicitly out of scope for this document. It needs to check a company against previously sent matches (so a signal still inside its recency window doesn't resurface week after week) and reapply the user's current ICP and preferences. Deferred and tracked as Jira KAN-18.
 
@@ -198,7 +204,7 @@ Presentation is a weekly email digest for now. A dashboard's scope is undecided 
 
 `Entites.md` sketches the schema in progress. Its "Gold" heading predates this document's precise pipeline layering and mixes two things this document now separates: the ELT Gold layer (§4) and the operational schema that the matching step (§4, §7) writes to downstream of it.
 
-**Gold ELT layer**, a dimension/fact pair (§4): `Company` (the dimension — resolved, filtered, enriched record, including `TeamCompositionSignal`, SCD Type 2 versioned) and `CompanySignal` (the fact table — the individual hiring, funding, or milestone events that fed a match, one row per signal with its source and occurrence date).
+**Gold ELT layer**, a dimension/fact pair (§4): `Company` (the dimension, current state only, one row per company) plus `CompanyHistory` (superseded versions, written only when a tracked field changes, see ADR-0002) and `CompanySignal` (the fact table, the individual hiring, funding, or milestone events that fed a match, one row per signal with its source and occurrence date).
 
 **Operational schema**, written by the matching step, not by the ELT pipeline: `Match` (one row per user × company, with status), `MatchScore` (score, scoring algorithm, per-feature breakdown as JSON), `MatchFeedback` (👍/👎), `Employee` (person-level data, sourced only per §2's non-goals), `Activity` (notes and follow-ups against a match), and `Communication`/`CommunicationVersion`/`CommunicationRevision`/`CommunicationTurn` (the outreach draft and its edit history). `MatchScore` as currently sketched is a single row per match; §7's recompute design will need it to grow into a versioned history before v1 scoring ships.
 

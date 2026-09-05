@@ -3,18 +3,33 @@
 # Gold
 
 ## Company
+Current state only. One row per company, always. Overwritten in place when any field changes, including the Type 2 tracked fields below (see ADR-0002). No IsCurrent flag and no ValidTo needed here: there is nothing else in this table to filter out.
 - Id: GUID
+- Domain: String (durable natural key from entity resolution)
 - Name: String
-- BusinessSector: String
+- BusinessSector: String (Type 2 tracked, see CompanyHistory)
 - CompanyType: Enum (Enterprise, Startup, SME)
 - Country: String
 - City: String
 - Address: String
 - PhoneNumber: String
 - Email: String
-- TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes)
+- TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
+- IcpFilterPass: Boolean (Type 2 tracked, see CompanyHistory)
+- CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
+
+## CompanyHistory
+One row per superseded version. Written only when a Type 2 tracked field on Company changes: the old values move here, the new values overwrite Company in place. Nothing in this table is ever current by definition, so no IsCurrent flag here either.
+- Id: GUID
+- CompanyId: GUID
+- Domain: String (denormalized for convenience)
+- BusinessSector: String
+- TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes)
+- IcpFilterPass: Boolean
+- ValidFrom: DateTimeOffset
+- ValidTo: DateTimeOffset
 
 ## CompanySignal
 - Id: GUID
