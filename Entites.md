@@ -104,24 +104,93 @@
 - Content: String
 - CreatedOn: DateTimeOffset
 
+# Silver
 
+Per-source staging tables, one per source, all sharing this shape — conformed to a common structure but not yet merged across sources. Current-state upsert, no version history (Bronze already preserves raw history).
 
+## HnPostingStaging (silver.hn_postings)
+- Id: GUID
+- StableId: String
+- CompanyNameRaw: String
+- Website: String (nullable — ~11% of sampled HN posts have no extractable URL)
+- SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
+- Stage: String (nullable)
+- Description: String
+- OccurredOn: DateTimeOffset (nullable)
+- Url: String
+- IngestedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
 
-# Silver 
+## YcListingStaging (silver.yc_listings)
+- Id: GUID
+- StableId: String
+- CompanyNameRaw: String
+- Website: String (nullable)
+- SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
+- Stage: String (nullable)
+- Description: String
+- OccurredOn: DateTimeOffset (nullable)
+- Url: String
+- IngestedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
 
+(Additional per-source staging tables follow this same shape as sources are added.)
 
+## ResolvedSignal (silver.resolved_signals)
+Fed by all staging tables together. Still event grain — one row per original signal — deliberately *not* split into separate company and signal tables; that dimensional split is Gold's job (see `architecture-notes/industry-references-elt-medallion.md`). `ResolvedCompanyKey` is a plain resolved identity value here (the normalized domain, or a deterministic key from the fuzzy-match fallback), not a foreign key into a materialized company table — Gold builds the `Company` dimension from the distinct keys found in this table.
+- Id: GUID
+- SourceStableId: String
+- Source: String
+- ResolvedCompanyKey: String
+- CompanyNameRaw: String
+- SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
+- Stage: String (nullable)
+- Description: String
+- OccurredOn: DateTimeOffset (nullable)
+- Url: String
+- MatchConfidence: Enum (AutoMatched, ManualReview, NoExistingMatch) — which entity-resolution band produced `ResolvedCompanyKey` (domain match, Jaro-Winkler ≥0.92 auto-match, 0.85–0.92 manual-review band, or first occurrence of a new key)
+- ResolvedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
 
+## ManualReviewCandidate (silver.manual_review_queue)
+- Id: GUID
+- ResolvedSignalId: GUID
+- CandidateCompanyKey: String
+- MatchScore: Decimal
+- Status: Enum (Pending, Confirmed, Rejected)
+- CreatedOn: DateTimeOffset
+- ReviewedOn: DateTimeOffset (nullable)
 
+# Bronze
 
+Three tables, grouped by ingestion mechanism rather than by individual source — `Source` distinguishes rows within each. All three share this exact shape; mechanism determines table membership, not a column. Append-only in spirit, but a fetch whose `ContentHash` matches the existing row for that `(Source, StableId)` doesn't insert a new row — it only bumps `LastCheckedOn`. Unique constraint: `(Source, StableId)` per table.
 
+## ApiIngest (bronze.api_ingest)
+- Id: GUID
+- Source: String (e.g. "hn", "yc")
+- StableId: String
+- Payload: JSON
+- ContentHash: String (SHA-256, over a stable field subset chosen per source, lightly normalized)
+- FetchedOn: DateTimeOffset
+- LastCheckedOn: DateTimeOffset
+- RunId: GUID
 
+## WebScrapeIngest (bronze.web_scrape_ingest)
+- Id: GUID
+- Source: String
+- StableId: String
+- Payload: JSON
+- ContentHash: String
+- FetchedOn: DateTimeOffset
+- LastCheckedOn: DateTimeOffset
+- RunId: GUID
 
-
-
-
-
-
-
-
-Bronze 
-
+## NewsletterIngest (bronze.newsletter_ingest)
+- Id: GUID
+- Source: String
+- StableId: String
+- Payload: JSON
+- ContentHash: String
+- FetchedOn: DateTimeOffset
+- LastCheckedOn: DateTimeOffset
+- RunId: GUID
