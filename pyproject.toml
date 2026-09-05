@@ -1,0 +1,23 @@
+[project]
+name = "huginn"
+version = "0.1.0"
+description = "Client-discovery tool: ingests public startup signals and scores them against a user's ICP for a weekly lead digest."
+readme = "README.md"
+authors = [
+    { name = "Khaled Awashreh", email = "Khaled.m.awashreh@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "psycopg[binary]>=3.3.5",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
