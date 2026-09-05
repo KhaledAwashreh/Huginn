@@ -18,9 +18,7 @@ Architecture at a glance:
 
 ## 1. Problem and vision
 
-Prospecting is the hardest part of running a solo services business, and often what stops people going independent at all. With no sales team it competes directly with billable work. Startups are the high-fit case and the hard case at once: they lack the org charts, headcount plans, and formal recruiting processes that make bigger companies legible from outside, so the gap is visibility, not fit. The signal exists (funding, hiring, program milestones) but is scattered and easy to miss on top of client work.
-
-The output is a Monday-morning email: a short shortlist, not a feed to monitor, already checked against criteria the user set themselves. Each entry carries enough to decide whether it is worth a message, who the company is, why it surfaced, and a drafted outreach opener. Over time the list learns what a "yes" and a "no" actually look like for this user.
+Prospecting is the hardest part of running a solo services business and often what stops people going independent at all, since with no sales team it competes directly with billable work. Startups are the high-fit case and the hard case at once: they lack the org charts, headcount plans, and formal recruiting processes that make bigger companies legible from outside, so the gap is visibility rather than fit, and the signal (funding, hiring, program milestones) is scattered and easy to miss on top of client work. The answer is a Monday-morning email, a short shortlist rather than a feed, already checked against criteria the user set, each entry carrying who the company is, why it surfaced, and a drafted outreach opener, with the list learning over time what a "yes" and a "no" look like for this user.
 
 Full problem statement and vision: `huginn-concept-doc.md` sections 1 and 2, the source this summary is drawn from.
 
@@ -124,33 +122,37 @@ flowchart TB
     class MATCH deferred
 ```
 
+The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns behind these layers are not restated here. The primary sources are collected in `architecture-notes/industry-references-elt-medallion.md`. What follows is only where Huginn makes a choice.
+
 ### 4.1 Bronze
 
-Tables are grouped by ingestion mechanism, not by individual source: `bronze.api_ingest`, `bronze.web_scrape_ingest`, `bronze.newsletter_ingest`. HN and YC are both `api` today. The other candidate sources catalogued in `huginn-concept-doc.md` section 7 fall into `web_scrape` (VC boards, Ramp, Harmonic) or `newsletter` (the four Substack feeds) when added. A `source` column (`hn`, `yc`, and so on) distinguishes rows within a table. Each table holds the payload close to as-fetched in a `payload` column, with no field mapping or cleaning, and stays schema-on-read regardless of how many sources share it. Metadata: `source`, fetch timestamp, run ID, and `last_checked_at`.
-
-Neither HN's Firebase API nor YC's Algolia backend offers a reliable "give me only what changed" cursor. A SHA-256 hash over a deliberately chosen, lightly normalized subset of each source's fields stands in for one: `(source, stable_id, content_hash)` sits where a native `updated_at` would. The `source` qualifier keeps two sources' native IDs from colliding once they share a table. A fetch whose hash matches what is already stored writes nothing and bumps `last_checked_at` on the existing row instead, so a healthy-but-static source can be told apart from a job that has silently stopped running.
+1. Tables group by ingestion mechanism, not by source: `bronze.api_ingest`, `bronze.web_scrape_ingest`, `bronze.newsletter_ingest`. HN and YC are both `api` today. The candidate sources in `huginn-concept-doc.md` section 7 map to `web_scrape` (VC boards, Ramp, Harmonic) or `newsletter` (the four Substack feeds) when added.
+2. Columns: `payload` (close to as-fetched, no field mapping or cleaning), `source` (`hn`, `yc`, and so on), fetch timestamp, run ID, `last_checked_at`.
+3. Watermarking is by content hash, because neither HN's Firebase API nor YC's Algolia backend offers a reliable changed-only cursor. A SHA-256 over a deliberately chosen, lightly normalized subset of each source's fields gives `(source, stable_id, content_hash)` where a native `updated_at` would sit. The `source` qualifier keeps two sources' native IDs from colliding in a shared table.
+4. A fetch whose hash already exists writes nothing and bumps `last_checked_at` instead, which tells a healthy-but-static source apart from a job that has silently stopped running.
 
 ### 4.2 Silver
 
-Per-source staging tables conform each source to a common shape without merging across sources, so HN's cleaning logic and YC's stay independently inspectable. A single cross-source `resolved_signals` table then runs entity resolution (section 6), still at event grain, one row per original signal, with the raw company name replaced by a resolved canonical identifier.
-
-Silver deliberately stops short of splitting into separate company and signal tables. That dimensional split is standard Gold work, verified against Databricks and Kimball (`architecture-notes/industry-references-elt-medallion.md`).
-
-Silver is current-state upsert only. Bronze already preserves full raw history and Silver does not re-solve that problem. One accepted trade-off: if an entity-resolution merge later turns out wrong, there is no recorded prior state at or below Silver to diagnose or roll back from.
+1. Per-source staging tables, each conformed to a common shape but not merged across sources (ADR-0001), so HN's cleaning logic and YC's stay independently inspectable.
+2. One cross-source `resolved_signals` table then runs entity resolution (section 6) at event grain, one row per original signal, raw company name replaced by a resolved canonical identifier.
+3. No dimension/fact split at this layer. That is Gold's job, per Databricks and Kimball.
+4. Current-state upsert only, no version history, since Bronze already preserves the raw. Accepted trade-off: a wrong entity-resolution merge has no prior state at or below Silver to diagnose or roll back from.
 
 ### 4.3 Gold
 
-A dimensional model built from Silver's resolved signals: a `Company` dimension and a `CompanySignal` fact table, plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter). `Company` covers every company Silver has resolved and evaluated against the filter at least once. ICP-filter-pass is a tracked attribute on the row, not a gate on whether the row exists, so a company that later stops passing keeps its record.
+A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter).
 
-History is tracked with a current-plus-history split (ADR-0002), not a single versioned table:
+`Company` covers every company Silver has resolved and evaluated against the filter at least once. ICP-filter-pass is a tracked attribute on the row, not a gate on whether the row exists, so a company that later stops passing keeps its record.
 
-1. `Company` holds exactly one row per company, always, overwritten in place whenever any field changes.
-2. `CompanyHistory` gets a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`). The superseded values move there with a `ValidFrom`/`ValidTo` window.
-3. Cosmetic Type 1 fields overwrite in `Company` with no history kept at all.
+History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
-The split was chosen over a single SCD Type 2 table for one specific reason: every scoring read needs current state, and Type 2 makes that read depend on remembering an `IsCurrent` filter every time. The split removes that filter entirely from the hot path, and reading `Company` can never return a stale version because nothing else lives in that table.
+1. `Company`: exactly one row per company, always, overwritten in place whenever any field changes.
+2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`), holding the superseded values with a `ValidFrom`/`ValidTo` window.
+3. Type 1 cosmetic fields: overwrite in `Company`, no history.
 
-The exact column-by-column Type 1 / Type 2 classification is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional and may move in a later architecture pass.
+The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. The split keeps that filter off the hot path entirely, and `Company` cannot return a stale row.
+
+Column-by-column Type 1 / Type 2 classification is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional and may move in a later architecture pass.
 
 ### 4.4 Matching
 
@@ -211,11 +213,10 @@ This recipe was researched and adopted without the author's own background in en
 
 ## 7. Digest and scoring
 
-Composite scoring ships in two stages rather than one shot.
+Composite scoring ships in two stages, not one shot:
 
-v0 ranks by recency alone, the freshest qualifying signal first, among companies that already passed the ICP filter. With no `MatchFeedback` history to check them against, inventing feature weights today would be guessing; recency ranking is free and produces a defensible order. v0 is a real, shippable product, not a spike: it sends actual digests and starts generating the usage data v1 will eventually need. What the user sees is the plain underlying signal, "posted 2 days ago" or "raised a Series A 11 days ago," never a manufactured score.
-
-v1 adds a real weighted composite once v0 has produced enough filtered-data volume to design feature weights against. What feeds it (stage, sector, funding recency, source quality, the team-composition signal) and how those combine is left deliberately open (Jira KAN-8), since locking numbers now would defeat the point of waiting for real data. When it ships, the user sees a qualitative tier ("Strong / Good / Fair match"), not a raw number, which would claim a precision the weights will not actually have.
+1. v0 ranks by recency alone, freshest qualifying signal first, among companies that already passed the ICP filter. With no `MatchFeedback` history to check them against, inventing feature weights now would be guessing, where recency is free and defensible. v0 is a shippable product, not a spike: it sends real digests and generates the usage data v1 needs. The user sees the plain underlying signal, "posted 2 days ago" or "raised a Series A 11 days ago," never a manufactured score.
+2. v1 adds a weighted composite once v0 has produced enough filtered-data volume to design weights against. Its inputs (stage, sector, funding recency, source quality, the team-composition signal) and how they combine are left deliberately open (Jira KAN-8), since locking numbers now defeats the point of waiting. The user then sees a qualitative tier ("Strong / Good / Fair match"), not a raw number, which would claim a precision the weights will not have.
 
 A `Match`'s score snapshots at creation and freezes permanently once it is `Sent`: a sent digest is what the user actually saw, and any future feedback analysis needs to compare against that, not a version revised in hindsight. A still-pending `Match` can be recomputed, triggered by late-arriving enrichment data or by a global weight retune once feedback exists. Each recompute is versioned rather than overwritten in place, mirroring the versioning already present elsewhere in the schema (`CommunicationVersion`, `CommunicationRevision`).
 
@@ -223,7 +224,7 @@ The feedback loop itself, a positive or negative rating on `MatchFeedback` adjus
 
 ## 8. Agentic workflow, retrieval, presentation: deferred
 
-Everything past the domain layer is out of scope for this phase and deliberately abstract pending a decision later. Carried forward for continuity:
+Out of scope for this phase and deliberately abstract pending a decision later. Carried forward for continuity:
 
 1. A chatbot agent and digest composition would sit on a shared harness: an explicit, named tool contract, and model routing that reserves the larger model for user-facing chat and uses smaller models for background extraction. Two experimental memory side-channels, MuninnDB and Letta, are named as candidates for soft context only. Nothing load-bearing would read from either, and the system has to keep working with both absent.
 2. Retrieval, if a chatbot ships, would narrow with a structured filter before re-ranking by vector similarity in Postgres via `pgvector` rather than separate infrastructure. Structured filtering cannot rank by resemblance, and vector search alone does not keep the context small.
@@ -231,36 +232,100 @@ Everything past the domain layer is out of scope for this phase and deliberately
 
 ## 9. Data model
 
-`Entites.md` sketches the schema in progress. Its "Gold" heading predates this document's precise pipeline layering and mixes two things this document now separates: the ELT Gold layer (section 4) and the operational schema that the matching step (sections 4, 7) writes to downstream of it.
-
-Gold ELT layer, a dimension/fact pair (section 4):
-
-1. `Company`: the dimension, current state only, one row per company.
-2. `CompanyHistory`: superseded versions, written only when a tracked field changes (ADR-0002).
-3. `CompanySignal`: the fact table, one row per hiring, funding, or milestone event that fed a match, with its source and occurrence date.
-
-Operational schema, written by the matching step, not by the ELT pipeline:
-
-1. `Match`: one row per user times company, with status.
-2. `MatchScore`: score, scoring algorithm, per-feature breakdown as JSON.
-3. `MatchFeedback`: positive or negative rating.
-4. `Employee`: person-level data, sourced only per section 2's non-goals.
-5. `Activity`: notes and follow-ups against a match.
-6. `Communication` / `CommunicationVersion` / `CommunicationRevision` / `CommunicationTurn`: the outreach draft and its edit history.
-
-`MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
+`Entites.md` holds the schema in progress and is the source for the diagram below, which shows identifying fields only. Its "Gold" heading predates this document's pipeline layering and mixes two things this document separates: the ELT Gold layer (section 4), which is `Company`, `CompanyHistory`, and `CompanySignal`, and the operational schema below them, written by the matching step (sections 4, 7) rather than by the ELT pipeline.
 
 ```mermaid
-flowchart LR
-    U["users<br/>icp_profile"]
-    C["Gold: companies<br/>shared pool"]
-    S["CompanySignal<br/>hiring, funding, milestones"]
-    M["Match<br/>one row per user × company<br/>score, status"]
+erDiagram
+    User ||--o{ Match : "receives"
+    Company ||--o{ Match : "shared pool, matched per user"
+    Company ||--o{ CompanySignal : "emits"
+    Company ||--o{ CompanyHistory : "superseded values move to"
+    Company ||--o{ Employee : "employs"
+    Match ||--o| MatchScore : "scored by"
+    Match ||--o{ MatchFeedback : "rated by"
+    Match ||--o{ Activity : "notes and follow-ups"
+    Match ||--o{ Communication : "outreach draft"
+    Employee |o--o{ Activity : "optionally about"
+    Communication ||--o{ CommunicationVersion : "versioned as"
+    CommunicationVersion ||--o{ CommunicationRevision : "revised by"
+    CommunicationRevision ||--o{ CommunicationTurn : "composed of"
 
-    U --> M
-    C --> M
-    C --> S
+    User {
+        GUID Id PK
+        StructuredFilter icp_profile "from the section 2 ICP form"
+    }
+    Company {
+        GUID Id PK
+        String Domain "resolved natural key, section 6"
+        String BusinessSector "Type 2 tracked"
+        Enum TeamCompositionSignal "Type 2 tracked"
+        Boolean IcpFilterPass "Type 2 tracked, attribute not a gate"
+    }
+    CompanyHistory {
+        GUID Id PK
+        GUID CompanyId FK
+        DateTimeOffset ValidFrom
+        DateTimeOffset ValidTo "row written only on a Type 2 change, ADR-0002"
+    }
+    CompanySignal {
+        GUID Id PK
+        GUID CompanyId FK
+        Enum SignalType "Funding, Hiring, ProgramMilestone, and so on"
+        String Source
+        DateTimeOffset OccurredOn
+    }
+    Employee {
+        GUID Id PK
+        GUID CompanyId FK "person-level, sourced only per section 2 non-goals"
+    }
+    Match {
+        GUID Id PK
+        GUID UserId FK "one row per user x company"
+        GUID CompanyId FK
+        Enum Status
+    }
+    MatchScore {
+        GUID Id PK
+        GUID MatchId FK
+        Enum ScoringAlgorithm
+        Integer Score
+        JSON FeatureBreakdown "per-feature breakdown"
+    }
+    MatchFeedback {
+        GUID Id PK
+        GUID MatchId FK
+        Enum Rating "Positive, Negative"
+    }
+    Activity {
+        GUID Id PK
+        GUID MatchId FK
+        GUID EmployeeId FK "nullable"
+        Enum Type
+    }
+    Communication {
+        GUID Id PK
+        GUID MatchId FK
+        Enum Channel
+        Enum Status
+    }
+    CommunicationVersion {
+        GUID Id PK
+        GUID CommunicationId FK
+        Integer VersionNumber
+    }
+    CommunicationRevision {
+        GUID Id PK
+        GUID CommunicationVersionId FK
+        Enum AgentType "User, AI"
+    }
+    CommunicationTurn {
+        GUID Id PK
+        GUID CommunicationRevisionId FK
+        Enum Role "User, Assistant"
+    }
 ```
+
+`MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
 
 Ingestion and scoring stay decoupled from who is using the system, so a second user in a later phase is additive, not a rebuild.
 
