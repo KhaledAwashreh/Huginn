@@ -1,0 +1,54 @@
+schema: spec-driven
+
+context: |
+  Huginn is a client-discovery tool for independent service providers: it ingests public
+  startup signals (hiring, funding) and scores them against a user's ICP to produce a
+  weekly lead digest. Tech stack: Python, one Postgres database (bronze/silver/gold ELT
+  schemas + a separate operational schema). Single user for now; the domain model is
+  multi-user from day one.
+
+  Before proposing a change, read `Huginn Arch Dcument.md` at the repo root — it is the
+  authoritative, current-state architecture (pipeline, ingestion, entity resolution,
+  scoring phasing, data model, open items). Supporting detail lives in
+  `architecture-notes/` (pipeline standards, the ELT/scoring design session, and the
+  Databricks/Kimball/dbt/Fivetran industry references this design is checked against).
+  `Entites.md` is the domain schema in progress. `huginn-concept-doc.md` is the product
+  vision; `huginn-diagrams.md` is superseded by the arch doc wherever the two disagree.
+
+  Known, deliberate constraints: no CRM/outreach automation, no chatbot UI in this phase,
+  no scraped LinkedIn/person-level data from third parties, no real-time alerts (weekly
+  batch only), no ML/graph-based scoring — a hand-authored heuristic only. v0 scoring
+  ranks by recency alone; a weighted composite (v1) is explicitly deferred pending real
+  filtered-data volume, not to be guessed at in a proposal.
+
+  Tracked tech debt and research debt (tools adopted without deep review, patterns worth
+  learning, open design gaps) live in Jira epic KAN-16, not in this repo.
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
