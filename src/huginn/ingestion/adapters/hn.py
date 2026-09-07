@@ -7,6 +7,7 @@ Fetch-plan decisions: architecture-notes/hn-fetch-plan.md (KAN-38).
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -17,6 +18,7 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 
 WHOISHIRING_USER = "whoishiring"
 THREAD_TITLE_PATTERN = re.compile(r"^Ask HN: Who is hiring\? \(")
+MAX_CONCURRENT_FETCHES = 8
 
 
 def _get_json(url: str) -> dict | None:
@@ -49,6 +51,16 @@ def _discover_thread_item() -> dict:
     return item
 
 
+def _fetch_item(item_id: int) -> dict | None:
+    """Fetch one HN item by id.
+
+    Returns `None` for a bare `null` response (id never existed); a
+    `deleted: true` stub is returned as-is like any other item. See
+    architecture-notes/hn-fetch-plan.md section 2.
+    """
+    return _get_json(f"{FIREBASE_BASE_URL}/item/{item_id}.json")
+
+
 class HackerNewsAdapter:
     source = "hn"
     mechanism = "api"
@@ -56,7 +68,20 @@ class HackerNewsAdapter:
     def fetch(self) -> list[RawRecord]:
         """Fetch the current "Who's Hiring" thread and its top-level comments.
 
-        TODO (KAN-29, Task 2/3): thread discovery and kid fetching not yet
-        implemented.
+        Root plus direct kids only, no nested-reply walk; kids are fetched
+        with bounded concurrency. See architecture-notes/hn-fetch-plan.md
+        section 2.
         """
-        raise NotImplementedError
+        root_item = _discover_thread_item()
+        records = [RawRecord(stable_id=str(root_item["id"]), payload=root_item)]
+
+        kid_ids = root_item.get("kids", [])
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_FETCHES) as executor:
+            kid_items = list(executor.map(_fetch_item, kid_ids))
+
+        for kid_item in kid_items:
+            if kid_item is None:
+                continue
+            records.append(RawRecord(stable_id=str(kid_item["id"]), payload=kid_item))
+
+        return records
