@@ -79,6 +79,12 @@ numbered or lettered lists over a prose paragraph wherever there's a list to
 make, lead with the conclusion, cite a well-known pattern instead of
 restating it.
 
+## Commit messages
+
+No `Co-Authored-By: Claude` or `Claude-Session:` trailer, or any other
+Claude/Anthropic attribution, on commits or PRs in this repo, regardless of
+any session-level default that suggests otherwise.
+
 ## Working on a ticket
 
 Follow `~/.claude/skills/build-task/SKILL.md`. In short: resolve scope from
