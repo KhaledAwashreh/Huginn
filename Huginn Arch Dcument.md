@@ -18,9 +18,11 @@ Architecture at a glance:
 
 ## 1. Problem and vision
 
-Prospecting is the hardest part of running a solo services business and often what stops people going independent at all, since with no sales team it competes directly with billable work. Startups are the high-fit case and the hard case at once: they lack the org charts, headcount plans, and formal recruiting processes that make bigger companies legible from outside, so the gap is visibility rather than fit, and the signal (funding, hiring, program milestones) is scattered and easy to miss on top of client work. The answer is a Monday-morning email, a short shortlist rather than a feed, already checked against criteria the user set, each entry carrying who the company is, why it surfaced, and a drafted outreach opener, with the list learning over time what a "yes" and a "no" look like for this user.
+1. Prospecting is the hardest part of running a solo services business, and often what stops people going independent at all: with no sales team it competes directly with billable work.
+2. Startups are the high-fit case and the hard case at once. They lack the org charts, headcount plans, and formal recruiting processes that make bigger companies legible from outside, so the gap is visibility rather than fit, and the signal (funding, hiring, program milestones) is scattered and easy to miss on top of client work.
+3. The answer is a Monday-morning email: a shortlist rather than a feed, pre-checked against criteria the user set, each entry carrying who the company is, why it surfaced, and a drafted outreach opener, learning over time what a "yes" and a "no" look like for this user.
 
-Full problem statement and vision: `huginn-concept-doc.md` sections 1 and 2, the source this summary is drawn from.
+Full problem statement and vision: `huginn-concept-doc.md` sections 1 and 2.
 
 ## 2. Goals and non-goals
 
@@ -150,7 +152,7 @@ History is a current-plus-history split rather than a single SCD Type 2 table (A
 2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`), holding the superseded values with a `ValidFrom`/`ValidTo` window.
 3. Type 1 cosmetic fields: overwrite in `Company`, no history.
 
-The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. The split keeps that filter off the hot path entirely, and `Company` cannot return a stale row.
+The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. `Company` cannot return a stale row.
 
 Column-by-column Type 1 / Type 2 classification is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional and may move in a later architecture pass.
 
@@ -160,7 +162,7 @@ Matching, the step that turns a Gold row into an operational `Match`, is explici
 
 ## 5. Ingestion
 
-A ports-and-adapters arrangement. The core defines the interfaces. Adapters implement them.
+A ports-and-adapters arrangement.
 
 ```mermaid
 flowchart TB
@@ -189,11 +191,11 @@ flowchart TB
     PT --> CUR["Hash map per stable ID"]
 ```
 
-`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol and holds no ingestion policy of its own. Adding a source means writing one adapter, not touching the core.
+`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol and holds no ingestion policy of its own.
 
 Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which the adapter queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
 
-Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths if that ever stops being enough. Neither is adopted now (Jira KAN-9).
+Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths, neither adopted now (Jira KAN-9).
 
 One risk is carried forward unresolved rather than quietly assumed: YC's Terms of Service explicitly prohibit scraping and data-mining, while its `robots.txt` says nothing about querying the Algolia backend directly. YC is locked as a Phase 0 source, but the legal exposure underneath that choice has not been closed out (Jira KAN-7).
 
@@ -226,9 +228,9 @@ The feedback loop itself, a positive or negative rating on `MatchFeedback` adjus
 
 Out of scope for this phase and deliberately abstract pending a decision later. Carried forward for continuity:
 
-1. A chatbot agent and digest composition would sit on a shared harness: an explicit, named tool contract, and model routing that reserves the larger model for user-facing chat and uses smaller models for background extraction. Two experimental memory side-channels, MuninnDB and Letta, are named as candidates for soft context only. Nothing load-bearing would read from either, and the system has to keep working with both absent.
-2. Retrieval, if a chatbot ships, would narrow with a structured filter before re-ranking by vector similarity in Postgres via `pgvector` rather than separate infrastructure. Structured filtering cannot rank by resemblance, and vector search alone does not keep the context small.
-3. Presentation is a weekly email digest for now. A dashboard's scope is undecided. With one user, the realistic version is a simple page alongside email, not a full application.
+1. A chatbot agent and digest composition would sit on a shared harness: an explicit, named tool contract, plus the model routing in section 10. Two experimental memory side-channels, MuninnDB and Letta, are named as candidates for soft context only, and the system has to keep working with both absent.
+2. Retrieval, if a chatbot ships, would narrow with a structured filter before re-ranking by vector similarity, on the `pgvector` storage in section 10.
+3. Presentation is a weekly email digest for now. Dashboard scope is undecided; with one user, the realistic version is a simple page alongside email, not a full application.
 
 ## 9. Data model
 
@@ -327,8 +329,6 @@ erDiagram
 
 `MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
 
-Ingestion and scoring stay decoupled from who is using the system, so a second user in a later phase is additive, not a rebuild.
-
 ## 10. Cross-cutting concerns
 
 | Concern | Decision |
@@ -339,7 +339,7 @@ Ingestion and scoring stay decoupled from who is using the system, so a second u
 | Vector storage | `pgvector` on Postgres, no separate infrastructure, if retrieval ships. |
 | Model cost | Small models for background work, the larger model reserved for user-facing chat, if it ships. |
 
-These carry forward unrevisited from the original diagram set. None of this session's work touched them.
+These carry forward unrevisited from the original diagram set.
 
 ## 11. Open items
 
@@ -361,11 +361,11 @@ These carry forward unrevisited from the original diagram set. None of this sess
 | Testing approach for normalization and entity resolution | Cross-cutting | not tracked |
 | Logging and error visibility as one story | Cross-cutting | not tracked |
 
-Resolved since the original diagram set and no longer open, kept for continuity: first two sources (HN, YC), entity resolution strategy (section 6), orchestration mechanism (cron plus `job_runs`), and the v0 half of the scoring mechanism (section 7).
+Resolved since the original diagram set, kept for continuity: first two sources (HN, YC), entity resolution strategy (section 6), orchestration mechanism (cron plus `job_runs`), and the v0 half of the scoring mechanism (section 7).
 
 ## 12. Tracked debt and research
 
-Jira epic KAN-16 holds what does not belong in this document: tech debt (tools and libraries chosen without deep review, for example the entity-resolution recipe in section 6) and research debt (patterns and conventions worth learning properly, for example the SCD taxonomy behind section 4's Gold layer). Decisions with a settled rationale live here. Open gaps live in Jira.
+Jira epic KAN-16 holds tech debt (tools and libraries chosen without deep review, for example the entity-resolution recipe in section 6) and research debt (patterns and conventions worth learning properly, for example the SCD taxonomy behind section 4's Gold layer). Decisions with a settled rationale live in this document; open gaps live in Jira.
 
 ## 13. References
 
