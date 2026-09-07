@@ -170,4 +170,4 @@ The reasoning is the one already used for splitting Silver into per-source stagi
 
 ## Reference
 
-`src/huginn/ingestion/ports.py` (current single-port version this note replaces). `src/huginn/ingestion/service.py` (the concrete usage this note's base-Protocol call is checked against). `src/huginn/ingestion/adapters/hn.py`, `yc.py` (both `ApiSourcePort` implementations checked against this contract). `Huginn Arch Dcument.md` sections 4.1 and 5. `adr/0001-per-source-silver-staging-tables.md` (source of the blast-radius/independent-evolution reasoning adapted above). `architecture-notes/kan-21-build-plan.md` (KAN-37 blocks KAN-26).
+`src/huginn/ingestion/ports.py` (current single-port version this note replaces). `src/huginn/ingestion/service.py` (the concrete usage this note's base-Protocol call is checked against). `src/huginn/ingestion/adapters/hn.py`, `yc.py` (both `ApiSourcePort` implementations checked against this contract). `docs/architecture.md` sections 4.1 and 5. `adr/0001-per-source-silver-staging-tables.md` (source of the blast-radius/independent-evolution reasoning adapted above). `architecture-notes/kan-21-build-plan.md` (KAN-37 blocks KAN-26).

@@ -19,7 +19,7 @@ and `re`, pytest with its built-in `monkeypatch` fixture (no added mocking
 library).
 
 **Spec:** `architecture-notes/hn-fetch-plan.md` (KAN-38, the binding fetch-plan
-decisions), `sources/hn-who-is-hiring.md` (underlying API research),
+decisions), `docs/sources/hn-who-is-hiring.md` (underlying API research),
 `src/huginn/ingestion/ports.py` (`RawRecord`, `SourcePort` this adapter
 implements), `CLAUDE.md` and `BEST_PRACTICES.md` (project conventions).
 

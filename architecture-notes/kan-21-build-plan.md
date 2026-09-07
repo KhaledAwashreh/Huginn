@@ -6,14 +6,14 @@ Breakdown of Jira epic KAN-21 into stories, tasks, and the research/design artif
 
 Research already done, not part of this epic:
 
-1. `sources/hn-who-is-hiring.md`: HN Firebase API access, response shape, freshness, and open risks. Verified live 2026-09-05.
-2. `sources/yc-directory.md`: YC Algolia access pattern, response shape, ToS risk. Verified live 2026-09-05.
+1. `docs/sources/hn-who-is-hiring.md`: HN Firebase API access, response shape, freshness, and open risks. Verified live 2026-09-05.
+2. `docs/sources/yc-directory.md`: YC Algolia access pattern, response shape, ToS risk. Verified live 2026-09-05.
 
 Design tasks (each produces the artifact its build task consumes):
 
 1. KAN-37, port contracts. Artifact: interface-contract note for ApiSourcePort, WebScrapeSourcePort, NewsletterSourcePort. Blocks KAN-26.
-2. KAN-38, HN fetch plan. Artifact: fetch-plan note translating `sources/hn-who-is-hiring.md` into concrete choices (thread-discovery method, dead-item handling, RawRecord field mapping). Blocks KAN-29.
-3. KAN-39, YC fetch plan. Artifact: fetch-plan note translating `sources/yc-directory.md` into concrete choices (direct Algolia call vs the yc-oss/api mirror, query parameters, RawRecord field mapping). Blocks KAN-30.
+2. KAN-38, HN fetch plan. Artifact: fetch-plan note translating `docs/sources/hn-who-is-hiring.md` into concrete choices (thread-discovery method, dead-item handling, RawRecord field mapping). Blocks KAN-29.
+3. KAN-39, YC fetch plan. Artifact: fetch-plan note translating `docs/sources/yc-directory.md` into concrete choices (direct Algolia call vs the yc-oss/api mirror, query parameters, RawRecord field mapping). Blocks KAN-30.
 
 Build tasks:
 
@@ -94,10 +94,10 @@ Standalone task, not nested under a story. Consumes the full chain: an adapter (
 
 ## Findings from this planning pass
 
-1. HN and YC access research already exists and is current (`sources/*.md`, verified 2026-09-05). No new research needed there, only translation into build-ready fetch plans (KAN-38, KAN-39).
+1. HN and YC access research already exists and is current (`docs/sources/*.md`, verified 2026-09-05). No new research needed there, only translation into build-ready fetch plans (KAN-38, KAN-39).
 2. job_runs, named in the architecture document as part of orchestration (sections 3 and 5), has no schema anywhere yet. Proposed as a new `ops` schema (KAN-27), an implementation-level call, not an architectural one, flagged for review.
 3. Team-composition enrichment was epic scope text without a design behind it. Split into a design task (KAN-42) ahead of the build task (KAN-43) rather than building against an undefined heuristic.
 
 ## Reference
 
-Jira epic KAN-21 and its child stories (KAN-22, KAN-23, KAN-24, KAN-25). Architecture document sections 4 and 5. ADR-0001, ADR-0002. `sources/hn-who-is-hiring.md`, `sources/yc-directory.md`.
+Jira epic KAN-21 and its child stories (KAN-22, KAN-23, KAN-24, KAN-25). Architecture document sections 4 and 5. ADR-0001, ADR-0002. `docs/sources/hn-who-is-hiring.md`, `docs/sources/yc-directory.md`.

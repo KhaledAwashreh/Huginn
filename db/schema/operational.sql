@@ -1,7 +1,7 @@
 -- Operational schema: written by the matching step, not by the ELT
--- pipeline. See architecture document section 9 and Entites.md.
+-- pipeline. See architecture document section 9 and docs/entities.md.
 --
--- `users` is not in Entites.md's current sketch (only referenced via
+-- `users` is not in docs/entities.md's current sketch (only referenced via
 -- Match.UserId and the "icp_profile" label in the architecture document's
 -- data model diagram). Included here minimally so the foreign key below
 -- is valid; revisit alongside the ICP capture flow (architecture document
@@ -55,7 +55,7 @@ CREATE TABLE operational.match_feedback (
     given_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- `type` is intentionally unconstrained: Entites.md leaves this list
+-- `type` is intentionally unconstrained: docs/entities.md leaves this list
 -- open-ended (Note, EmailSent, CallMade, FollowUpPlanned, and so on).
 CREATE TABLE operational.activity (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

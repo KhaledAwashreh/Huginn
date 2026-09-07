@@ -5,9 +5,9 @@ directory) and scores them against a user's ICP for a weekly lead digest.
 Python 3.14+, `uv`-managed, one Postgres database (bronze/silver/gold ELT
 schemas plus a separate operational schema).
 
-Authoritative architecture: `Huginn Arch Dcument.md`. Decisions with settled
+Authoritative architecture: `docs/architecture.md`. Decisions with settled
 rationale: `adr/`. Supporting research: `architecture-notes/`. Domain schema:
-`Entites.md`. General Python conventions (style, typing, testing, security,
+`docs/entities.md`. General Python conventions (style, typing, testing, security,
 concurrency, researched and sourced): `BEST_PRACTICES.md`, this file only
 records what Huginn has adopted from it and where Huginn deviates. Tracked
 tech/research debt: Jira epic KAN-16. Build epic: Jira KAN-21, its dependency
@@ -17,6 +17,12 @@ Read the relevant architecture document section and any ADR it cites before
 touching a layer you haven't worked in yet. Don't infer design intent from
 code alone, the rationale usually lives in one of those documents instead of
 a comment.
+
+Product-vision and historical docs (concept doc, diagrams, reading list,
+session handoffs) live on Confluence, not in this repo: the "Huginn" space
+at `kawashreh.atlassian.net/wiki/spaces/Huginn`. Nothing there is cited by
+path from code, so it's safe to read for context but never a build
+dependency.
 
 ## Code standards
 

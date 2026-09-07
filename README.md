@@ -2,7 +2,7 @@
 
 Client-discovery tool for independent service providers. Ingests public startup signals (hiring, funding) and scores them against a user's ICP to produce a weekly lead digest.
 
-Architecture: `Huginn Arch Dcument.md`. Decision records: `adr/`. Research backing the design: `architecture-notes/`. Domain schema: `Entites.md` and `db/schema/`. Tracked tech debt and research debt, plus the ELT build epic: Jira project KAN (epics KAN-16 and KAN-21).
+Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing the design: `architecture-notes/`. Domain schema: `docs/entities.md` and `db/schema/`. Tracked tech debt and research debt, plus the ELT build epic: Jira project KAN (epics KAN-16 and KAN-21).
 
 ## Status
 

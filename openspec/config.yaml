@@ -7,13 +7,16 @@ context: |
   schemas + a separate operational schema). Single user for now; the domain model is
   multi-user from day one.
 
-  Before proposing a change, read `Huginn Arch Dcument.md` at the repo root — it is the
+  Before proposing a change, read `docs/architecture.md` — it is the
   authoritative, current-state architecture (pipeline, ingestion, entity resolution,
   scoring phasing, data model, open items). Supporting detail lives in
   `architecture-notes/` (pipeline standards, the ELT/scoring design session, and the
   Databricks/Kimball/dbt/Fivetran industry references this design is checked against).
-  `Entites.md` is the domain schema in progress. `huginn-concept-doc.md` is the product
-  vision; `huginn-diagrams.md` is superseded by the arch doc wherever the two disagree.
+  `docs/entities.md` is the domain schema in progress. The Huginn Concept Doc (Confluence,
+  https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/917506/Huginn+Concept+Doc) is the
+  product vision; Huginn Diagrams (Confluence,
+  https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) is
+  superseded by the arch doc wherever the two disagree.
 
   Known, deliberate constraints: no CRM/outreach automation, no chatbot UI in this phase,
   no scraped LinkedIn/person-level data from third parties, no real-time alerts (weekly

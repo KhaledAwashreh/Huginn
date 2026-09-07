@@ -1,5 +1,5 @@
 -- Gold layer: dimensional model over Silver's resolved signals.
--- See architecture document section 4.3, ADR-0002, and Entites.md.
+-- See architecture document section 4.3, ADR-0002, and docs/entities.md.
 --
 -- Company holds exactly one row per company, always, overwritten in
 -- place. CompanyHistory gets a new row only when a Type 2 tracked field

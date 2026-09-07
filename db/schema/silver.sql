@@ -1,5 +1,5 @@
 -- Silver layer: per-source staging, cross-source entity resolution.
--- See architecture document section 4.2, ADR-0001, and Entites.md.
+-- See architecture document section 4.2, ADR-0001, and docs/entities.md.
 --
 -- Staging tables share one shape by design (ADR-0001): kept separate per
 -- source so operational mistakes and transform bugs stay scoped to one

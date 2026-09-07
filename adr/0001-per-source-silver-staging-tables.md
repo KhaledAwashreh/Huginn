@@ -57,7 +57,7 @@ Chosen option: 1, one staging table per source. Silver is where a source's data 
 
 ## Related
 
-1. `Huginn Arch Dcument.md` §4: Silver layer description.
+1. `docs/architecture.md` §4: Silver layer description.
 2. `architecture-notes/elt-pipeline-and-scoring-decisions.md` §2.3: the original Silver structure decision.
 3. `architecture-notes/elt-pipeline-and-scoring-decisions.md` §2.2: Bronze's mechanism-grouped shared-table design. The contrasting choice this ADR explains rather than contradicts, justified there by Bronze's schema-on-read, opaque-JSON nature.
-4. `Entites.md`: the concrete staging table shapes this ADR explains.
+4. `docs/entities.md`: the concrete staging table shapes this ADR explains.

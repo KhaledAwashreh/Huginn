@@ -53,8 +53,8 @@ Chosen option: 2, current-plus-history split. `Company` holds exactly one row pe
 
 ## Related
 
-1. `Huginn Arch Dcument.md` §4 and §9: the Gold layer and data model sections this ADR revises.
+1. `docs/architecture.md` §4 and §9: the Gold layer and data model sections this ADR revises.
 2. `architecture-notes/elt-pipeline-and-scoring-decisions.md` §2.4: the original Gold grain decision, updated in place to reference this ADR.
 3. `architecture-notes/industry-references-elt-medallion.md`: the Kimball Type 2 correction this ADR supersedes, and the source of the surrogate-key and hybrid Type 1/Type 2 reasoning that still applies.
 4. `adr/0001-per-source-silver-staging-tables.md`: the prior decision this ADR reuses the reasoning from, physical separation over a filter someone has to remember.
-5. `Entites.md`: the concrete `Company` and `CompanyHistory` shapes this ADR explains.
+5. `docs/entities.md`: the concrete `Company` and `CompanyHistory` shapes this ADR explains.

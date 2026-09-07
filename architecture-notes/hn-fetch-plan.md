@@ -1,10 +1,10 @@
 # HN Fetch Plan (KAN-38)
 
-Resolves the three open build questions for KAN-29 (`HackerNewsAdapter.fetch()`) from `sources/hn-who-is-hiring.md`. Does not restate that document; cited by section. Blocks KAN-29 per `architecture-notes/kan-21-build-plan.md` section 1.
+Resolves the three open build questions for KAN-29 (`HackerNewsAdapter.fetch()`) from `docs/sources/hn-who-is-hiring.md`. Does not restate that document; cited by section. Blocks KAN-29 per `architecture-notes/kan-21-build-plan.md` section 1.
 
 ## 1. Thread discovery: `submitted[0]` only, no Algolia cross-check
 
-Use `sources/hn-who-is-hiring.md`'s Freshness method 1 only: `GET /v0/user/whoishiring.json`, take `submitted[0]`, fetch that item, confirm `title` matches `/^Ask HN: Who is hiring\? \(/`.
+Use `docs/sources/hn-who-is-hiring.md`'s Freshness method 1 only: `GET /v0/user/whoishiring.json`, take `submitted[0]`, fetch that item, confirm `title` matches `/^Ask HN: Who is hiring\? \(/`.
 
 Reasons:
 
@@ -44,15 +44,15 @@ This only applies to a genuine, successful API response whose body is the JSON l
 | `id` | `stable_id` | `str(item["id"])`. Applies identically to the root item and every top-level kid. |
 | entire fetched item dict | `payload` | Stored verbatim, unmodified: no added, removed, or renamed keys, no per-post derived fields. |
 
-No other mapping exists. This is a deliberate, narrower choice than `sources/hn-who-is-hiring.md`'s "Signal mapping (proposed Bronze fields)" section, which proposes adding cheap derived fields (has-URL boolean, keyword-match flags) at ingest time. That conflicts with Arch doc section 4.1 point 2, which defines Bronze's `payload` as "close to as-fetched, no field mapping or cleaning." **Resolved in favor of the arch doc, no exception for HN**: `payload` is the raw item exactly as returned by `GET /v0/item/<id>.json`, full stop. Chosen for consistency across sources over the source doc's HN-specific proposal, since nothing is lost either way, the derived fields the source doc proposes can still be computed later at Silver from the same raw payload, and a source-specific carve-out from Bronze's "no field mapping" rule would invite the same exception for every source after HN. All of the source doc's proposed derived fields (has-URL flag, role/location substrings, keyword flags) move to Silver staging (KAN-34), not into `fetch()`.
+No other mapping exists. This is a deliberate, narrower choice than `docs/sources/hn-who-is-hiring.md`'s "Signal mapping (proposed Bronze fields)" section, which proposes adding cheap derived fields (has-URL boolean, keyword-match flags) at ingest time. That conflicts with Arch doc section 4.1 point 2, which defines Bronze's `payload` as "close to as-fetched, no field mapping or cleaning." **Resolved in favor of the arch doc, no exception for HN**: `payload` is the raw item exactly as returned by `GET /v0/item/<id>.json`, full stop. Chosen for consistency across sources over the source doc's HN-specific proposal, since nothing is lost either way, the derived fields the source doc proposes can still be computed later at Silver from the same raw payload, and a source-specific carve-out from Bronze's "no field mapping" rule would invite the same exception for every source after HN. All of the source doc's proposed derived fields (has-URL flag, role/location substrings, keyword flags) move to Silver staging (KAN-34), not into `fetch()`.
 
 No `stable_id`/`payload` distinction is needed to tell the root story apart from a company post: the root item has no `parent` key, every top-level kid does, and `payload` carries that verbatim.
 
 ## References
 
-1. `sources/hn-who-is-hiring.md`: Access, Response shape, Freshness / cadence, Signal mapping, Open questions / risks sections.
+1. `docs/sources/hn-who-is-hiring.md`: Access, Response shape, Freshness / cadence, Signal mapping, Open questions / risks sections.
 2. `src/huginn/ingestion/ports.py`: `RawRecord`, `SourcePort.fetch`, `RawStorePort.write`.
 3. `src/huginn/ingestion/adapters/hn.py`: current stub, scope comment, KAN-21 TODO.
-4. `Huginn Arch Dcument.md` section 4.1 (Bronze), section 5 (Ingestion).
+4. `docs/architecture.md` section 4.1 (Bronze), section 5 (Ingestion).
 5. `architecture-notes/kan-21-build-plan.md` section 1 (Ingestion breakdown, KAN-38 blocks KAN-29).
 6. Jira KAN-38 (this note), KAN-29 (consumer).

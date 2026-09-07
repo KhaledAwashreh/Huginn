@@ -26,7 +26,7 @@ Resolved before the session pivoted to pipeline design. Still valid, not yet bei
 
 ### 2.1 Physical layout
 
-**One Postgres database, three schemas** (`bronze`, `silver`, `gold`) alongside the existing operational schema (`Entites.md`'s Company/Match/Communication model). No separate lake/warehouse — unjustified operational overhead at this volume (2 sources, low request rate), and nothing about this design forecloses moving to a real lake later if volume ever justifies it.
+**One Postgres database, three schemas** (`bronze`, `silver`, `gold`) alongside the existing operational schema (`docs/entities.md`'s Company/Match/Communication model). No separate lake/warehouse — unjustified operational overhead at this volume (2 sources, low request rate), and nothing about this design forecloses moving to a real lake later if volume ever justifies it.
 
 ### 2.2 Bronze layer
 
@@ -72,7 +72,7 @@ Explicitly **out of scope for this session** — flagged as needing "more intens
 - `Huginn/architecture-notes/data-pipeline-standards.md` — entity-resolution recipe, content-hash-as-watermark rationale, orchestration/observability recommendations.
 - `Huginn/architecture-notes/industry-references-elt-medallion.md` — Databricks/Kimball/dbt/Fivetran primary sources checked against this document's design, point by point.
 - `Huginn/adr/0002-gold-current-history-split.md` — the current-plus-history decision that revised Gold's SCD Type 2 design, superseding this document's original §2.4 grain description.
-- `Huginn/sources/*.md` — per-source access/shape findings (HN, YC, and 7 deferred sources).
+- `Huginn/docs/sources/*.md` — per-source access/shape findings (HN, YC, and 7 deferred sources).
 - Memory: `huginn_mvp_scope_decisions.md`, `huginn_source_research.md`.
 - Jira: KAN-8 (scoring/weighting design ticket, being updated to reflect the phasing decisions in §1).
 

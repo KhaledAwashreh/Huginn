@@ -6,7 +6,7 @@ Mechanism: "api" (a direct structured query, not HTML scraping).
 
 Open risk, not yet resolved: YC's Terms of Service explicitly prohibit
 scraping and data-mining, while robots.txt says nothing about querying
-the Algolia backend directly. See Jira KAN-7 and `sources/yc-directory.md`.
+the Algolia backend directly. See Jira KAN-7 and `docs/sources/yc-directory.md`.
 Do not ship this adapter's real implementation until KAN-7 is closed.
 """
 

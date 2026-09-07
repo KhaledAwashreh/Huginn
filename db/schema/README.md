@@ -13,4 +13,4 @@ Hand-written DDL, not a migration tool. No migration framework has been chosen y
 psql "$HUGINN_DATABASE_URL" -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
 ```
 
-These match `Entites.md` and the architecture document as of ADR-0002. Column-by-column Type 1/Type 2 classification beyond the three fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/gold/dimensional.py` together when that lands.
+These match `docs/entities.md` and the architecture document as of ADR-0002. Column-by-column Type 1/Type 2 classification beyond the three fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/gold/dimensional.py` together when that lands.
