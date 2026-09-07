@@ -1,13 +1,29 @@
 """HN "Who's Hiring" adapter. See architecture document section 5.
 
 Official Firebase API, no auth, no rate limit. Mechanism: "api".
+Fetch-plan decisions: architecture-notes/hn-fetch-plan.md (KAN-38).
 """
 
 from __future__ import annotations
 
+import requests
+
 from huginn.ingestion.ports import RawRecord
 
 FIREBASE_BASE_URL = "https://hacker-news.firebaseio.com/v0"
+REQUEST_TIMEOUT_SECONDS = 10.0
+
+
+def _get_json(url: str) -> dict | None:
+    """GET a Firebase URL and return its parsed JSON body.
+
+    A genuine request failure (timeout, non-2xx, malformed JSON) raises; a
+    body of the JSON literal `null` returns `None`. See
+    architecture-notes/hn-fetch-plan.md section 2.
+    """
+    response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
 
 
 class HackerNewsAdapter:
@@ -17,10 +33,7 @@ class HackerNewsAdapter:
     def fetch(self) -> list[RawRecord]:
         """Fetch the current "Who's Hiring" thread and its top-level comments.
 
-        TODO (KAN-21): find the current month's "Who's Hiring" story ID,
-        fetch its child comment IDs, then fetch each comment's item JSON.
-        ~11% of sampled posts have no extractable URL (see
-        `sources/hn-who-is-hiring.md`), which downstream entity resolution
-        already accounts for by falling back to fuzzy name matching.
+        TODO (KAN-29, Task 2/3): thread discovery and kid fetching not yet
+        implemented.
         """
         raise NotImplementedError
