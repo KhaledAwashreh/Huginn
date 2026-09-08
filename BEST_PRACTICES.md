@@ -25,8 +25,8 @@ Nobody applies PEP 8 by hand anymore. The 2026 standard tool is **Ruff**: one
 fast linter and formatter that has absorbed what used to be three separate
 tools (Black for formatting, isort for import ordering, Flake8 for linting).
 `ruff format` fixes style automatically; `ruff check` catches the rest.
-Huginn has not adopted a linter or formatter yet (flagged in `CLAUDE.md`);
-Ruff is the concrete recommendation for whenever that gets picked up.
+Huginn has decided on Ruff (`CLAUDE.md` code standard 7) but deliberately
+has not installed or configured it yet, low priority for now.
 
 ## 2. Type hints and type checking
 
@@ -36,11 +36,12 @@ but it lets a separate tool catch a whole class of bugs (passing the wrong
 kind of value, forgetting a `None` case) before the code ever runs.
 
 Huginn already writes type hints everywhere (see any file under `src/`).
-What's missing is a type *checker* actually running against them. The two
-mainstream options: **mypy** (the original, most widely used, slower) and
-**pyright** (Microsoft's, 2-5x faster, also the engine behind most editor
-type-checking). Either is a reasonable choice; picking one and running it in
-CI is the part that's not yet done here.
+What's missing is a type *checker* actually running against them. Decided
+(2026-09-08): **pyright** over mypy. Both are reasonable; pyright is 2-5x
+faster and is the same engine VS Code's Pylance extension uses for live
+in-editor checking, which matters coming from a Java/C#-style IDE experience
+where the compiler flags type errors as you type. Not yet installed or
+configured, deliberately deferred, low priority right now.
 
 Modern syntax note: use `list[str]`, `dict[str, int]`, `X | None`, not the
 older `List[str]`, `Optional[X]` from the `typing` module. Huginn's code
@@ -172,21 +173,23 @@ Relevant here because fetching HN comment trees and paginating YC's Algolia
 index both mean many outbound HTTP requests, exactly the situation async I/O
 is for.
 
-1. Use `asyncio` (with an async-compatible HTTP client) when a task spends
-   most of its time waiting on network I/O and many such waits need to
-   happen concurrently, rather than one at a time. This is the expected
-   shape for KAN-29/KAN-30's adapter `fetch()` implementations, both fetch
-   plans already call for bounded concurrency rather than a sequential loop.
-2. Threading is the fallback specifically when the HTTP library in use
-   doesn't support async (a blocking library called from inside an `async
-   def` function blocks the entire event loop, which defeats the point).
-   Check whether `requests` (Huginn's current HTTP dependency) needs
-   swapping for an async-capable client (e.g. `httpx`) before building the
-   concurrent fetch, rather than discovering the blocking-call problem after
-   the fact.
+**Decided (2026-09-08), project-wide**: stdlib `concurrent.futures.ThreadPoolExecutor`,
+bounded (5-10 workers), not `asyncio`. Reasons: `requests` (Huginn's only
+HTTP dependency) is synchronous, no code in the project is `async` yet, and
+a thread pool meets every adapter's bounded-concurrency need with zero new
+dependencies. Set by KAN-29's implementation, now the standing default for
+every adapter, not a per-ticket decision. The general tradeoff, for context:
+
+1. `asyncio` (with an async-compatible HTTP client like `httpx`) suits a
+   task spending most of its time waiting on network I/O with many such
+   waits needed concurrently. Huginn does not use this, on purpose.
+2. Threading is the simpler choice when the HTTP library in use is
+   synchronous (a blocking call inside an `async def` function blocks the
+   entire event loop, which defeats the point of asyncio), which is
+   Huginn's situation with `requests`.
 3. Never mix an unbounded number of concurrent requests with an external
-   API. Both fetch plans already specify a small concurrency cap; that's the
-   right default, not a detail to loosen later.
+   API. Every adapter caps concurrency at a small number (KAN-29 uses 8);
+   that's the right default, not a detail to loosen later.
 
 ## 10. Common pitfalls worth knowing by name
 
@@ -214,14 +217,15 @@ spotting them in a review even without deep Python background:
 Settled (see `CLAUDE.md` for the full list): src layout, `uv`, type hints
 throughout, frozen dataclasses over mutable state, Protocol-based interfaces,
 plain-pytest tests, mandatory TDD, no ORM (raw `psycopg` with parameterized
-queries).
+queries), Ruff + pyright as the linter/type-checker choice (not yet
+installed, deferred), `concurrent.futures.ThreadPoolExecutor` for concurrent
+I/O (no `asyncio`), logging required from day one (per-module loggers,
+CLI-owned handler config, log at every pipeline-stage boundary).
 
-Still open, flagged rather than decided here: no linter/formatter (Ruff is
-the concrete recommendation above), no type checker running in CI (mypy or
-pyright), no async HTTP client chosen yet for the concurrent adapter fetches
-in section 9. None of these are silently resolved by this document, they're
-named so a decision can be made deliberately when the project is ready for
-it.
+Still genuinely open: production deployment target (local only for now,
+explicitly deferred until past MVP), migration tooling (hand-written DDL via
+`psql`, no framework), KAN-20 (Gold Type 1/Type 2 classification, likely
+already answered by existing DDL/code, needs only a confirm-and-close pass).
 
 ## Sources
 

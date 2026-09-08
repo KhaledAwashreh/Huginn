@@ -52,8 +52,24 @@ dependency.
    ticket's own description overlaps another ticket's stated scope (it
    happens, KAN-27 vs KAN-28 already did), build only your ticket's part and
    flag the overlap rather than silently deciding who owns it.
-7. **No linter, formatter, or type checker is configured yet.** This is a
-   gap, not a decision, don't pick one unprompted.
+7. **Linter/formatter/type checker: decided (2026-09-08), not yet set up.**
+   Ruff (lint + format) and pyright (type checker). Deliberately deferred,
+   low priority right now, do not install or configure until asked.
+8. **Concurrency for I/O-bound fetches: decided (2026-09-08) project-wide.**
+   Stdlib `concurrent.futures.ThreadPoolExecutor`, bounded (5-10 workers),
+   never `asyncio`. Set by KAN-29's precedent, now the standard for every
+   adapter's `fetch()`, not just HN's. See `BEST_PRACTICES.md` section 9.
+9. **Logging and observability: required from day one (2026-09-08), not a
+   deferred nice-to-have.** Every module gets its own logger
+   (`logger = logging.getLogger(__name__)`), never configures handlers
+   itself (the CLI entrypoint, KAN-31, owns that). Log at pipeline-stage
+   boundaries: an adapter's `fetch()` logs how many records it fetched and
+   how long it took; a Bronze/Silver/Gold writer logs rows written vs.
+   skipped; `IngestionService` logs run start/finish per source via
+   `job_runs`; every genuine failure gets `logger.exception(...)` once, at
+   the point that handles it (see `BEST_PRACTICES.md` section 6). KAN-27 and
+   KAN-29 predate this decision and currently have no logging: retrofit is
+   tracked debt, not silently skipped.
 
 ## Design standards
 
