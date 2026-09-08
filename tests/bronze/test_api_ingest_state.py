@@ -96,6 +96,8 @@ def test_last_hash_logs_hit_at_debug_level(monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         state.last_hash("hn", "49522897")
 
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.DEBUG
     assert "hit" in caplog.text
     assert "hn" in caplog.text
     assert "49522897" in caplog.text
@@ -109,4 +111,6 @@ def test_last_hash_logs_miss_at_debug_level(monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         state.last_hash("hn", "49522897")
 
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.DEBUG
     assert "miss" in caplog.text
