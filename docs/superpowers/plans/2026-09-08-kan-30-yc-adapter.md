@@ -126,7 +126,9 @@ conventions), `adr/0003-thread-pool-for-adapter-concurrency.md`,
 - Modify: `src/huginn/ingestion/adapters/yc.py` (replace file contents —
   full file given in Step 3)
 - Modify: `.env.example` (add one line)
-- Test: `tests/ingestion/test_yc.py` (new file)
+- Test: `tests/ingestion/test_yc.py` (already exists from KAN-26 with 3
+  `ApiSourcePort`/`source`/`mechanism` conformance tests — append to it,
+  do not overwrite)
 
 **Interfaces:**
 - Produces: `_algolia_api_key() -> str` — module-level function in
@@ -140,15 +142,11 @@ conventions), `adr/0003-thread-pool-for-adapter-concurrency.md`,
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/ingestion/test_yc.py` with:
+Append to the existing `tests/ingestion/test_yc.py` (its current imports
+already cover `yc` and `ApiSourcePort`; add `RawRecord` to that existing
+import line for Task 5's later use):
 
 ```python
-from __future__ import annotations
-
-from huginn.ingestion.adapters import yc
-from huginn.ingestion.ports import ApiSourcePort, RawRecord
-
-
 def test_algolia_api_key_reads_env_var(monkeypatch):
     monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "test-secured-key")
 
@@ -605,7 +603,14 @@ git commit -m "feat(yc): fetch all hits for one batch facet value"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/ingestion/test_yc.py`:
+`tests/ingestion/test_yc.py`'s existing import line reads
+`from huginn.ingestion.ports import ApiSourcePort`. Change it to:
+
+```python
+from huginn.ingestion.ports import ApiSourcePort, RawRecord
+```
+
+Then append to `tests/ingestion/test_yc.py`:
 
 ```python
 def test_fetch_returns_one_record_per_hit_across_batches(monkeypatch):
@@ -670,18 +675,20 @@ def test_fetch_propagates_a_genuine_batch_fetch_failure(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "simulated timeout" in str(exc)
-
-
-def test_yc_directory_adapter_explicitly_implements_api_source_port():
-    assert ApiSourcePort in yc.YcDirectoryAdapter.__mro__
 ```
+
+Do not add a `test_yc_directory_adapter_explicitly_implements_api_source_port`
+test here: it already exists in `tests/ingestion/test_yc.py` from KAN-26 and
+Task 1 left it untouched. Adding it again would be a duplicate function
+definition in the same module.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/ingestion/test_yc.py -v`
 Expected: FAIL — the `fetch`-based tests fail because
-`YcDirectoryAdapter().fetch()` raises `NotImplementedError`; the last test
-(`ApiSourcePort` conformance) already passes since KAN-26.
+`YcDirectoryAdapter().fetch()` raises `NotImplementedError`. The
+pre-existing `ApiSourcePort` conformance test (from KAN-26) already passes
+and is unaffected by this task.
 
 - [ ] **Step 3: Write the minimal implementation**
 
