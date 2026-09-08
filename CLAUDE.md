@@ -24,6 +24,10 @@ at `kawashreh.atlassian.net/wiki/spaces/Huginn`. Nothing there is cited by
 path from code, so it's safe to read for context but never a build
 dependency.
 
+Python-specific knowledge gaps (not Huginn's own architecture decisions,
+those are `adr/`) get tracked locally in `learning-items/`, one article per
+topic, per `learning-items/template.md`. Local for now, syncs to Jira later.
+
 ## Code standards
 
 1. **Value types are frozen dataclasses, updated by replacement, never
