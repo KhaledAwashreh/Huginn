@@ -53,6 +53,24 @@ def _algolia_api_key() -> str:
     return api_key
 
 
+def _algolia_query(body: dict) -> dict:
+    """POST one query to YC's Algolia index and return the parsed response.
+
+    Never pass `tagFilters` in `body`: the `ycdc_public` restriction is
+    already signed into the secured key. See architecture-notes/yc-fetch-plan.md
+    section 2.
+    """
+    headers = {
+        "X-Algolia-Application-Id": ALGOLIA_APP_ID,
+        "X-Algolia-API-Key": _algolia_api_key(),
+    }
+    response = requests.post(
+        ALGOLIA_QUERY_URL, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 class YcDirectoryAdapter(ApiSourcePort):
     source = "yc"
     mechanism = "api"
