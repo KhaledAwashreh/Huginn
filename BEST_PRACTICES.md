@@ -25,8 +25,8 @@ Nobody applies PEP 8 by hand anymore. The 2026 standard tool is **Ruff**: one
 fast linter and formatter that has absorbed what used to be three separate
 tools (Black for formatting, isort for import ordering, Flake8 for linting).
 `ruff format` fixes style automatically; `ruff check` catches the rest.
-Huginn has decided on Ruff (`CLAUDE.md` code standard 7) but deliberately
-has not installed or configured it yet, low priority for now.
+Huginn has decided on Ruff (ADR-0004) but deliberately has not installed or
+configured it yet, low priority for now.
 
 ## 2. Type hints and type checking
 
@@ -36,12 +36,9 @@ but it lets a separate tool catch a whole class of bugs (passing the wrong
 kind of value, forgetting a `None` case) before the code ever runs.
 
 Huginn already writes type hints everywhere (see any file under `src/`).
-What's missing is a type *checker* actually running against them. Decided
-(2026-09-08): **pyright** over mypy. Both are reasonable; pyright is 2-5x
-faster and is the same engine VS Code's Pylance extension uses for live
-in-editor checking, which matters coming from a Java/C#-style IDE experience
-where the compiler flags type errors as you type. Not yet installed or
-configured, deliberately deferred, low priority right now.
+What's missing is a type *checker* actually running against them. Decided:
+**pyright** over mypy (ADR-0004). Not yet installed or configured,
+deliberately deferred, low priority right now.
 
 Modern syntax note: use `list[str]`, `dict[str, int]`, `X | None`, not the
 older `List[str]`, `Optional[X]` from the `typing` module. Huginn's code
@@ -91,6 +88,7 @@ uses:
 
 ## 6. Error handling and logging
 
+Huginn requires logging instrumentation from day one, not deferred (ADR-0005).
 A few concrete rules, since this is the area where "looks fine" most often
 isn't:
 
@@ -173,12 +171,8 @@ Relevant here because fetching HN comment trees and paginating YC's Algolia
 index both mean many outbound HTTP requests, exactly the situation async I/O
 is for.
 
-**Decided (2026-09-08), project-wide**: stdlib `concurrent.futures.ThreadPoolExecutor`,
-bounded (5-10 workers), not `asyncio`. Reasons: `requests` (Huginn's only
-HTTP dependency) is synchronous, no code in the project is `async` yet, and
-a thread pool meets every adapter's bounded-concurrency need with zero new
-dependencies. Set by KAN-29's implementation, now the standing default for
-every adapter, not a per-ticket decision. The general tradeoff, for context:
+**Decided, project-wide** (ADR-0003): stdlib `concurrent.futures.ThreadPoolExecutor`,
+bounded (5-10 workers), not `asyncio`. The general tradeoff, for context:
 
 1. `asyncio` (with an async-compatible HTTP client like `httpx`) suits a
    task spending most of its time waiting on network I/O with many such
@@ -217,10 +211,9 @@ spotting them in a review even without deep Python background:
 Settled (see `CLAUDE.md` for the full list): src layout, `uv`, type hints
 throughout, frozen dataclasses over mutable state, Protocol-based interfaces,
 plain-pytest tests, mandatory TDD, no ORM (raw `psycopg` with parameterized
-queries), Ruff + pyright as the linter/type-checker choice (not yet
-installed, deferred), `concurrent.futures.ThreadPoolExecutor` for concurrent
-I/O (no `asyncio`), logging required from day one (per-module loggers,
-CLI-owned handler config, log at every pipeline-stage boundary).
+queries), Ruff + pyright as the linter/type-checker choice (ADR-0004, not yet
+installed), `concurrent.futures.ThreadPoolExecutor` for concurrent I/O
+(ADR-0003), logging required from day one (ADR-0005).
 
 Still genuinely open: production deployment target (local only for now,
 explicitly deferred until past MVP), migration tooling (hand-written DDL via
