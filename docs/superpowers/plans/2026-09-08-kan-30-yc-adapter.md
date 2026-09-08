@@ -146,6 +146,7 @@ Create `tests/ingestion/test_yc.py` with:
 from __future__ import annotations
 
 from huginn.ingestion.adapters import yc
+from huginn.ingestion.ports import ApiSourcePort, RawRecord
 
 
 def test_algolia_api_key_reads_env_var(monkeypatch):
@@ -672,8 +673,6 @@ def test_fetch_propagates_a_genuine_batch_fetch_failure(monkeypatch):
 
 
 def test_yc_directory_adapter_explicitly_implements_api_source_port():
-    from huginn.ingestion.ports import ApiSourcePort
-
     assert ApiSourcePort in yc.YcDirectoryAdapter.__mro__
 ```
 
