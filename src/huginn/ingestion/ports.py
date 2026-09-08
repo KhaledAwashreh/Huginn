@@ -54,6 +54,9 @@ class RawStorePort(Protocol):
         apply the skip-on-hash-match behavior: a record whose content hash
         matches the last stored hash for its `(source, stable_id)` should not
         insert a new row, only bump `last_checked_at` on the existing one.
+        A record whose hash differs overwrites the existing row in place
+        (Bronze's `UNIQUE (source, stable_id)` constraint allows exactly one
+        row per entity; no prior version is retained).
         """
         ...
 

@@ -121,7 +121,7 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 
 # Silver
 
-Per-source staging tables, one per source, all sharing this shape — conformed to a common structure but not yet merged across sources. Current-state upsert, no version history (Bronze already preserves raw history).
+Per-source staging tables, one per source, all sharing this shape — conformed to a common structure but not yet merged across sources. Current-state upsert, no version history. Bronze holds only the latest raw payload per entity too (overwrite in place on a hash change, `UNIQUE (source, stable_id)`), not full history.
 
 ## HnPostingStaging (silver.hn_postings)
 - Id: GUID

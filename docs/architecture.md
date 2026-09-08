@@ -131,14 +131,14 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 1. Tables group by ingestion mechanism, not by source: `bronze.api_ingest`, `bronze.web_scrape_ingest`, `bronze.newsletter_ingest`. HN and YC are both `api` today. The candidate sources in [Huginn Concept Doc](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/917506/Huginn+Concept+Doc) section 7 map to `web_scrape` (VC boards, Ramp, Harmonic) or `newsletter` (the four Substack feeds) when added.
 2. Columns: `payload` (close to as-fetched, no field mapping or cleaning), `source` (`hn`, `yc`, and so on), fetch timestamp, run ID, `last_checked_at`.
 3. Watermarking is by content hash, because neither HN's Firebase API nor YC's Algolia backend offers a reliable changed-only cursor. A SHA-256 over a deliberately chosen, lightly normalized subset of each source's fields gives `(source, stable_id, content_hash)` where a native `updated_at` would sit. The `source` qualifier keeps two sources' native IDs from colliding in a shared table.
-4. A fetch whose hash already exists writes nothing and bumps `last_checked_at` instead, which tells a healthy-but-static source apart from a job that has silently stopped running.
+4. A fetch whose hash already exists writes nothing and bumps `last_checked_at` instead, which tells a healthy-but-static source apart from a job that has silently stopped running. A fetch whose hash differs overwrites the existing row in place: `UNIQUE (source, stable_id)` allows exactly one row per entity, so Bronze holds only the latest raw payload per entity, not every prior version.
 
 ### 4.2 Silver
 
 1. Per-source staging tables, each conformed to a common shape but not merged across sources (ADR-0001), so HN's cleaning logic and YC's stay independently inspectable.
 2. One cross-source `resolved_signals` table then runs entity resolution (section 6) at event grain, one row per original signal, raw company name replaced by a resolved canonical identifier.
 3. No dimension/fact split at this layer. That is Gold's job, per Databricks and Kimball.
-4. Current-state upsert only, no version history, since Bronze already preserves the raw. Accepted trade-off: a wrong entity-resolution merge has no prior state at or below Silver to diagnose or roll back from.
+4. Current-state upsert only, no version history. Bronze does not preserve prior versions either, it holds only the latest raw payload per entity (section 4.1 point 4), so a wrong entity-resolution merge has no prior raw state anywhere in the pipeline to diagnose or roll back from. Accepted trade-off, revisit if it bites in practice.
 
 ### 4.3 Gold
 
