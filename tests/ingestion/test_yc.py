@@ -138,3 +138,35 @@ def test_discover_batches_returns_empty_list_when_no_facet_values(monkeypatch):
     monkeypatch.setattr(yc, "_algolia_query", lambda body: {"facets": {"batch": {}}})
 
     assert yc._discover_batches() == []
+
+
+def test_fetch_batch_requests_filtered_query(monkeypatch):
+    captured = {}
+
+    def fake_algolia_query(body):
+        captured["body"] = body
+        return {"hits": [{"id": 531}], "nbHits": 1}
+
+    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
+
+    yc._fetch_batch("Summer 2026")
+
+    assert captured["body"] == {
+        "query": "",
+        "filters": "batch:'Summer 2026'",
+        "hitsPerPage": yc.ALGOLIA_MAX_HITS_PER_QUERY,
+        "page": 0,
+    }
+
+
+def test_fetch_batch_returns_raw_hits_list(monkeypatch):
+    hits = [{"id": 531, "name": "A"}, {"id": 8, "name": "PlanGrid"}]
+    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"hits": hits, "nbHits": 2})
+
+    assert yc._fetch_batch("Summer 2026") == hits
+
+
+def test_fetch_batch_returns_empty_list_when_no_hits(monkeypatch):
+    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"hits": [], "nbHits": 0})
+
+    assert yc._fetch_batch("Winter 2005") == []

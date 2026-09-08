@@ -85,6 +85,25 @@ def _discover_batches() -> list[str]:
     return list(response["facets"]["batch"].keys())
 
 
+def _fetch_batch(batch: str) -> list[dict]:
+    """Fetch every hit for one `batch` facet value, unmodified.
+
+    Each batch is comfortably under the confirmed 1000-hit per-query
+    ceiling (6204 total hits spread across all batches), so a single query
+    per batch is sufficient; no further pagination within a batch. See
+    architecture-notes/yc-fetch-plan.md section 2.
+    """
+    response = _algolia_query(
+        {
+            "query": "",
+            "filters": f"batch:'{batch}'",
+            "hitsPerPage": ALGOLIA_MAX_HITS_PER_QUERY,
+            "page": 0,
+        }
+    )
+    return response["hits"]
+
+
 class YcDirectoryAdapter(ApiSourcePort):
     source = "yc"
     mechanism = "api"
