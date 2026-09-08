@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from huginn.ingestion.ports import RawRecord
+from huginn.ingestion.ports import ApiSourcePort, RawRecord
 
 FIREBASE_BASE_URL = "https://hacker-news.firebaseio.com/v0"
 REQUEST_TIMEOUT_SECONDS = 10.0
@@ -61,7 +61,7 @@ def _fetch_item(item_id: int) -> dict | None:
     return _get_json(f"{FIREBASE_BASE_URL}/item/{item_id}.json")
 
 
-class HackerNewsAdapter:
+class HackerNewsAdapter(ApiSourcePort):
     source = "hn"
     mechanism = "api"
 

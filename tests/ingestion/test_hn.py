@@ -3,6 +3,7 @@ from __future__ import annotations
 import requests
 
 from huginn.ingestion.adapters import hn
+from huginn.ingestion.ports import ApiSourcePort
 
 
 def test_get_json_returns_none_for_bare_null_body(monkeypatch):
@@ -208,3 +209,7 @@ def test_fetch_propagates_a_genuine_kid_fetch_failure(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "simulated timeout" in str(exc)
+
+
+def test_hacker_news_adapter_explicitly_implements_api_source_port():
+    assert ApiSourcePort in hn.HackerNewsAdapter.__mro__

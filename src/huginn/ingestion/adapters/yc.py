@@ -12,10 +12,10 @@ Do not ship this adapter's real implementation until KAN-7 is closed.
 
 from __future__ import annotations
 
-from huginn.ingestion.ports import RawRecord
+from huginn.ingestion.ports import ApiSourcePort, RawRecord
 
 
-class YcDirectoryAdapter:
+class YcDirectoryAdapter(ApiSourcePort):
     source = "yc"
     mechanism = "api"
 
