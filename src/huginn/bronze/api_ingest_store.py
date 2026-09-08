@@ -10,6 +10,7 @@ exists; no adapter needs it yet.
 from __future__ import annotations
 
 import logging
+import uuid
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -100,6 +101,11 @@ class PostgresApiIngestStore:
                 f"web_scrape_ingest and newsletter_ingest are out of scope "
                 f"for KAN-32."
             )
+
+        try:
+            uuid.UUID(run_id)
+        except ValueError as exc:
+            raise ValueError(f"run_id must be a valid UUID string; got {run_id!r}") from exc
 
         written = 0
         skipped = 0

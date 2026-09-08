@@ -121,7 +121,7 @@ def test_write_inserts_new_record_when_no_existing_row(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
     records = [RawRecord(stable_id="1", payload={"title": "Backend Engineer"})]
 
-    store.write("hn", "api", records, "run-1")
+    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     lookup_sql, write_sql = cursor.executed[0], cursor.executed[1]
     assert "SELECT" in lookup_sql[0]
@@ -140,7 +140,7 @@ def test_write_touches_last_checked_at_when_hash_matches(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
     records = [RawRecord(stable_id="1", payload=payload)]
 
-    store.write("hn", "api", records, "run-1")
+    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     lookup_sql, touch_sql = cursor.executed[0], cursor.executed[1]
     assert "SELECT" in lookup_sql[0]
@@ -155,7 +155,7 @@ def test_write_overwrites_when_hash_differs(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
     records = [RawRecord(stable_id="1", payload={"title": "Backend Engineer (updated)"})]
 
-    store.write("hn", "api", records, "run-1")
+    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     write_sql = cursor.executed[1]
     assert "ON CONFLICT" in write_sql[0]
@@ -174,7 +174,7 @@ def test_write_processes_multiple_records_independently(monkeypatch):
         RawRecord(stable_id="2", payload=payload_b),
     ]
 
-    store.write("hn", "api", records, "run-1")
+    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     # 2 lookups + 1 write (record 1, no existing row) + 1 touch (record 2, hash match)
     assert len(cursor.executed) == 4
@@ -188,7 +188,25 @@ def test_write_raises_for_unsupported_mechanism(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
 
     with pytest.raises(NotImplementedError):
-        store.write("hn", "web_scrape", [RawRecord(stable_id="1", payload={})], "run-1")
+        store.write(
+            "hn",
+            "web_scrape",
+            [RawRecord(stable_id="1", payload={})],
+            "11111111-1111-1111-1111-111111111111",
+        )
+
+
+def test_write_raises_for_non_uuid_run_id(monkeypatch):
+    cursor = _FakeCursor(lookup_results=[])
+    _patch_connect(monkeypatch, cursor)
+    store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
+
+    with pytest.raises(ValueError):
+        store.write("hn", "api", [RawRecord(stable_id="1", payload={})], "not-a-uuid")
+
+    # The guard must fire before any DB I/O, matching how the mechanism
+    # guard is validated fail-fast (no lookup/write/touch executed).
+    assert cursor.executed == []
 
 
 def test_write_logs_written_and_skipped_counts(monkeypatch, caplog):
@@ -205,7 +223,7 @@ def test_write_logs_written_and_skipped_counts(monkeypatch, caplog):
     ]
 
     with caplog.at_level(logging.INFO):
-        store.write("hn", "api", records, "run-1")
+        store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     assert "1 written" in caplog.text
     assert "1 skipped" in caplog.text
