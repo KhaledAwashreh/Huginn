@@ -45,10 +45,11 @@ def test_run_once_writes_fetched_records_to_raw_store():
     service.run_once()
 
     assert len(raw_store.writes) == 1
-    written_source, written_mechanism, written_records, _run_id = raw_store.writes[0]
+    written_source, written_mechanism, written_records, written_run_id = raw_store.writes[0]
     assert written_source == "hn"
     assert written_mechanism == "api"
     assert written_records == records
+    assert written_run_id == job_run_writer.written[0].id
 
 
 def test_run_once_writes_a_succeeded_job_run_for_a_successful_source():
@@ -169,5 +170,6 @@ def test_run_once_logs_run_start_and_finish(caplog):
         service.run_once()
 
     messages = [record.message for record in caplog.records]
-    assert any("starting" in message and "1" in message for message in messages)
-    assert any("finished" in message for message in messages)
+    assert any("starting for 1 source(s)" in message for message in messages)
+    assert any("finished: 1 succeeded, 0 failed" in message for message in messages)
+    assert any("succeeded, wrote 1 record(s)" in message for message in messages)

@@ -13,7 +13,6 @@ boundaries.
 from __future__ import annotations
 
 import logging
-import uuid
 
 from huginn.ingestion.ports import RawStorePort, SourcePort
 from huginn.ops.job_runs import JobRunStatus, JobRunWriterPort, finish_job_run, start_job_run
@@ -38,11 +37,13 @@ class IngestionService:
         One source's `fetch()` or `raw_store.write()` raising does not abort
         the run: the exception is caught, recorded on that source's
         `job_runs` row as `FAILED`, and the loop continues to the next
-        source. See architecture document section 5 and `adr/0005-logging-
-        required-from-day-one.md`.
+        source. Each source's `job_run.id` is threaded through as the
+        `run_id` argument to `raw_store.write`, per `huginn.ops.job_runs`'s
+        `JobRun` docstring: it doubles as the Bronze run ID rather than a
+        separately minted one. See architecture document section 5 and
+        `adr/0005-logging-required-from-day-one.md`.
         """
-        run_id = str(uuid.uuid4())
-        logger.info("run_once starting for %d source(s), run_id=%s", len(self._sources), run_id)
+        logger.info("run_once starting for %d source(s)", len(self._sources))
 
         succeeded_count = 0
         failed_count = 0
@@ -50,10 +51,10 @@ class IngestionService:
             job_run = start_job_run(source.source)
             try:
                 records = source.fetch()
-                self._raw_store.write(source.source, source.mechanism, records, run_id)
+                self._raw_store.write(source.source, source.mechanism, records, job_run.id)
             except Exception as exc:
                 logger.exception("source %s: run failed", source.source)
-                job_run = finish_job_run(job_run, JobRunStatus.FAILED, error=str(exc))
+                job_run = finish_job_run(job_run, JobRunStatus.FAILED, error=str(exc) or repr(exc))
                 self._job_run_writer.write(job_run)
                 failed_count += 1
                 continue
@@ -63,8 +64,7 @@ class IngestionService:
             succeeded_count += 1
 
         logger.info(
-            "run_once finished, run_id=%s: %d succeeded, %d failed",
-            run_id,
+            "run_once finished: %d succeeded, %d failed",
             succeeded_count,
             failed_count,
         )
