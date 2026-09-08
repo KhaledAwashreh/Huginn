@@ -71,6 +71,20 @@ def _algolia_query(body: dict) -> dict:
     return response.json()
 
 
+def _discover_batches() -> list[str]:
+    """Discover the current set of `batch` facet values.
+
+    Standard Algolia facet-count query (`hitsPerPage: 0` returns facet
+    counts with no hit rows). Plain pagination and `browse` cannot reach
+    the full ~6200-record directory (confirmed live, 1000-hit ceiling), so
+    `fetch()` must split per-batch instead of paginating. See
+    architecture-notes/yc-fetch-plan.md section 2, "Confirmed by a live
+    test call" bullets 2-3.
+    """
+    response = _algolia_query({"query": "", "facets": ["batch"], "hitsPerPage": 0})
+    return list(response["facets"]["batch"].keys())
+
+
 class YcDirectoryAdapter(ApiSourcePort):
     source = "yc"
     mechanism = "api"

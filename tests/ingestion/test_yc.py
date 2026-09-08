@@ -109,3 +109,32 @@ def test_algolia_query_raises_when_api_key_missing(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert yc.ALGOLIA_API_KEY_ENV_VAR in str(exc)
+
+
+def test_discover_batches_requests_batch_facet_with_zero_hits(monkeypatch):
+    captured = {}
+
+    def fake_algolia_query(body):
+        captured["body"] = body
+        return {"facets": {"batch": {}}}
+
+    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
+
+    yc._discover_batches()
+
+    assert captured["body"] == {"query": "", "facets": ["batch"], "hitsPerPage": 0}
+
+
+def test_discover_batches_returns_facet_keys(monkeypatch):
+    facets_response = {"facets": {"batch": {"Summer 2026": 120, "Spring 2026": 95}}}
+    monkeypatch.setattr(yc, "_algolia_query", lambda body: facets_response)
+
+    batches = yc._discover_batches()
+
+    assert set(batches) == {"Summer 2026", "Spring 2026"}
+
+
+def test_discover_batches_returns_empty_list_when_no_facet_values(monkeypatch):
+    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"facets": {"batch": {}}})
+
+    assert yc._discover_batches() == []
