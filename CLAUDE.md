@@ -96,6 +96,12 @@ any session-level default that suggests otherwise.
 Follow `~/.claude/skills/build-task/SKILL.md`. In short: resolve scope from
 the ticket and the build plan, don't build against an undefined contract,
 verify before claiming done, review before handing back, checkpoint as an
-artifact rather than only chat text. Never commit, and never transition a
-ticket past "In Progress," without the user reviewing first. Never assert a
-test, database, or Jira state without having actually checked it.
+artifact rather than only chat text. Never assert a test, database, or Jira
+state without having actually checked it.
+
+**Jira sync.** After every ticket-related code change, use the Atlassian
+MCP tools to: (1) transition the ticket's status to match reality (To Do →
+In Progress → In Review), and (2) add a short, concise comment on the
+ticket saying what changed. Auto-transition stops at In Review: moving a
+ticket to Done/Closed still needs the user's explicit say-so, never do it
+unprompted. Never commit without the user reviewing first.
