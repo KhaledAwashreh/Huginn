@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from huginn.ingestion.ports import RawRecord
 from huginn.ingestion.service import IngestionService
 from huginn.ops.job_runs import JobRunStatus
@@ -144,3 +146,28 @@ def test_run_once_does_not_abort_when_the_last_source_fails():
     assert len(job_run_writer.written) == 2
     statuses = {job_run.source: job_run.status for job_run in job_run_writer.written}
     assert statuses == {"yc": JobRunStatus.SUCCEEDED, "hn": JobRunStatus.FAILED}
+
+
+def test_run_once_logs_an_exception_for_a_failing_source(caplog):
+    failing_source = FakeFailingSource("hn", RuntimeError("boom"))
+    service = IngestionService([failing_source], FakeRawStore(), FakeJobRunWriter())
+
+    with caplog.at_level(logging.ERROR, logger="huginn.ingestion.service"):
+        service.run_once()
+
+    assert any(
+        record.levelname == "ERROR" and "hn" in record.message and record.exc_info is not None
+        for record in caplog.records
+    )
+
+
+def test_run_once_logs_run_start_and_finish(caplog):
+    good_source = FakeSource("yc", [RawRecord(stable_id="1", payload={"id": 1})])
+    service = IngestionService([good_source], FakeRawStore(), FakeJobRunWriter())
+
+    with caplog.at_level(logging.INFO, logger="huginn.ingestion.service"):
+        service.run_once()
+
+    messages = [record.message for record in caplog.records]
+    assert any("starting" in message and "1" in message for message in messages)
+    assert any("finished" in message for message in messages)

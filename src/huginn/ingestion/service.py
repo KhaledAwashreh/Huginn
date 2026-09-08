@@ -5,14 +5,20 @@ Holds which sources to fetch, in what order, and when a run counts as
 complete. Adapters own a single protocol each and no ingestion policy.
 Orchestration itself (cron plus a `job_runs` table, Jira KAN-9) is not
 this class's concern; something external calls `run_once` on a schedule.
+Logging follows `adr/0005-logging-required-from-day-one.md`: one logger per
+module, no handler configuration here, log at the run and per-source
+boundaries.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from huginn.ingestion.ports import RawStorePort, SourcePort
 from huginn.ops.job_runs import JobRunStatus, JobRunWriterPort, finish_job_run, start_job_run
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionService:
@@ -36,14 +42,29 @@ class IngestionService:
         required-from-day-one.md`.
         """
         run_id = str(uuid.uuid4())
+        logger.info("run_once starting for %d source(s), run_id=%s", len(self._sources), run_id)
+
+        succeeded_count = 0
+        failed_count = 0
         for source in self._sources:
             job_run = start_job_run(source.source)
             try:
                 records = source.fetch()
                 self._raw_store.write(source.source, source.mechanism, records, run_id)
             except Exception as exc:
+                logger.exception("source %s: run failed", source.source)
                 job_run = finish_job_run(job_run, JobRunStatus.FAILED, error=str(exc))
                 self._job_run_writer.write(job_run)
+                failed_count += 1
                 continue
             job_run = finish_job_run(job_run, JobRunStatus.SUCCEEDED, rows_written=len(records))
             self._job_run_writer.write(job_run)
+            logger.info("source %s: succeeded, wrote %d record(s)", source.source, len(records))
+            succeeded_count += 1
+
+        logger.info(
+            "run_once finished, run_id=%s: %d succeeded, %d failed",
+            run_id,
+            succeeded_count,
+            failed_count,
+        )
