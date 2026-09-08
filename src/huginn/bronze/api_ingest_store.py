@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import logging
 
+import psycopg
 from psycopg.types.json import Jsonb
 
+from huginn.bronze.watermark import compute_content_hash
 from huginn.ingestion.ports import RawRecord
 
 logger = logging.getLogger(__name__)
@@ -75,3 +77,57 @@ def build_touch_query(source: str, stable_id: str) -> tuple[str, tuple[str, str]
     section 4.1 point 4.
     """
     return _TOUCH_SQL, (source, stable_id)
+
+
+class PostgresApiIngestStore:
+    """`RawStorePort` implementation against `bronze.api_ingest` only. See
+    architecture document section 4.1 point 4 and this plan's Global
+    Constraint 3 (upsert semantics) and Constraint 4 (stable_fields choice).
+    """
+
+    def __init__(self, database_url: str) -> None:
+        self._database_url = database_url
+
+    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> None:
+        """See huginn.ingestion.ports.RawStorePort.write. Only mechanism
+        "api" is handled (Jira KAN-32 scope; see this plan's Global
+        Constraint 5).
+        """
+        if mechanism != "api":
+            raise NotImplementedError(
+                f"PostgresApiIngestStore only writes bronze.api_ingest "
+                f"('api' mechanism); got mechanism={mechanism!r}. "
+                f"web_scrape_ingest and newsletter_ingest are out of scope "
+                f"for KAN-32."
+            )
+
+        written = 0
+        skipped = 0
+        with psycopg.connect(self._database_url) as conn:
+            with conn.cursor() as cur:
+                for record in records:
+                    content_hash = compute_content_hash(
+                        record.payload, sorted(record.payload.keys())
+                    )
+                    cur.execute(*build_lookup_query(source, record.stable_id))
+                    row = cur.fetchone()
+                    existing_hash = row[0] if row else None
+
+                    if decide_write_action(existing_hash, content_hash) == ACTION_WRITE:
+                        cur.execute(
+                            *build_write_query(
+                                source, record.stable_id, record.payload, content_hash, run_id
+                            )
+                        )
+                        written += 1
+                    else:
+                        cur.execute(*build_touch_query(source, record.stable_id))
+                        skipped += 1
+
+        logger.info(
+            "bronze.api_ingest write source=%s run_id=%s: %d written, %d skipped",
+            source,
+            run_id,
+            written,
+            skipped,
+        )
