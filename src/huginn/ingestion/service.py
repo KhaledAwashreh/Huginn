@@ -29,14 +29,21 @@ class IngestionService:
     def run_once(self) -> None:
         """Fetch every configured source once and write results to Bronze.
 
-        See architecture document section 5. Each source gets its own
-        `job_runs` row (`huginn.ops.job_runs`); this method does not yet
-        isolate one source's failure from the next (Task 2).
+        One source's `fetch()` or `raw_store.write()` raising does not abort
+        the run: the exception is caught, recorded on that source's
+        `job_runs` row as `FAILED`, and the loop continues to the next
+        source. See architecture document section 5 and `adr/0005-logging-
+        required-from-day-one.md`.
         """
         run_id = str(uuid.uuid4())
         for source in self._sources:
             job_run = start_job_run(source.source)
-            records = source.fetch()
-            self._raw_store.write(source.source, source.mechanism, records, run_id)
+            try:
+                records = source.fetch()
+                self._raw_store.write(source.source, source.mechanism, records, run_id)
+            except Exception as exc:
+                job_run = finish_job_run(job_run, JobRunStatus.FAILED, error=str(exc))
+                self._job_run_writer.write(job_run)
+                continue
             job_run = finish_job_run(job_run, JobRunStatus.SUCCEEDED, rows_written=len(records))
             self._job_run_writer.write(job_run)
