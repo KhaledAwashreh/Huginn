@@ -1,14 +1,13 @@
-"""Postgres-backed `SilverStagingReaderPort` and `ResolvedSignalWriterPort`.
-See huginn.silver.ports, huginn.silver.signal_resolution (the resolver
-and orchestrator these persist for), and docs/entities.md's
-ResolvedSignal. Jira KAN-35.
+"""Postgres-backed `SignalResolutionRepositoryPort`. See
+huginn.silver.ports, huginn.silver.signal_resolution (the resolver and
+orchestrator this persists for), and docs/entities.md's ResolvedSignal.
+Jira KAN-35.
 """
 
 from __future__ import annotations
 
-import psycopg
-
 from huginn.silver.ports import ResolvedSignalRecord, StagedSignal
+from huginn.silver.postgres_repository import PostgresRepositoryScope
 
 _HN_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,
@@ -64,49 +63,18 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
     )
 
 
-class PostgresSilverStagingReader:
-    """`SilverStagingReaderPort` implementation against the per-source
-    staging tables. Knows only how to read; no resolution logic.
+class PostgresSignalResolutionRepository(PostgresRepositoryScope):
+    """`SignalResolutionRepositoryPort` implementation: reads the
+    per-source staging tables and upserts silver.resolved_signals. Knows
+    no resolution logic.
 
-    A context manager: one connection and one cursor span the whole `with`
-    block, so the resolver's entire call shares a single connection and a
-    single transaction (see huginn.silver.ports' connection-scope note).
-    `read_hn_postings` and `read_yc_listings` therefore assume they are
-    called between `__enter__` and `__exit__`.
+    Both sides live on one class so `SignalResolver.resolve_all()` needs a
+    single connection and a single transaction for its whole call, rather
+    than one per port. That also puts the staging reads and the
+    resolved_signals writes in one transaction, so the batch is resolved
+    against a single consistent snapshot. Every method here is only valid
+    between `__enter__` and `__exit__`.
     """
-
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
-        self._conn = None
-        self._cur = None
-
-    def __enter__(self) -> PostgresSilverStagingReader:
-        """Open the connection and cursor this block's statements share."""
-        self._conn = psycopg.connect(self._database_url)
-        self._cur = self._conn.cursor()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Commit on a clean exit, roll back if the block raised, and close
-        both the cursor and the connection either way.
-
-        Returns None so a failure inside the block still propagates: a
-        repository must not swallow its caller's exception.
-        """
-        try:
-            if self._cur is not None:
-                self._cur.close()
-            if self._conn is not None:
-                if exc_type is None:
-                    self._conn.commit()
-                else:
-                    self._conn.rollback()
-        finally:
-            if self._conn is not None:
-                self._conn.close()
-            self._cur = None
-            self._conn = None
-        return None
 
     def read_hn_postings(self) -> list[StagedSignal]:
         return self._read("hn", _HN_STAGING_SELECT_SQL)
@@ -117,51 +85,6 @@ class PostgresSilverStagingReader:
     def _read(self, source: str, select_sql: str) -> list[StagedSignal]:
         self._cur.execute(select_sql)
         return [_row_to_staged_signal(source, row) for row in self._cur.fetchall()]
-
-
-class PostgresResolvedSignalWriter:
-    """`ResolvedSignalWriterPort` implementation against
-    silver.resolved_signals. Knows only how to upsert one row.
-
-    A context manager: one connection and one cursor span the whole `with`
-    block, so the resolver's entire batch shares a single connection and a
-    single transaction (see huginn.silver.ports' connection-scope note).
-    `upsert` therefore assumes it is called between `__enter__` and
-    `__exit__`.
-    """
-
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
-        self._conn = None
-        self._cur = None
-
-    def __enter__(self) -> PostgresResolvedSignalWriter:
-        """Open the connection and cursor this block's statements share."""
-        self._conn = psycopg.connect(self._database_url)
-        self._cur = self._conn.cursor()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Commit on a clean exit, roll back if the block raised, and close
-        both the cursor and the connection either way.
-
-        Returns None so a failure inside the block still propagates: a
-        repository must not swallow its caller's exception.
-        """
-        try:
-            if self._cur is not None:
-                self._cur.close()
-            if self._conn is not None:
-                if exc_type is None:
-                    self._conn.commit()
-                else:
-                    self._conn.rollback()
-        finally:
-            if self._conn is not None:
-                self._conn.close()
-            self._cur = None
-            self._conn = None
-        return None
 
     def upsert(self, record: ResolvedSignalRecord) -> None:
         self._cur.execute(

@@ -7,6 +7,14 @@ standard 6. `HnStagingLoader`, `YcStagingLoader`, `SignalResolver`, and
 directly; the concrete Postgres classes implementing them live alongside
 their respective orchestrators.
 
+One port per orchestrator, covering both the reads and the writes that
+orchestrator makes, rather than a separate reader port and writer port.
+An adapter owns its connection, so a split pair would mean two
+connections and two transactions per call; merged, each orchestrator call
+is one connection and one transaction, and its reads and writes share a
+single consistent snapshot. This also matches the Bronze boundary, where
+`ApiIngestRepositoryPort` already covers lookup and write together.
+
 Every port here is a context manager, and deliberately so: the connection
 scope belongs to the orchestrator's whole call, not to each individual
 statement. An orchestrator wraps its batch in `with port:` and every
@@ -28,16 +36,12 @@ if TYPE_CHECKING:
     from huginn.silver.yc_staging import YcListingStaging
 
 
-class BronzeReaderPort(Protocol):
-    """Reads raw bronze.api_ingest payloads for one source. Shared by
-    every staging loader, since the read side is identical regardless of
-    source (architecture document section 4.1: one shared api_ingest
-    table, `source` column distinguishes rows).
-
-    A context manager, per this module's connection-scope note.
+class RepositoryScopePort(Protocol):
+    """The connection scope every Silver port shares. Extended by the
+    ports below rather than injected on its own.
     """
 
-    def __enter__(self) -> BronzeReaderPort:
+    def __enter__(self) -> RepositoryScopePort:
         """Acquire whatever the statements below need, and return the
         object those statements are then called on.
         """
@@ -51,37 +55,25 @@ class BronzeReaderPort(Protocol):
         """
         ...
 
+
+class BronzeReaderPort(RepositoryScopePort, Protocol):
+    """Reads raw bronze.api_ingest payloads for one source. Extended by
+    both staging ports rather than injected on its own, since the read
+    side is identical regardless of source (architecture document section
+    4.1: one shared api_ingest table, `source` column distinguishes rows).
+    """
+
     def read(self, source: str) -> list[dict]: ...
 
 
-class HnStagingWriterPort(Protocol):
-    """Upserts one row into silver.hn_postings. A context manager, per
-    this module's connection-scope note.
-    """
-
-    def __enter__(self) -> HnStagingWriterPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
-        ...
+class HnStagingRepositoryPort(BronzeReaderPort, Protocol):
+    """Reads bronze.api_ingest and upserts silver.hn_postings."""
 
     def upsert(self, row: HnPostingStaging) -> None: ...
 
 
-class YcStagingWriterPort(Protocol):
-    """Upserts one row into silver.yc_listings. A context manager, per
-    this module's connection-scope note.
-    """
-
-    def __enter__(self) -> YcStagingWriterPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
-        ...
+class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
+    """Reads bronze.api_ingest and upserts silver.yc_listings."""
 
     def upsert(self, row: YcListingStaging) -> None: ...
 
@@ -104,24 +96,6 @@ class StagedSignal:
     url: str
 
 
-class SilverStagingReaderPort(Protocol):
-    """Reads every row currently in the per-source staging tables. A
-    context manager, per this module's connection-scope note.
-    """
-
-    def __enter__(self) -> SilverStagingReaderPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
-        ...
-
-    def read_hn_postings(self) -> list[StagedSignal]: ...
-
-    def read_yc_listings(self) -> list[StagedSignal]: ...
-
-
 @dataclass(frozen=True)
 class ResolvedSignalRecord:
     """One row to upsert into silver.resolved_signals, produced by
@@ -140,54 +114,28 @@ class ResolvedSignalRecord:
     match_confidence: str
 
 
-class ResolvedSignalWriterPort(Protocol):
-    """Upserts one row into silver.resolved_signals. A context manager,
-    per this module's connection-scope note.
+class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
+    """Reads every row currently in the per-source staging tables and
+    upserts silver.resolved_signals.
     """
 
-    def __enter__(self) -> ResolvedSignalWriterPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
+    def read_hn_postings(self) -> list[StagedSignal]: ...
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
-        ...
+    def read_yc_listings(self) -> list[StagedSignal]: ...
 
     def upsert(self, record: ResolvedSignalRecord) -> None: ...
 
 
-class UnmatchedSignalReaderPort(Protocol):
-    """Reads every silver.resolved_signals row not yet resolved to a
-    real company (match_confidence = 'no_existing_match'). A context
-    manager, per this module's connection-scope note.
+class ManualReviewRepositoryPort(RepositoryScopePort, Protocol):
+    """Reads every silver.resolved_signals row not yet resolved to a real
+    company (match_confidence = 'no_existing_match') and queues each one
+    for manual review, if not already queued. See docs/entities.md's
+    ManualReviewCandidate: a row already queued (pending, confirmed, or
+    rejected) must be left untouched.
     """
-
-    def __enter__(self) -> UnmatchedSignalReaderPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
-        ...
 
     def read_unmatched(self) -> list[tuple[str, str]]:
         """Returns (resolved_signal_id, candidate_company_key) pairs."""
-        ...
-
-
-class ManualReviewQueueWriterPort(Protocol):
-    """Queues one unmatched signal for manual review, if not already
-    queued. See docs/entities.md's ManualReviewCandidate: a row already
-    queued (pending, confirmed, or rejected) must be left untouched. A
-    context manager, per this module's connection-scope note.
-    """
-
-    def __enter__(self) -> ManualReviewQueueWriterPort:
-        """See `BronzeReaderPort.__enter__`."""
-        ...
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
         ...
 
     def insert_if_new(

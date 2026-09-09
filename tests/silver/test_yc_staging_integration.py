@@ -11,7 +11,6 @@ import uuid
 import psycopg
 import pytest
 
-from huginn.silver.postgres_bronze_reader import PostgresBronzeReader
 from huginn.silver.yc_staging import YcStagingLoader
 from huginn.silver.yc_staging_repository import PostgresYcStagingRepository
 
@@ -67,10 +66,7 @@ def test_load_upserts_bronze_yc_hits_into_silver_yc_listings():
         )
 
     try:
-        loader = YcStagingLoader(
-            PostgresBronzeReader(DATABASE_URL),
-            PostgresYcStagingRepository(DATABASE_URL),
-        )
+        loader = YcStagingLoader(PostgresYcStagingRepository(DATABASE_URL))
         written = loader.load()
 
         assert written >= 1

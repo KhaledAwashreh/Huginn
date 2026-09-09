@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from huginn.silver.ports import BronzeReaderPort, YcStagingWriterPort
+    from huginn.silver.ports import YcStagingRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,9 @@ def parse_yc_listing(payload: dict) -> YcListingStaging:
 
 class YcStagingLoader:
     """Reads bronze.api_ingest (source="yc") and upserts silver.yc_listings
-    via its injected ports. See docs/entities.md's YcListingStaging and
+    via its injected port. See docs/entities.md's YcListingStaging and
     ADR-0001. Jira KAN-34. See huginn.silver.ports for the port
-    contracts; this class holds no persistence detail of its own.
+    contract; this class holds no persistence detail of its own.
 
     Reads every bronze row for the source each run rather than tracking
     its own watermark: silver.yc_listings' UNIQUE(stable_id) upsert
@@ -72,11 +72,8 @@ class YcStagingLoader:
     database state, not the work done, that is unchanged.
     """
 
-    def __init__(
-        self, bronze_reader: BronzeReaderPort, staging_writer: YcStagingWriterPort
-    ) -> None:
-        self._bronze_reader = bronze_reader
-        self._staging_writer = staging_writer
+    def __init__(self, repository: YcStagingRepositoryPort) -> None:
+        self._repository = repository
 
     def load(self) -> int:
         """Parse and upsert every current YC bronze row, returning the
@@ -84,17 +81,17 @@ class YcStagingLoader:
         executes on every row even when nothing changed).
         """
         # One `with` around the whole method, not one per record: every
-        # statement in this call shares a single connection per port and
-        # commits as one transaction, so a large run costs one connect
-        # rather than one per record, and a mid-loop failure leaves no
-        # partial batch behind. `with` on an injected port is plain
-        # Python; this class still imports no `psycopg`.
-        with self._bronze_reader, self._staging_writer:
-            payloads = self._bronze_reader.read("yc")
+        # statement in this call shares a single connection and commits as
+        # one transaction, so a large run costs one connect rather than one
+        # per record, and a mid-loop failure leaves no partial batch
+        # behind. `with` on an injected port is plain Python; this class
+        # still imports no `psycopg`.
+        with self._repository:
+            payloads = self._repository.read("yc")
             written = 0
             for payload in payloads:
                 staging_row = parse_yc_listing(payload)
-                self._staging_writer.upsert(staging_row)
+                self._repository.upsert(staging_row)
                 written += 1
 
         logger.info(

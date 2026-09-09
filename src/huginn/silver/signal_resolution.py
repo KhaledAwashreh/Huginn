@@ -21,7 +21,7 @@ from huginn.silver.ports import ResolvedSignalRecord
 from huginn.silver.resolution import MatchConfidence, normalize_domain
 
 if TYPE_CHECKING:
-    from huginn.silver.ports import ResolvedSignalWriterPort, SilverStagingReaderPort
+    from huginn.silver.ports import SignalResolutionRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -96,19 +96,14 @@ def resolve_signal(
 
 class SignalResolver:
     """Reads every per-source staging table and upserts
-    silver.resolved_signals via its injected ports. See
+    silver.resolved_signals via its injected port. See
     docs/entities.md's ResolvedSignal. Jira KAN-35. See
-    huginn.silver.ports for the port contracts; this class holds no
+    huginn.silver.ports for the port contract; this class holds no
     persistence detail of its own.
     """
 
-    def __init__(
-        self,
-        staging_reader: SilverStagingReaderPort,
-        resolved_writer: ResolvedSignalWriterPort,
-    ) -> None:
-        self._staging_reader = staging_reader
-        self._resolved_writer = resolved_writer
+    def __init__(self, repository: SignalResolutionRepositoryPort) -> None:
+        self._repository = repository
 
     def resolve_all(self) -> int:
         """Resolve and upsert every staged signal from every source,
@@ -117,15 +112,16 @@ class SignalResolver:
         changed).
         """
         # One `with` around the whole method, not one per record: both
-        # reads and every write in this call share a single connection per
-        # port and commit as one transaction, so a large run costs one
-        # connect rather than one per record, and a mid-loop failure leaves
-        # no partial batch behind. `with` on an injected port is plain
-        # Python; this class still imports no `psycopg`.
-        with self._staging_reader, self._resolved_writer:
+        # reads and every write in this call share a single connection and
+        # commit as one transaction, so a large run costs one connect
+        # rather than one per record, the batch is resolved against one
+        # consistent snapshot, and a mid-loop failure leaves no partial
+        # batch behind. `with` on an injected port is plain Python; this
+        # class still imports no `psycopg`.
+        with self._repository:
             staged_signals = (
-                self._staging_reader.read_hn_postings()
-                + self._staging_reader.read_yc_listings()
+                self._repository.read_hn_postings()
+                + self._repository.read_yc_listings()
             )
 
             written = 0
@@ -133,7 +129,7 @@ class SignalResolver:
                 resolved_company_key, match_confidence = resolve_signal(
                     signal.source, signal.stable_id, signal.website
                 )
-                self._resolved_writer.upsert(
+                self._repository.upsert(
                     ResolvedSignalRecord(
                         source=signal.source,
                         source_stable_id=signal.stable_id,

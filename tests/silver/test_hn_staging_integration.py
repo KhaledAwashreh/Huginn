@@ -13,7 +13,6 @@ import pytest
 
 from huginn.silver.hn_staging import HnStagingLoader
 from huginn.silver.hn_staging_repository import PostgresHnStagingRepository
-from huginn.silver.postgres_bronze_reader import PostgresBronzeReader
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -62,10 +61,7 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
         )
 
     try:
-        loader = HnStagingLoader(
-            PostgresBronzeReader(DATABASE_URL),
-            PostgresHnStagingRepository(DATABASE_URL),
-        )
+        loader = HnStagingLoader(PostgresHnStagingRepository(DATABASE_URL))
         written = loader.load()
 
         assert written >= 1
@@ -120,7 +116,7 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
     client-side mid-loop failure, not a server-side one.
     """
     # Read order decides whether the good row is written before the bad one
-    # fails, and PostgresBronzeReader's SELECT has no ORDER BY: Postgres
+    # fails, and the bronze SELECT has no ORDER BY: Postgres
     # serves it from the UNIQUE (source, stable_id) index, so rows arrive in
     # bronze stable_id order. Two equal-length all-digit ids compare the same
     # under every collation, so sorting them here fixes the order; the '9'
@@ -165,17 +161,14 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
         )
 
     try:
-        loader = HnStagingLoader(
-            PostgresBronzeReader(DATABASE_URL),
-            PostgresHnStagingRepository(DATABASE_URL),
-        )
+        loader = HnStagingLoader(PostgresHnStagingRepository(DATABASE_URL))
 
         # Precondition, not the assertion under test: if the read ever came
         # back with the bad row first, nothing would have been written
         # before the failure and the rollback assertion below would pass
         # for the wrong reason. Fail loudly instead of silently passing.
-        with PostgresBronzeReader(DATABASE_URL) as reader:
-            read_ids = [str(payload.get("id")) for payload in reader.read("hn")]
+        with PostgresHnStagingRepository(DATABASE_URL) as repository:
+            read_ids = [str(payload.get("id")) for payload in repository.read("hn")]
         assert read_ids.index(str(good_payload["id"])) < read_ids.index(
             str(bad_payload["id"])
         ), (

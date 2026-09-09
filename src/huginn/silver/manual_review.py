@@ -15,10 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from huginn.silver.ports import (
-        ManualReviewQueueWriterPort,
-        UnmatchedSignalReaderPort,
-    )
+    from huginn.silver.ports import ManualReviewRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +24,13 @@ NO_SCORE_COMPUTED = 0
 
 class ManualReviewQueuer:
     """Queues every unmatched silver.resolved_signals row exactly once,
-    via its injected ports. See docs/entities.md's ManualReviewCandidate.
-    Jira KAN-36. See huginn.silver.ports for the port contracts; this
+    via its injected port. See docs/entities.md's ManualReviewCandidate.
+    Jira KAN-36. See huginn.silver.ports for the port contract; this
     class holds no persistence detail of its own.
     """
 
-    def __init__(
-        self,
-        unmatched_reader: UnmatchedSignalReaderPort,
-        queue_writer: ManualReviewQueueWriterPort,
-    ) -> None:
-        self._unmatched_reader = unmatched_reader
-        self._queue_writer = queue_writer
+    def __init__(self, repository: ManualReviewRepositoryPort) -> None:
+        self._repository = repository
 
     def queue_unmatched(self) -> int:
         """Insert a pending queue row for every 'no_existing_match'
@@ -53,18 +45,18 @@ class ManualReviewQueuer:
         decision.
         """
         # One `with` around the whole method, not one per record: the read
-        # and every insert in this call share a single connection per port
-        # and commit as one transaction, so a large run costs one connect
+        # and every insert in this call share a single connection and
+        # commit as one transaction, so a large run costs one connect
         # rather than one per record, and a mid-loop failure leaves no
         # partial batch behind. `with` on an injected port is plain
         # Python; this class still imports no `psycopg`.
-        with self._unmatched_reader, self._queue_writer:
+        with self._repository:
             written = 0
             for (
                 resolved_signal_id,
                 candidate_company_key,
-            ) in self._unmatched_reader.read_unmatched():
-                if self._queue_writer.insert_if_new(
+            ) in self._repository.read_unmatched():
+                if self._repository.insert_if_new(
                     resolved_signal_id, candidate_company_key, NO_SCORE_COMPUTED
                 ):
                     written += 1

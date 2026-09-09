@@ -13,10 +13,7 @@ import psycopg
 import pytest
 
 from huginn.silver.manual_review import ManualReviewQueuer
-from huginn.silver.manual_review_repository import (
-    PostgresManualReviewQueueRepository,
-    PostgresUnmatchedSignalReader,
-)
+from huginn.silver.manual_review_repository import PostgresManualReviewRepository
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -36,10 +33,7 @@ def _database_reachable() -> bool:
 
 
 def _build_queuer() -> ManualReviewQueuer:
-    return ManualReviewQueuer(
-        PostgresUnmatchedSignalReader(DATABASE_URL),
-        PostgresManualReviewQueueRepository(DATABASE_URL),
-    )
+    return ManualReviewQueuer(PostgresManualReviewRepository(DATABASE_URL))
 
 
 pytestmark = pytest.mark.skipif(

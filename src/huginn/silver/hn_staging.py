@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from huginn.silver.ports import BronzeReaderPort, HnStagingWriterPort
+    from huginn.silver.ports import HnStagingRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,9 @@ def parse_hn_posting(payload: dict) -> HnPostingStaging | None:
 
 class HnStagingLoader:
     """Reads bronze.api_ingest (source="hn") and upserts silver.hn_postings
-    via its injected ports. See docs/entities.md's HnPostingStaging and
+    via its injected port. See docs/entities.md's HnPostingStaging and
     ADR-0001. Jira KAN-34. See huginn.silver.ports for the port
-    contracts; this class holds no persistence detail of its own.
+    contract; this class holds no persistence detail of its own.
 
     Reads every bronze row for the source each run rather than tracking
     its own watermark: silver.hn_postings' UNIQUE(stable_id) upsert
@@ -111,11 +111,8 @@ class HnStagingLoader:
     database state, not the work done, that is unchanged.
     """
 
-    def __init__(
-        self, bronze_reader: BronzeReaderPort, staging_writer: HnStagingWriterPort
-    ) -> None:
-        self._bronze_reader = bronze_reader
-        self._staging_writer = staging_writer
+    def __init__(self, repository: HnStagingRepositoryPort) -> None:
+        self._repository = repository
 
     def load(self) -> int:
         """Parse and upsert every current HN bronze row, returning the
@@ -124,19 +121,19 @@ class HnStagingLoader:
         write executes on every row even when nothing changed).
         """
         # One `with` around the whole method, not one per record: every
-        # statement in this call shares a single connection per port and
-        # commits as one transaction, so a large run costs one connect
-        # rather than one per record, and a mid-loop failure leaves no
-        # partial batch behind. `with` on an injected port is plain
-        # Python; this class still imports no `psycopg`.
-        with self._bronze_reader, self._staging_writer:
-            payloads = self._bronze_reader.read("hn")
+        # statement in this call shares a single connection and commits as
+        # one transaction, so a large run costs one connect rather than one
+        # per record, and a mid-loop failure leaves no partial batch
+        # behind. `with` on an injected port is plain Python; this class
+        # still imports no `psycopg`.
+        with self._repository:
+            payloads = self._repository.read("hn")
             written = 0
             for payload in payloads:
                 staging_row = parse_hn_posting(payload)
                 if staging_row is None:
                     continue
-                self._staging_writer.upsert(staging_row)
+                self._repository.upsert(staging_row)
                 written += 1
 
         logger.info(
