@@ -1,4 +1,4 @@
-"""Live-Postgres integration coverage for PostgresResolvedSignalsWriter.
+"""Live-Postgres integration coverage for SignalResolver.
 
 Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
 """
@@ -12,7 +12,11 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
-from huginn.silver.signal_resolution import PostgresResolvedSignalsWriter
+from huginn.silver.signal_resolution import SignalResolver
+from huginn.silver.signal_resolution_repository import (
+    PostgresResolvedSignalWriter,
+    PostgresSilverStagingReader,
+)
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -60,7 +64,11 @@ def test_resolve_all_auto_matches_a_row_with_a_website():
         _insert_hn_posting(cur, stable_id, "https://www.resolutiontestco.example")
 
     try:
-        written = PostgresResolvedSignalsWriter(DATABASE_URL).resolve_all()
+        resolver = SignalResolver(
+            PostgresSilverStagingReader(DATABASE_URL),
+            PostgresResolvedSignalWriter(DATABASE_URL),
+        )
+        written = resolver.resolve_all()
 
         assert written >= 1
 
@@ -91,7 +99,10 @@ def test_resolve_all_marks_no_existing_match_when_website_is_none():
         _insert_hn_posting(cur, stable_id, None)
 
     try:
-        PostgresResolvedSignalsWriter(DATABASE_URL).resolve_all()
+        SignalResolver(
+            PostgresSilverStagingReader(DATABASE_URL),
+            PostgresResolvedSignalWriter(DATABASE_URL),
+        ).resolve_all()
 
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(

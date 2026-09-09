@@ -12,58 +12,55 @@ this plan's Task 7.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-import psycopg
-
-from huginn.silver.resolution import MatchConfidence
+if TYPE_CHECKING:
+    from huginn.silver.ports import (
+        ManualReviewQueueWriterPort,
+        UnmatchedSignalReaderPort,
+    )
 
 logger = logging.getLogger(__name__)
 
 NO_SCORE_COMPUTED = 0
 
-_UNMATCHED_SELECT_SQL = "SELECT id, resolved_company_key FROM silver.resolved_signals WHERE match_confidence = %s"
 
-_INSERT_SQL = """
-    INSERT INTO silver.manual_review_queue
-        (resolved_signal_id, candidate_company_key, match_score, status)
-    VALUES (%s, %s, %s, 'pending')
-    ON CONFLICT (resolved_signal_id) DO NOTHING
-    RETURNING id
-"""
-
-
-class PostgresManualReviewQueueWriter:
-    """Queues every unmatched silver.resolved_signals row exactly once.
-    See docs/entities.md's ManualReviewCandidate. Jira KAN-36.
+class ManualReviewQueuer:
+    """Queues every unmatched silver.resolved_signals row exactly once,
+    via its injected ports. See docs/entities.md's ManualReviewCandidate.
+    Jira KAN-36. See huginn.silver.ports for the port contracts; this
+    class holds no persistence detail of its own.
     """
 
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
+    def __init__(
+        self,
+        unmatched_reader: UnmatchedSignalReaderPort,
+        queue_writer: ManualReviewQueueWriterPort,
+    ) -> None:
+        self._unmatched_reader = unmatched_reader
+        self._queue_writer = queue_writer
 
     def queue_unmatched(self) -> int:
         """Insert a pending queue row for every 'no_existing_match'
-        resolved_signals row not already queued (this plan's Task 1
-        UNIQUE(resolved_signal_id) constraint makes the ON CONFLICT DO
-        NOTHING skip one already present), returning the count of rows
-        newly inserted (excludes rows already queued, so a rerun with no
-        new unmatched signals returns 0). Unlike the staging loaders'
-        and the resolver's return values, this is not the input count.
+        resolved_signals row not already queued, returning the count of
+        rows newly inserted (excludes rows already queued, so a rerun
+        with no new unmatched signals returns 0). Unlike the staging
+        loaders' and the resolver's return values, this is not the
+        input count.
 
         A row already queued — pending, confirmed, or rejected — is left
         untouched: re-running this must never reset a reviewer's prior
         decision.
         """
         written = 0
-        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
-            cur.execute(_UNMATCHED_SELECT_SQL, (MatchConfidence.NO_EXISTING_MATCH,))
-            rows = cur.fetchall()
-            for resolved_signal_id, candidate_company_key in rows:
-                cur.execute(
-                    _INSERT_SQL,
-                    (resolved_signal_id, candidate_company_key, NO_SCORE_COMPUTED),
-                )
-                if cur.fetchone() is not None:
-                    written += 1
+        for (
+            resolved_signal_id,
+            candidate_company_key,
+        ) in self._unmatched_reader.read_unmatched():
+            if self._queue_writer.insert_if_new(
+                resolved_signal_id, candidate_company_key, NO_SCORE_COMPUTED
+            ):
+                written += 1
 
         logger.info("silver.manual_review_queue queue_unmatched: %d written", written)
         return written

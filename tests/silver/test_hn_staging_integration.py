@@ -1,4 +1,4 @@
-"""Live-Postgres integration coverage for PostgresHnStagingLoader.load().
+"""Live-Postgres integration coverage for HnStagingLoader.load().
 
 Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
 """
@@ -11,7 +11,9 @@ import uuid
 import psycopg
 import pytest
 
-from huginn.silver.hn_staging import PostgresHnStagingLoader
+from huginn.silver.hn_staging import HnStagingLoader
+from huginn.silver.hn_staging_repository import PostgresHnStagingRepository
+from huginn.silver.postgres_bronze_reader import PostgresBronzeReader
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -60,7 +62,10 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
         )
 
     try:
-        loader = PostgresHnStagingLoader(DATABASE_URL)
+        loader = HnStagingLoader(
+            PostgresBronzeReader(DATABASE_URL),
+            PostgresHnStagingRepository(DATABASE_URL),
+        )
         written = loader.load()
 
         assert written >= 1

@@ -15,8 +15,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-import psycopg
+if TYPE_CHECKING:
+    from huginn.silver.ports import BronzeReaderPort, YcStagingWriterPort
 
 logger = logging.getLogger(__name__)
 
@@ -56,43 +58,11 @@ def parse_yc_listing(payload: dict) -> YcListingStaging:
     )
 
 
-_BRONZE_YC_SELECT_SQL = "SELECT payload FROM bronze.api_ingest WHERE source = 'yc'"
-
-_UPSERT_SQL = """
-    INSERT INTO silver.yc_listings
-        (stable_id, company_name_raw, website, signal_type, stage,
-         description, occurred_on, url)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (stable_id) DO UPDATE
-    SET company_name_raw = EXCLUDED.company_name_raw,
-        website = EXCLUDED.website,
-        signal_type = EXCLUDED.signal_type,
-        stage = EXCLUDED.stage,
-        description = EXCLUDED.description,
-        occurred_on = EXCLUDED.occurred_on,
-        url = EXCLUDED.url,
-        updated_at = now()
-"""
-
-
-def build_upsert_query(row: YcListingStaging) -> tuple[str, tuple]:
-    """Parameterized upsert for one staging row, keyed on stable_id
-    (this plan's Task 1 unique constraint)."""
-    return _UPSERT_SQL, (
-        row.stable_id,
-        row.company_name_raw,
-        row.website,
-        row.signal_type,
-        row.stage,
-        row.description,
-        row.occurred_on,
-        row.url,
-    )
-
-
-class PostgresYcStagingLoader:
-    """Reads bronze.api_ingest (source="yc") and upserts silver.yc_listings.
-    See docs/entities.md's YcListingStaging and ADR-0001. Jira KAN-34.
+class YcStagingLoader:
+    """Reads bronze.api_ingest (source="yc") and upserts silver.yc_listings
+    via its injected ports. See docs/entities.md's YcListingStaging and
+    ADR-0001. Jira KAN-34. See huginn.silver.ports for the port
+    contracts; this class holds no persistence detail of its own.
 
     Reads every bronze row for the source each run rather than tracking
     its own watermark: silver.yc_listings' UNIQUE(stable_id) upsert
@@ -102,23 +72,23 @@ class PostgresYcStagingLoader:
     database state, not the work done, that is unchanged.
     """
 
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
+    def __init__(
+        self, bronze_reader: BronzeReaderPort, staging_writer: YcStagingWriterPort
+    ) -> None:
+        self._bronze_reader = bronze_reader
+        self._staging_writer = staging_writer
 
     def load(self) -> int:
         """Parse and upsert every current YC bronze row, returning the
         count of rows upserted (always equals the input count; the write
         executes on every row even when nothing changed).
         """
+        payloads = self._bronze_reader.read("yc")
         written = 0
-        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
-            cur.execute(_BRONZE_YC_SELECT_SQL)
-            payloads = [row[0] for row in cur.fetchall()]
-
-            for payload in payloads:
-                staging_row = parse_yc_listing(payload)
-                cur.execute(*build_upsert_query(staging_row))
-                written += 1
+        for payload in payloads:
+            staging_row = parse_yc_listing(payload)
+            self._staging_writer.upsert(staging_row)
+            written += 1
 
         logger.info(
             "silver.yc_listings load: %d written (of %d bronze rows)",

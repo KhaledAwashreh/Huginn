@@ -15,10 +15,13 @@ manual review.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-import psycopg
-
+from huginn.silver.ports import ResolvedSignalRecord
 from huginn.silver.resolution import MatchConfidence, normalize_domain
+
+if TYPE_CHECKING:
+    from huginn.silver.ports import ResolvedSignalWriterPort, SilverStagingReaderPort
 
 logger = logging.getLogger(__name__)
 
@@ -91,46 +94,21 @@ def resolve_signal(
     )
 
 
-_HN_STAGING_SELECT_SQL = """
-    SELECT stable_id, company_name_raw, website, signal_type, stage,
-           description, occurred_on, url
-    FROM silver.hn_postings
-"""
-
-_YC_STAGING_SELECT_SQL = """
-    SELECT stable_id, company_name_raw, website, signal_type, stage,
-           description, occurred_on, url
-    FROM silver.yc_listings
-"""
-
-_UPSERT_SQL = """
-    INSERT INTO silver.resolved_signals
-        (source_stable_id, source, resolved_company_key, company_name_raw,
-         signal_type, stage, description, occurred_on, url, match_confidence)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (source, source_stable_id) DO UPDATE
-    SET resolved_company_key = EXCLUDED.resolved_company_key,
-        company_name_raw = EXCLUDED.company_name_raw,
-        signal_type = EXCLUDED.signal_type,
-        stage = EXCLUDED.stage,
-        description = EXCLUDED.description,
-        occurred_on = EXCLUDED.occurred_on,
-        url = EXCLUDED.url,
-        match_confidence = EXCLUDED.match_confidence,
-        updated_at = now()
-"""
-
-
-class PostgresResolvedSignalsWriter:
+class SignalResolver:
     """Reads every per-source staging table and upserts
-    silver.resolved_signals. See docs/entities.md's ResolvedSignal.
-    Jira KAN-35.
+    silver.resolved_signals via its injected ports. See
+    docs/entities.md's ResolvedSignal. Jira KAN-35. See
+    huginn.silver.ports for the port contracts; this class holds no
+    persistence detail of its own.
     """
 
-    _SOURCES = (("hn", _HN_STAGING_SELECT_SQL), ("yc", _YC_STAGING_SELECT_SQL))
-
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
+    def __init__(
+        self,
+        staging_reader: SilverStagingReaderPort,
+        resolved_writer: ResolvedSignalWriterPort,
+    ) -> None:
+        self._staging_reader = staging_reader
+        self._resolved_writer = resolved_writer
 
     def resolve_all(self) -> int:
         """Resolve and upsert every staged signal from every source,
@@ -138,40 +116,31 @@ class PostgresResolvedSignalsWriter:
         count; the write executes on every row even when nothing
         changed).
         """
+        staged_signals = (
+            self._staging_reader.read_hn_postings()
+            + self._staging_reader.read_yc_listings()
+        )
+
         written = 0
-        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
-            for source, select_sql in self._SOURCES:
-                cur.execute(select_sql)
-                rows = cur.fetchall()
-                for (
-                    stable_id,
-                    company_name_raw,
-                    website,
-                    signal_type,
-                    stage,
-                    description,
-                    occurred_on,
-                    url,
-                ) in rows:
-                    resolved_company_key, match_confidence = resolve_signal(
-                        source, stable_id, website
-                    )
-                    cur.execute(
-                        _UPSERT_SQL,
-                        (
-                            stable_id,
-                            source,
-                            resolved_company_key,
-                            company_name_raw,
-                            signal_type,
-                            stage,
-                            description,
-                            occurred_on,
-                            url,
-                            match_confidence,
-                        ),
-                    )
-                    written += 1
+        for signal in staged_signals:
+            resolved_company_key, match_confidence = resolve_signal(
+                signal.source, signal.stable_id, signal.website
+            )
+            self._resolved_writer.upsert(
+                ResolvedSignalRecord(
+                    source=signal.source,
+                    source_stable_id=signal.stable_id,
+                    resolved_company_key=resolved_company_key,
+                    company_name_raw=signal.company_name_raw,
+                    signal_type=signal.signal_type,
+                    stage=signal.stage,
+                    description=signal.description,
+                    occurred_on=signal.occurred_on,
+                    url=signal.url,
+                    match_confidence=match_confidence,
+                )
+            )
+            written += 1
 
         logger.info("silver.resolved_signals resolve_all: %d written", written)
         return written

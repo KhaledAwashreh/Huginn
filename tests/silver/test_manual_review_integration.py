@@ -1,4 +1,4 @@
-"""Live-Postgres integration coverage for PostgresManualReviewQueueWriter.
+"""Live-Postgres integration coverage for ManualReviewQueuer.
 
 Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
 """
@@ -12,7 +12,11 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
-from huginn.silver.manual_review import PostgresManualReviewQueueWriter
+from huginn.silver.manual_review import ManualReviewQueuer
+from huginn.silver.manual_review_repository import (
+    PostgresManualReviewQueueRepository,
+    PostgresUnmatchedSignalReader,
+)
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -29,6 +33,13 @@ def _database_reachable() -> bool:
         return True
     except psycopg.OperationalError:
         return False
+
+
+def _build_queuer() -> ManualReviewQueuer:
+    return ManualReviewQueuer(
+        PostgresUnmatchedSignalReader(DATABASE_URL),
+        PostgresManualReviewQueueRepository(DATABASE_URL),
+    )
 
 
 pytestmark = pytest.mark.skipif(
@@ -64,7 +75,7 @@ def test_queue_unmatched_inserts_a_pending_row_for_no_existing_match():
         )
 
     try:
-        written = PostgresManualReviewQueueWriter(DATABASE_URL).queue_unmatched()
+        written = _build_queuer().queue_unmatched()
 
         assert written >= 1
 
@@ -99,7 +110,7 @@ def test_queue_unmatched_does_not_queue_an_auto_matched_signal():
         )
 
     try:
-        PostgresManualReviewQueueWriter(DATABASE_URL).queue_unmatched()
+        _build_queuer().queue_unmatched()
 
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
@@ -123,9 +134,9 @@ def test_queue_unmatched_does_not_duplicate_an_already_queued_row():
         )
 
     try:
-        writer = PostgresManualReviewQueueWriter(DATABASE_URL)
-        first_written = writer.queue_unmatched()
-        second_written = writer.queue_unmatched()
+        queuer = _build_queuer()
+        first_written = queuer.queue_unmatched()
+        second_written = queuer.queue_unmatched()
 
         assert first_written >= 1
         assert second_written == 0
