@@ -109,7 +109,32 @@ class YcDirectoryAdapter(ApiSourcePort):
     mechanism = "api"
 
     def fetch(self) -> list[RawRecord]:
-        """TODO (KAN-30, Tasks 2-5): batch discovery and per-batch fetching
-        not yet implemented.
+        """Fetch the current YC directory by querying one Algolia query per
+        `batch` facet value, with bounded concurrency.
+
+        Plain pagination and `browse` cannot reach the full directory
+        (confirmed live: 1000-hit ceiling, `browse` returns 403 for this
+        key); splitting by `batch` is the resolved approach. See
+        architecture-notes/yc-fetch-plan.md section 2.
         """
-        raise NotImplementedError
+        start = time.monotonic()
+        batches = _discover_batches()
+        logger.info("yc fetch: discovered %d batch values", len(batches))
+
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_FETCHES) as executor:
+            batch_hits = list(executor.map(_fetch_batch, batches))
+
+        records = [
+            RawRecord(stable_id=str(hit["id"]), payload=hit)
+            for hits in batch_hits
+            for hit in hits
+        ]
+
+        duration = time.monotonic() - start
+        logger.info(
+            "yc fetch: fetched %d records across %d batches in %.2fs",
+            len(records),
+            len(batches),
+            duration,
+        )
+        return records

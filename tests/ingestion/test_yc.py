@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 from huginn.ingestion.adapters import yc
-from huginn.ingestion.ports import ApiSourcePort
+from huginn.ingestion.ports import ApiSourcePort, RawRecord
 
 
 def test_yc_directory_adapter_explicitly_implements_api_source_port():
@@ -14,12 +12,6 @@ def test_yc_directory_adapter_source_and_mechanism_unchanged():
     adapter = yc.YcDirectoryAdapter()
     assert adapter.source == "yc"
     assert adapter.mechanism == "api"
-
-
-def test_yc_directory_adapter_fetch_still_not_implemented():
-    adapter = yc.YcDirectoryAdapter()
-    with pytest.raises(NotImplementedError):
-        adapter.fetch()
 
 
 def test_algolia_api_key_reads_env_var(monkeypatch):
@@ -170,3 +162,67 @@ def test_fetch_batch_returns_empty_list_when_no_hits(monkeypatch):
     monkeypatch.setattr(yc, "_algolia_query", lambda body: {"hits": [], "nbHits": 0})
 
     assert yc._fetch_batch("Winter 2005") == []
+
+
+def test_fetch_returns_one_record_per_hit_across_batches(monkeypatch):
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026", "Winter 2012"])
+
+    def fake_fetch_batch(batch):
+        if batch == "Summer 2026":
+            return [{"id": 531, "name": "A", "batch": batch}]
+        return [{"id": 8, "name": "PlanGrid", "batch": batch}]
+
+    monkeypatch.setattr(yc, "_fetch_batch", fake_fetch_batch)
+
+    records = yc.YcDirectoryAdapter().fetch()
+
+    stable_ids = {record.stable_id for record in records}
+    assert stable_ids == {"531", "8"}
+
+
+def test_fetch_payload_is_exact_raw_hit(monkeypatch):
+    hit = {"id": 8, "name": "PlanGrid", "objectID": "8", "batch": "Winter 2012"}
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Winter 2012"])
+    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
+
+    records = yc.YcDirectoryAdapter().fetch()
+
+    assert records == [RawRecord(stable_id="8", payload=hit)]
+
+
+def test_fetch_stable_id_uses_id_not_object_id(monkeypatch):
+    hit = {"id": 531, "objectID": "different-value"}
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
+    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
+
+    records = yc.YcDirectoryAdapter().fetch()
+
+    assert records[0].stable_id == "531"
+
+
+def test_fetch_returns_empty_list_when_no_batches_discovered(monkeypatch):
+    monkeypatch.setattr(yc, "_discover_batches", lambda: [])
+
+    def _unexpected_fetch_batch(batch):
+        raise AssertionError("_fetch_batch should not be called with no batches")
+
+    monkeypatch.setattr(yc, "_fetch_batch", _unexpected_fetch_batch)
+
+    assert yc.YcDirectoryAdapter().fetch() == []
+
+
+def test_fetch_propagates_a_genuine_batch_fetch_failure(monkeypatch):
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026", "Winter 2012"])
+
+    def fake_fetch_batch(batch):
+        if batch == "Winter 2012":
+            raise RuntimeError("simulated timeout")
+        return [{"id": 1}]
+
+    monkeypatch.setattr(yc, "_fetch_batch", fake_fetch_batch)
+
+    try:
+        yc.YcDirectoryAdapter().fetch()
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as exc:
+        assert "simulated timeout" in str(exc)
