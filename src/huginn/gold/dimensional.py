@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-TYPE_2_TRACKED_FIELDS = ("business_sector", "team_composition_signal", "icp_filter_pass")
+TYPE_2_TRACKED_FIELDS = (
+    "business_sector",
+    "team_composition_signal",
+    "icp_filter_pass",
+)
 """Fields that trigger a CompanyHistory row on change. See ADR-0002.
 Everything else on Company is Type 1: overwritten in place, no history.
 """

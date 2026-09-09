@@ -82,9 +82,13 @@ def test_algolia_query_raises_on_non_2xx_response(monkeypatch):
             raise requests.HTTPError("403 Forbidden")
 
         def json(self):
-            raise AssertionError("json() must not be called after raise_for_status raises")
+            raise AssertionError(
+                "json() must not be called after raise_for_status raises"
+            )
 
-    monkeypatch.setattr(yc.requests, "post", lambda url, json, headers, timeout: FakeResponse())
+    monkeypatch.setattr(
+        yc.requests, "post", lambda url, json, headers, timeout: FakeResponse()
+    )
     monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "test-secured-key")
 
     try:
@@ -268,7 +272,9 @@ def test_total_hit_count_requests_zero_hits_and_returns_nb_hits(monkeypatch):
     assert captured["body"] == {"query": "", "hitsPerPage": 0}
 
 
-def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(monkeypatch, caplog):
+def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(
+    monkeypatch, caplog
+):
     monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
     monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
     monkeypatch.setattr(yc, "_total_hit_count", lambda: 6204)
@@ -282,7 +288,9 @@ def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(monkeypa
     assert "6204" in warnings[0].getMessage()
 
 
-def test_fetch_does_not_log_warning_when_total_hit_count_matches_records(monkeypatch, caplog):
+def test_fetch_does_not_log_warning_when_total_hit_count_matches_records(
+    monkeypatch, caplog
+):
     monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
     monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
     monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)

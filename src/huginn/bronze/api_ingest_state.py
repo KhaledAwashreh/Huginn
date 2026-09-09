@@ -34,10 +34,9 @@ class PostgresApiIngestState:
 
     def last_hash(self, source: str, stable_id: str) -> str | None:
         """See huginn.ingestion.ports.StatePort.last_hash."""
-        with psycopg.connect(self._database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(*build_lookup_query(source, stable_id))
-                row = cur.fetchone()
+        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
+            cur.execute(*build_lookup_query(source, stable_id))
+            row = cur.fetchone()
 
         result = row[0] if row else None
         logger.debug(

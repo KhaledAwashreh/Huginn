@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 
@@ -51,7 +51,7 @@ def start_job_run(source: str) -> JobRun:
     return JobRun(
         id=str(uuid.uuid4()),
         source=source,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         finished_at=None,
         status=JobRunStatus.RUNNING,
         rows_written=0,
@@ -72,7 +72,7 @@ def finish_job_run(
     return replace(
         job_run,
         status=status,
-        finished_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(UTC),
         rows_written=rows_written,
         error=error,
     )

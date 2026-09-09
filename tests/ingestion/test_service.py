@@ -24,7 +24,9 @@ class FakeRawStore:
         self.writes: list[tuple[str, str, list[RawRecord], str]] = []
         self._written_count = written_count
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
+    def write(
+        self, source: str, mechanism: str, records: list[RawRecord], run_id: str
+    ) -> int:
         self.writes.append((source, mechanism, records, run_id))
         return self._written_count if self._written_count is not None else len(records)
 
@@ -58,7 +60,9 @@ def test_run_once_writes_fetched_records_to_raw_store():
     service.run_once()
 
     assert len(raw_store.writes) == 1
-    written_source, written_mechanism, written_records, written_run_id = raw_store.writes[0]
+    written_source, written_mechanism, written_records, written_run_id = (
+        raw_store.writes[0]
+    )
     assert written_source == "hn"
     assert written_mechanism == "api"
     assert written_records == records
@@ -81,7 +85,10 @@ def test_run_once_writes_a_running_job_run_before_fetching():
 
 
 def test_run_once_writes_a_succeeded_job_run_for_a_successful_source():
-    records = [RawRecord(stable_id="1", payload={"id": 1}), RawRecord(stable_id="2", payload={"id": 2})]
+    records = [
+        RawRecord(stable_id="1", payload={"id": 1}),
+        RawRecord(stable_id="2", payload={"id": 2}),
+    ]
     source = FakeSource("hn", records)
     job_run_writer = FakeJobRunWriter()
     service = IngestionService([source], FakeRawStore(), job_run_writer)
@@ -98,9 +105,14 @@ def test_run_once_writes_a_succeeded_job_run_for_a_successful_source():
 
 
 def test_run_once_records_rows_written_from_the_raw_store_return_value_not_fetched_count():
-    records = [RawRecord(stable_id="1", payload={"id": 1}), RawRecord(stable_id="2", payload={"id": 2})]
+    records = [
+        RawRecord(stable_id="1", payload={"id": 1}),
+        RawRecord(stable_id="2", payload={"id": 2}),
+    ]
     source = FakeSource("hn", records)
-    raw_store = FakeRawStore(written_count=0)  # every record hash-matched and was skipped
+    raw_store = FakeRawStore(
+        written_count=0
+    )  # every record hash-matched and was skipped
     job_run_writer = FakeJobRunWriter()
     service = IngestionService([source], raw_store, job_run_writer)
 
@@ -210,13 +222,18 @@ def test_run_once_does_not_abort_when_the_last_source_fails():
         for job_run in job_run_writer.written
         if job_run.finished_at is not None
     }
-    assert terminal_statuses == {"yc": JobRunStatus.SUCCEEDED, "hn": JobRunStatus.FAILED}
+    assert terminal_statuses == {
+        "yc": JobRunStatus.SUCCEEDED,
+        "hn": JobRunStatus.FAILED,
+    }
 
 
 def test_run_once_returns_the_failed_source_count():
     good_source = FakeSource("yc", [RawRecord(stable_id="1", payload={"id": 1})])
     failing_source = FakeFailingSource("hn", RuntimeError("boom"))
-    service = IngestionService([good_source, failing_source], FakeRawStore(), FakeJobRunWriter())
+    service = IngestionService(
+        [good_source, failing_source], FakeRawStore(), FakeJobRunWriter()
+    )
 
     failed_count = service.run_once()
 
@@ -240,7 +257,9 @@ def test_run_once_logs_an_exception_for_a_failing_source(caplog):
         service.run_once()
 
     assert any(
-        record.levelname == "ERROR" and "hn" in record.message and record.exc_info is not None
+        record.levelname == "ERROR"
+        and "hn" in record.message
+        and record.exc_info is not None
         for record in caplog.records
     )
 

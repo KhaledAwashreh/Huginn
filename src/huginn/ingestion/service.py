@@ -15,7 +15,12 @@ from __future__ import annotations
 import logging
 
 from huginn.ingestion.ports import RawStorePort, SourcePort
-from huginn.ops.job_runs import JobRunStatus, JobRunWriterPort, finish_job_run, start_job_run
+from huginn.ops.job_runs import (
+    JobRunStatus,
+    JobRunWriterPort,
+    finish_job_run,
+    start_job_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +67,19 @@ class IngestionService:
                 )
             except Exception as exc:
                 logger.exception("source %s: run failed", source.source)
-                job_run = finish_job_run(job_run, JobRunStatus.FAILED, error=str(exc) or repr(exc))
+                job_run = finish_job_run(
+                    job_run, JobRunStatus.FAILED, error=str(exc) or repr(exc)
+                )
                 self._safe_write_job_run(job_run)
                 failed_count += 1
                 continue
-            job_run = finish_job_run(job_run, JobRunStatus.SUCCEEDED, rows_written=written)
+            job_run = finish_job_run(
+                job_run, JobRunStatus.SUCCEEDED, rows_written=written
+            )
             self._safe_write_job_run(job_run)
-            logger.info("source %s: succeeded, wrote %d record(s)", source.source, written)
+            logger.info(
+                "source %s: succeeded, wrote %d record(s)", source.source, written
+            )
             succeeded_count += 1
 
         logger.info(

@@ -42,15 +42,27 @@ class FakeService:
 
 
 def test_main_exits_zero_when_every_source_succeeds(monkeypatch):
-    monkeypatch.setattr(main_module, "load_config", lambda: Config(database_url="postgresql://example.invalid/db"))
-    monkeypatch.setattr(main_module, "build_service", lambda config: FakeService(failed_count=0))
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: Config(database_url="postgresql://example.invalid/db"),
+    )
+    monkeypatch.setattr(
+        main_module, "build_service", lambda config: FakeService(failed_count=0)
+    )
 
     main()  # must not raise SystemExit
 
 
 def test_main_exits_non_zero_when_a_source_failed(monkeypatch):
-    monkeypatch.setattr(main_module, "load_config", lambda: Config(database_url="postgresql://example.invalid/db"))
-    monkeypatch.setattr(main_module, "build_service", lambda config: FakeService(failed_count=1))
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: Config(database_url="postgresql://example.invalid/db"),
+    )
+    monkeypatch.setattr(
+        main_module, "build_service", lambda config: FakeService(failed_count=1)
+    )
 
     with pytest.raises(SystemExit) as exc_info:
         main()
