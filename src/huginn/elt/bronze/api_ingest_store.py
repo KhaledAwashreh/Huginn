@@ -79,24 +79,29 @@ class PostgresApiIngestStore:
 
         written = 0
         skipped = 0
-        for record in records:
-            content_hash = compute_content_hash(
-                record.payload, sorted(record.payload.keys())
-            )
-            existing_hash = self._repository.lookup_hash(source, record.stable_id)
-
-            if decide_write_action(existing_hash, content_hash) == ACTION_WRITE:
-                self._repository.write(
-                    source,
-                    record.stable_id,
-                    record.payload,
-                    content_hash,
-                    run_id,
+        # One `with` around the whole loop, not one per record: every
+        # statement for this call shares a single connection and commits as
+        # one transaction, so a large run costs one connect rather than two
+        # per record, and a mid-loop failure leaves no partial batch behind.
+        with self._repository:
+            for record in records:
+                content_hash = compute_content_hash(
+                    record.payload, sorted(record.payload.keys())
                 )
-                written += 1
-            else:
-                self._repository.touch(source, record.stable_id)
-                skipped += 1
+                existing_hash = self._repository.lookup_hash(source, record.stable_id)
+
+                if decide_write_action(existing_hash, content_hash) == ACTION_WRITE:
+                    self._repository.write(
+                        source,
+                        record.stable_id,
+                        record.payload,
+                        content_hash,
+                        run_id,
+                    )
+                    written += 1
+                else:
+                    self._repository.touch(source, record.stable_id)
+                    skipped += 1
 
         logger.info(
             "bronze.api_ingest write source=%s run_id=%s: %d written, %d skipped",

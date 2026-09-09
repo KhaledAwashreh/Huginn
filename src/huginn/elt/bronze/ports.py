@@ -63,7 +63,27 @@ class ApiIngestRepositoryPort(Protocol):
     implementation, instead of each class issuing its own copy against the
     same table. Implementations own the SQL and the database connection;
     nothing above this port imports `psycopg`.
+
+    A context manager, and deliberately so: the connection scope belongs to
+    the orchestrator's whole call, not to each individual statement. An
+    orchestrator wraps its batch in `with repository:` and every statement
+    inside shares one connection and one transaction. `lookup_hash`,
+    `write`, and `touch` are only valid between `__enter__` and `__exit__`.
     """
+
+    def __enter__(self) -> ApiIngestRepositoryPort:
+        """Acquire whatever the statements below need, and return the
+        object those statements are then called on.
+        """
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Release what `__enter__` acquired, committing the block's work
+        on a clean exit and discarding it if the block raised.
+
+        Must not suppress the exception: return None, never a truthy value.
+        """
+        ...
 
     def lookup_hash(self, source: str, stable_id: str) -> str | None:
         """The stored content hash for `(source, stable_id)`, or None if

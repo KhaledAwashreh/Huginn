@@ -12,12 +12,22 @@ class _FakeApiIngestRepository:
     `PostgresApiIngestState` no longer opens a connection or issues SQL
     itself, so the boundary these tests exercise is the repository port:
     the class must delegate the lookup rather than carry its own copy of
-    the query.
+    the query, and must open a repository scope to do it.
     """
 
     def __init__(self, lookup_result):
         self._lookup_result = lookup_result
         self.calls = []
+        self.enter_count = 0
+        self.exit_count = 0
+
+    def __enter__(self):
+        self.enter_count += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.exit_count += 1
+        return None
 
     def lookup_hash(self, source, stable_id):
         self.calls.append((source, stable_id))
@@ -54,8 +64,11 @@ def test_last_hash_delegates_to_the_shared_repository_lookup():
 
     # One delegated call, no second implementation of the same query: the
     # repository is the single owner of the bronze.api_ingest lookup that
-    # PostgresApiIngestStore's write path also uses.
+    # PostgresApiIngestStore's write path also uses. The call happens
+    # inside one repository scope, per the port's contract.
     assert repository.calls == [("hn", "49522897")]
+    assert repository.enter_count == 1
+    assert repository.exit_count == 1
 
 
 def test_last_hash_logs_hit_at_debug_level(caplog):

@@ -35,8 +35,14 @@ class PostgresApiIngestState:
         self._repository = repository
 
     def last_hash(self, source: str, stable_id: str) -> str | None:
-        """See huginn.elt.bronze.ports.StatePort.last_hash."""
-        result = self._repository.lookup_hash(source, stable_id)
+        """See huginn.elt.bronze.ports.StatePort.last_hash.
+
+        One statement, so the `with` here buys no batching; it is the
+        repository's contract, and following it keeps this class correct if
+        a future caller ever does loop over it.
+        """
+        with self._repository:
+            result = self._repository.lookup_hash(source, stable_id)
         logger.debug(
             "bronze.api_ingest lookup source=%s stable_id=%s: %s",
             source,
