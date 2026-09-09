@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+import requests
+
 from huginn.ingestion.adapters import yc
 from huginn.ingestion.ports import ApiSourcePort, RawRecord
 
@@ -38,9 +42,6 @@ def test_algolia_api_key_raises_when_empty(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert yc.ALGOLIA_API_KEY_ENV_VAR in str(exc)
-
-
-import requests
 
 
 def test_algolia_query_posts_expected_url_headers_and_body(monkeypatch):
@@ -114,7 +115,12 @@ def test_discover_batches_requests_batch_facet_with_zero_hits(monkeypatch):
 
     yc._discover_batches()
 
-    assert captured["body"] == {"query": "", "facets": ["batch"], "hitsPerPage": 0}
+    assert captured["body"] == {
+        "query": "",
+        "facets": ["batch"],
+        "hitsPerPage": 0,
+        "maxValuesPerFacet": 1000,
+    }
 
 
 def test_discover_batches_returns_facet_keys(monkeypatch):
@@ -173,6 +179,7 @@ def test_fetch_returns_one_record_per_hit_across_batches(monkeypatch):
         return [{"id": 8, "name": "PlanGrid", "batch": batch}]
 
     monkeypatch.setattr(yc, "_fetch_batch", fake_fetch_batch)
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 2)
 
     records = yc.YcDirectoryAdapter().fetch()
 
@@ -184,6 +191,7 @@ def test_fetch_payload_is_exact_raw_hit(monkeypatch):
     hit = {"id": 8, "name": "PlanGrid", "objectID": "8", "batch": "Winter 2012"}
     monkeypatch.setattr(yc, "_discover_batches", lambda: ["Winter 2012"])
     monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
 
     records = yc.YcDirectoryAdapter().fetch()
 
@@ -194,6 +202,7 @@ def test_fetch_stable_id_uses_id_not_object_id(monkeypatch):
     hit = {"id": 531, "objectID": "different-value"}
     monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
     monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
 
     records = yc.YcDirectoryAdapter().fetch()
 
@@ -207,6 +216,7 @@ def test_fetch_returns_empty_list_when_no_batches_discovered(monkeypatch):
         raise AssertionError("_fetch_batch should not be called with no batches")
 
     monkeypatch.setattr(yc, "_fetch_batch", _unexpected_fetch_batch)
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 0)
 
     assert yc.YcDirectoryAdapter().fetch() == []
 
@@ -226,3 +236,42 @@ def test_fetch_propagates_a_genuine_batch_fetch_failure(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "simulated timeout" in str(exc)
+
+
+def test_total_hit_count_requests_zero_hits_and_returns_nb_hits(monkeypatch):
+    captured = {}
+
+    def fake_algolia_query(body):
+        captured["body"] = body
+        return {"hits": [], "nbHits": 6204}
+
+    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
+
+    assert yc._total_hit_count() == 6204
+    assert captured["body"] == {"query": "", "hitsPerPage": 0}
+
+
+def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(monkeypatch, caplog):
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
+    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 6204)
+
+    with caplog.at_level(logging.WARNING, logger=yc.logger.name):
+        yc.YcDirectoryAdapter().fetch()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "1" in warnings[0].getMessage()
+    assert "6204" in warnings[0].getMessage()
+
+
+def test_fetch_does_not_log_warning_when_total_hit_count_matches_records(monkeypatch, caplog):
+    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
+    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
+    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
+
+    with caplog.at_level(logging.WARNING, logger=yc.logger.name):
+        yc.YcDirectoryAdapter().fetch()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == []

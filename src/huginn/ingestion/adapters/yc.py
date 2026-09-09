@@ -81,7 +81,18 @@ def _discover_batches() -> list[str]:
     architecture-notes/yc-fetch-plan.md section 2, "Confirmed by a live
     test call" bullets 2-3.
     """
-    response = _algolia_query({"query": "", "facets": ["batch"], "hitsPerPage": 0})
+    response = _algolia_query(
+        {
+            "query": "",
+            "facets": ["batch"],
+            "hitsPerPage": 0,
+            # Algolia's default cap on distinct facet values returned is 100;
+            # 1000 is Algolia's own documented maximum for this parameter.
+            # YC currently has ~45-50 batch values, but that grows over time,
+            # so remove the ceiling risk entirely rather than just raising it.
+            "maxValuesPerFacet": 1000,
+        }
+    )
     return list(response["facets"]["batch"].keys())
 
 
@@ -104,6 +115,22 @@ def _fetch_batch(batch: str) -> list[dict]:
     return response["hits"]
 
 
+def _total_hit_count() -> int:
+    """Query the directory's true total hit count with a lightweight,
+    zero-hit query, for `fetch()` to reconcile the fetched record count
+    against.
+
+    `_discover_batches` (facet enumeration, capped at `maxValuesPerFacet`
+    values, and blind to a record with a missing/null `batch`) and
+    `_fetch_batch` (each query capped at `ALGOLIA_MAX_HITS_PER_QUERY` hits)
+    each have their own silent-truncation failure mode; this gives `fetch()`
+    an independent total to compare against so under-fetching is at least
+    detectable. See architecture-notes/yc-fetch-plan.md section 2.
+    """
+    response = _algolia_query({"query": "", "hitsPerPage": 0})
+    return response["nbHits"]
+
+
 class YcDirectoryAdapter(ApiSourcePort):
     source = "yc"
     mechanism = "api"
@@ -116,6 +143,13 @@ class YcDirectoryAdapter(ApiSourcePort):
         (confirmed live: 1000-hit ceiling, `browse` returns 403 for this
         key); splitting by `batch` is the resolved approach. See
         architecture-notes/yc-fetch-plan.md section 2.
+
+        The batch-split approach has its own silent-truncation risks (a
+        record with no `batch` value is never enumerated; a single batch
+        exceeding the per-query hit ceiling would be truncated), so this
+        also reconciles the fetched record count against the directory's
+        true total hit count and logs a warning (not an error — this is a
+        detectable-but-not-fatal signal) on mismatch.
         """
         start = time.monotonic()
         batches = _discover_batches()
@@ -129,6 +163,15 @@ class YcDirectoryAdapter(ApiSourcePort):
             for hits in batch_hits
             for hit in hits
         ]
+
+        total_hits = _total_hit_count()
+        if len(records) != total_hits:
+            logger.warning(
+                "yc fetch: total records fetched (%d) does not match directory's "
+                "total hit count (%d) — some records may be missing or duplicated",
+                len(records),
+                total_hits,
+            )
 
         duration = time.monotonic() - start
         logger.info(
