@@ -23,6 +23,39 @@ from huginn.silver.resolution import MatchConfidence, normalize_domain
 logger = logging.getLogger(__name__)
 
 
+_NON_COMPANY_HOSTS = frozenset(
+    {
+        "ashbyhq.com",
+        "bamboohr.com",
+        "curriculo.me",
+        "greenhouse.io",
+        "lever.co",
+        "myworkdayjobs.com",
+        "producthunt.com",
+        "workday.com",
+        "ycombinator.com",
+        "youtube.com",
+    }
+)
+"""Hosts that are never a company's own domain: ATS/careers platforms and
+generic content platforms. Sourced from this plan's final review, which
+found live false merges caused by treating them as company keys: "Uiflow"
+and "Y Combinator" both resolved to `ycombinator.com`, "Product Hunt" and
+"Storyline" both to `producthunt.com`, and several HN postings to the ATS
+host in their posting link rather than the hiring company's own site.
+"""
+
+
+def _is_non_company_host(domain: str) -> bool:
+    """True when `domain` is a denylisted host or a subdomain of one
+    (`boards.greenhouse.io`, `acme.bamboohr.com`). Suffix matching is on
+    label boundaries, so `notgreenhouse.io` is unaffected.
+    """
+    return any(
+        domain == host or domain.endswith(f".{host}") for host in _NON_COMPANY_HOSTS
+    )
+
+
 def unresolved_placeholder_key(source: str, source_stable_id: str) -> str:
     """Synthetic resolved_company_key for a row with no extractable
     domain. Scoped by (source, source_stable_id), not company_name_raw,
@@ -39,10 +72,18 @@ def resolve_signal(
     row. See architecture document section 6: domain is the canonical
     key; no domain match falls through to "no_existing_match" (the
     fuzzy fallback is unimplemented, Jira KAN-4).
+
+    A domain in `_NON_COMPANY_HOSTS` is not a match. `website` is
+    freeform on both sources (HN's link extraction, YC's raw directory
+    field) and sometimes carries an ATS or platform host instead of the
+    company's own site; this plan's final review found those hosts
+    auto-matching and merging unrelated companies under one key. A wrong
+    confident match is worse than none, so these route to manual review
+    like any other unmatchable row.
     """
     if website:
         domain = normalize_domain(website)
-        if domain:
+        if domain and not _is_non_company_host(domain):
             return domain, MatchConfidence.AUTO_MATCHED
     return (
         unresolved_placeholder_key(source, source_stable_id),
@@ -93,7 +134,9 @@ class PostgresResolvedSignalsWriter:
 
     def resolve_all(self) -> int:
         """Resolve and upsert every staged signal from every source,
-        returning the total count written.
+        returning the count of rows upserted (always equals the input
+        count; the write executes on every row even when nothing
+        changed).
         """
         written = 0
         with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
