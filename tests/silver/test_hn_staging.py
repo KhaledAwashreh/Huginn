@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from huginn.silver.hn_staging import HnPostingStaging, parse_hn_posting
+from huginn.silver.hn_staging import parse_hn_posting
 
 # Real "Who's Hiring" comment, HTML-escaped exactly as Firebase returns it
 # (confirmed live, architecture-notes/hn-fetch-plan.md).
@@ -13,9 +13,9 @@ _REAL_COMMENT_WITH_TRAILING_LINK = {
     "time": 1757404800,
     "by": "modash_hn",
     "text": (
-        'Modash.io | Senior Product Engineer | Remote (Europe) | Full-time | '
+        "Modash.io | Senior Product Engineer | Remote (Europe) | Full-time | "
         '&#x20;75k–110k | <a href="https:&#x2F;&#x2F;modash.io" rel="nofollow">'
-        'https:&#x2F;&#x2F;modash.io</a><p>Modash helps brands find, manage, and '
+        "https:&#x2F;&#x2F;modash.io</a><p>Modash helps brands find, manage, and "
         "pay creators."
     ),
 }
