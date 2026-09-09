@@ -67,7 +67,7 @@ def finish_job_run(
 ) -> JobRun:
     """Close out `job_run` with a terminal `status`, returning a new
     `JobRun` rather than mutating the one passed in (same pattern as
-    `apply_company_update` in `huginn.gold.dimensional`).
+    `apply_company_update` in `huginn.elt.gold.dimensional`).
     """
     return replace(
         job_run,
