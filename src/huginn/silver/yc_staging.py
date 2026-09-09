@@ -83,12 +83,19 @@ class YcStagingLoader:
         count of rows upserted (always equals the input count; the write
         executes on every row even when nothing changed).
         """
-        payloads = self._bronze_reader.read("yc")
-        written = 0
-        for payload in payloads:
-            staging_row = parse_yc_listing(payload)
-            self._staging_writer.upsert(staging_row)
-            written += 1
+        # One `with` around the whole method, not one per record: every
+        # statement in this call shares a single connection per port and
+        # commits as one transaction, so a large run costs one connect
+        # rather than one per record, and a mid-loop failure leaves no
+        # partial batch behind. `with` on an injected port is plain
+        # Python; this class still imports no `psycopg`.
+        with self._bronze_reader, self._staging_writer:
+            payloads = self._bronze_reader.read("yc")
+            written = 0
+            for payload in payloads:
+                staging_row = parse_yc_listing(payload)
+                self._staging_writer.upsert(staging_row)
+                written += 1
 
         logger.info(
             "silver.yc_listings load: %d written (of %d bronze rows)",

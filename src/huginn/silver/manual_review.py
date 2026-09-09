@@ -52,15 +52,22 @@ class ManualReviewQueuer:
         untouched: re-running this must never reset a reviewer's prior
         decision.
         """
-        written = 0
-        for (
-            resolved_signal_id,
-            candidate_company_key,
-        ) in self._unmatched_reader.read_unmatched():
-            if self._queue_writer.insert_if_new(
-                resolved_signal_id, candidate_company_key, NO_SCORE_COMPUTED
-            ):
-                written += 1
+        # One `with` around the whole method, not one per record: the read
+        # and every insert in this call share a single connection per port
+        # and commit as one transaction, so a large run costs one connect
+        # rather than one per record, and a mid-loop failure leaves no
+        # partial batch behind. `with` on an injected port is plain
+        # Python; this class still imports no `psycopg`.
+        with self._unmatched_reader, self._queue_writer:
+            written = 0
+            for (
+                resolved_signal_id,
+                candidate_company_key,
+            ) in self._unmatched_reader.read_unmatched():
+                if self._queue_writer.insert_if_new(
+                    resolved_signal_id, candidate_company_key, NO_SCORE_COMPUTED
+                ):
+                    written += 1
 
         logger.info("silver.manual_review_queue queue_unmatched: %d written", written)
         return written

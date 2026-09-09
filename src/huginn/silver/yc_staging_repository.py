@@ -44,11 +44,46 @@ def build_upsert_query(row: YcListingStaging) -> tuple[str, tuple]:
 class PostgresYcStagingRepository:
     """`YcStagingWriterPort` implementation against silver.yc_listings.
     Knows only how to upsert one row; no orchestration, no bronze read.
+
+    A context manager: one connection and one cursor span the whole `with`
+    block, so a loader's entire batch shares a single connection and a
+    single transaction (see huginn.silver.ports' connection-scope note).
+    `upsert` therefore assumes it is called between `__enter__` and
+    `__exit__`.
     """
 
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
+        self._conn = None
+        self._cur = None
+
+    def __enter__(self) -> PostgresYcStagingRepository:
+        """Open the connection and cursor this block's statements share."""
+        self._conn = psycopg.connect(self._database_url)
+        self._cur = self._conn.cursor()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Commit on a clean exit, roll back if the block raised, and close
+        both the cursor and the connection either way.
+
+        Returns None so a failure inside the block still propagates: a
+        repository must not swallow its caller's exception.
+        """
+        try:
+            if self._cur is not None:
+                self._cur.close()
+            if self._conn is not None:
+                if exc_type is None:
+                    self._conn.commit()
+                else:
+                    self._conn.rollback()
+        finally:
+            if self._conn is not None:
+                self._conn.close()
+            self._cur = None
+            self._conn = None
+        return None
 
     def upsert(self, row: YcListingStaging) -> None:
-        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
-            cur.execute(*build_upsert_query(row))
+        self._cur.execute(*build_upsert_query(row))

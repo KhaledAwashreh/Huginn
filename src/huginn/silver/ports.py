@@ -6,6 +6,15 @@ standard 6. `HnStagingLoader`, `YcStagingLoader`, `SignalResolver`, and
 `ManualReviewQueuer` depend only on these Protocols, never on `psycopg`
 directly; the concrete Postgres classes implementing them live alongside
 their respective orchestrators.
+
+Every port here is a context manager, and deliberately so: the connection
+scope belongs to the orchestrator's whole call, not to each individual
+statement. An orchestrator wraps its batch in `with port:` and every
+statement inside shares one connection and one transaction, so a run over
+N records costs one connect rather than one per record and a mid-loop
+failure leaves no partial batch behind. Every data method below is only
+valid between `__enter__` and `__exit__`, and no `__exit__` may suppress
+the block's exception: it returns None, never a truthy value.
 """
 
 from __future__ import annotations
@@ -24,19 +33,55 @@ class BronzeReaderPort(Protocol):
     every staging loader, since the read side is identical regardless of
     source (architecture document section 4.1: one shared api_ingest
     table, `source` column distinguishes rows).
+
+    A context manager, per this module's connection-scope note.
     """
+
+    def __enter__(self) -> BronzeReaderPort:
+        """Acquire whatever the statements below need, and return the
+        object those statements are then called on.
+        """
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Release what `__enter__` acquired, committing the block's work
+        on a clean exit and discarding it if the block raised.
+
+        Must not suppress the exception: return None, never a truthy value.
+        """
+        ...
 
     def read(self, source: str) -> list[dict]: ...
 
 
 class HnStagingWriterPort(Protocol):
-    """Upserts one row into silver.hn_postings."""
+    """Upserts one row into silver.hn_postings. A context manager, per
+    this module's connection-scope note.
+    """
+
+    def __enter__(self) -> HnStagingWriterPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def upsert(self, row: HnPostingStaging) -> None: ...
 
 
 class YcStagingWriterPort(Protocol):
-    """Upserts one row into silver.yc_listings."""
+    """Upserts one row into silver.yc_listings. A context manager, per
+    this module's connection-scope note.
+    """
+
+    def __enter__(self) -> YcStagingWriterPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def upsert(self, row: YcListingStaging) -> None: ...
 
@@ -60,7 +105,17 @@ class StagedSignal:
 
 
 class SilverStagingReaderPort(Protocol):
-    """Reads every row currently in the per-source staging tables."""
+    """Reads every row currently in the per-source staging tables. A
+    context manager, per this module's connection-scope note.
+    """
+
+    def __enter__(self) -> SilverStagingReaderPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def read_hn_postings(self) -> list[StagedSignal]: ...
 
@@ -86,15 +141,34 @@ class ResolvedSignalRecord:
 
 
 class ResolvedSignalWriterPort(Protocol):
-    """Upserts one row into silver.resolved_signals."""
+    """Upserts one row into silver.resolved_signals. A context manager,
+    per this module's connection-scope note.
+    """
+
+    def __enter__(self) -> ResolvedSignalWriterPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def upsert(self, record: ResolvedSignalRecord) -> None: ...
 
 
 class UnmatchedSignalReaderPort(Protocol):
     """Reads every silver.resolved_signals row not yet resolved to a
-    real company (match_confidence = 'no_existing_match').
+    real company (match_confidence = 'no_existing_match'). A context
+    manager, per this module's connection-scope note.
     """
+
+    def __enter__(self) -> UnmatchedSignalReaderPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def read_unmatched(self) -> list[tuple[str, str]]:
         """Returns (resolved_signal_id, candidate_company_key) pairs."""
@@ -104,8 +178,17 @@ class UnmatchedSignalReaderPort(Protocol):
 class ManualReviewQueueWriterPort(Protocol):
     """Queues one unmatched signal for manual review, if not already
     queued. See docs/entities.md's ManualReviewCandidate: a row already
-    queued (pending, confirmed, or rejected) must be left untouched.
+    queued (pending, confirmed, or rejected) must be left untouched. A
+    context manager, per this module's connection-scope note.
     """
+
+    def __enter__(self) -> ManualReviewQueueWriterPort:
+        """See `BronzeReaderPort.__enter__`."""
+        ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """See `BronzeReaderPort.__exit__`; must not suppress the exception."""
+        ...
 
     def insert_if_new(
         self, resolved_signal_id: str, candidate_company_key: str, match_score: int

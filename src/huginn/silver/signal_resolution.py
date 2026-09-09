@@ -116,31 +116,38 @@ class SignalResolver:
         count; the write executes on every row even when nothing
         changed).
         """
-        staged_signals = (
-            self._staging_reader.read_hn_postings()
-            + self._staging_reader.read_yc_listings()
-        )
+        # One `with` around the whole method, not one per record: both
+        # reads and every write in this call share a single connection per
+        # port and commit as one transaction, so a large run costs one
+        # connect rather than one per record, and a mid-loop failure leaves
+        # no partial batch behind. `with` on an injected port is plain
+        # Python; this class still imports no `psycopg`.
+        with self._staging_reader, self._resolved_writer:
+            staged_signals = (
+                self._staging_reader.read_hn_postings()
+                + self._staging_reader.read_yc_listings()
+            )
 
-        written = 0
-        for signal in staged_signals:
-            resolved_company_key, match_confidence = resolve_signal(
-                signal.source, signal.stable_id, signal.website
-            )
-            self._resolved_writer.upsert(
-                ResolvedSignalRecord(
-                    source=signal.source,
-                    source_stable_id=signal.stable_id,
-                    resolved_company_key=resolved_company_key,
-                    company_name_raw=signal.company_name_raw,
-                    signal_type=signal.signal_type,
-                    stage=signal.stage,
-                    description=signal.description,
-                    occurred_on=signal.occurred_on,
-                    url=signal.url,
-                    match_confidence=match_confidence,
+            written = 0
+            for signal in staged_signals:
+                resolved_company_key, match_confidence = resolve_signal(
+                    signal.source, signal.stable_id, signal.website
                 )
-            )
-            written += 1
+                self._resolved_writer.upsert(
+                    ResolvedSignalRecord(
+                        source=signal.source,
+                        source_stable_id=signal.stable_id,
+                        resolved_company_key=resolved_company_key,
+                        company_name_raw=signal.company_name_raw,
+                        signal_type=signal.signal_type,
+                        stage=signal.stage,
+                        description=signal.description,
+                        occurred_on=signal.occurred_on,
+                        url=signal.url,
+                        match_confidence=match_confidence,
+                    )
+                )
+                written += 1
 
         logger.info("silver.resolved_signals resolve_all: %d written", written)
         return written
