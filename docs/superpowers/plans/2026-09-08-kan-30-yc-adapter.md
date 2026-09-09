@@ -735,14 +735,23 @@ class YcDirectoryAdapter(ApiSourcePort):
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/ingestion/test_yc.py -v`
-Expected: PASS (18 passed)
+Expected: PASS (19 in this file total — 2 remaining KAN-26 conformance
+tests, 12 from Tasks 1-4, and 5 new from this step. The third pre-existing
+test, `test_yc_directory_adapter_fetch_still_not_implemented`, must be
+deleted in this step, since `fetch()` no longer raises `NotImplementedError`
+and that placeholder test would otherwise assert something now false)
 
 Then run the full suite to confirm no regressions:
 
 Run: `uv run pytest -q`
-Expected: PASS, all tests green (64 pre-existing + 18 new = 82 passed, 1
-skipped). Confirm the actual output matches before reporting this number as
-fact.
+Expected: PASS, all tests green. Across all 5 tasks this plan adds
+3+3+3+3+5 = 17 new tests (Task 5 adds 5, not 6: its brief does not
+re-add the pre-existing `ApiSourcePort` conformance test) and deletes 1
+pre-existing placeholder test in this step, so: 64 pre-existing + 17 new
+- 1 deleted = 80 passed, 1 skipped. Confirm the actual output matches
+before reporting this number as fact — this count depends on exactly one
+pre-existing test being removed in this step, easy to get wrong by one if
+that deletion is missed or double-counted.
 
 - [ ] **Step 5: Commit**
 
