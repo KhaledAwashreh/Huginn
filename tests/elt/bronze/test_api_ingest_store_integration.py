@@ -115,3 +115,50 @@ def test_write_then_write_again_with_same_payload_only_touches_last_checked_at()
                 "DELETE FROM bronze.api_ingest WHERE source = %s AND stable_id = %s",
                 (source, stable_id),
             )
+
+
+def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
+    """The batch is one transaction, so a record that fails must undo the
+    records already written alongside it.
+
+    Guards PostgresApiIngestRepository.__exit__'s rollback branch, which
+    unit tests cannot reach: a fake repository has no transaction to roll
+    back, so only a real database can show that the first record's write
+    did not survive the second record's failure. Without the rollback this
+    test finds one committed row instead of none.
+    """
+    store = PostgresApiIngestStore(PostgresApiIngestRepository(DATABASE_URL))
+    source = "kan32-integration-test"
+    good_stable_id = str(uuid.uuid4())
+    bad_stable_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+
+    # The second payload hashes fine but has no JSONB representation, so it
+    # fails inside the repository's write, mid-loop, after the first record
+    # has already been written into the open transaction. That ordering is
+    # the point: it is what makes a missing rollback observable.
+    records = [
+        RawRecord(stable_id=good_stable_id, payload={"title": "Written First"}),
+        RawRecord(stable_id=bad_stable_id, payload={"title": {"not", "json"}}),
+    ]
+
+    try:
+        with pytest.raises(TypeError):
+            store.write(source, "api", records, run_id)
+
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM bronze.api_ingest "
+                "WHERE source = %s AND stable_id = ANY(%s)",
+                (source, [good_stable_id, bad_stable_id]),
+            )
+            (row_count,) = cur.fetchone()
+
+        assert row_count == 0
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM bronze.api_ingest "
+                "WHERE source = %s AND stable_id = ANY(%s)",
+                (source, [good_stable_id, bad_stable_id]),
+            )
