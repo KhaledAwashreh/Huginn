@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 import pytest
@@ -28,9 +28,11 @@ def _database_reachable() -> bool:
     if not DATABASE_URL:
         return False
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with (
+            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
+            conn.cursor() as cur,
+        ):
+            cur.execute("SELECT 1")
         return True
     except psycopg.OperationalError:
         return False
@@ -47,8 +49,8 @@ def test_write_inserts_a_row_matching_the_job_run():
     job_run = JobRun(
         id=str(uuid.uuid4()),
         source="postgres-job-run-writer-integration-test",
-        started_at=datetime.now(timezone.utc),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
         status=JobRunStatus.SUCCEEDED,
         rows_written=42,
         error=None,
@@ -75,8 +77,8 @@ def test_write_stores_a_failed_run_with_its_error():
     job_run = JobRun(
         id=str(uuid.uuid4()),
         source="postgres-job-run-writer-integration-test",
-        started_at=datetime.now(timezone.utc),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
         status=JobRunStatus.FAILED,
         rows_written=0,
         error="simulated failure",
@@ -106,7 +108,7 @@ def test_write_called_twice_for_the_same_id_updates_in_place_not_duplicates():
     running = JobRun(
         id=run_id,
         source="postgres-job-run-writer-integration-test",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         finished_at=None,
         status=JobRunStatus.RUNNING,
         rows_written=0,
@@ -115,7 +117,7 @@ def test_write_called_twice_for_the_same_id_updates_in_place_not_duplicates():
     succeeded = replace(
         running,
         status=JobRunStatus.SUCCEEDED,
-        finished_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(UTC),
         rows_written=7,
     )
 

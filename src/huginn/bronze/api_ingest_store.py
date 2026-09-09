@@ -38,7 +38,9 @@ def decide_write_action(existing_hash: str | None, new_hash: str) -> str:
     return ACTION_SKIP
 
 
-_LOOKUP_SQL = "SELECT content_hash FROM bronze.api_ingest WHERE source = %s AND stable_id = %s"
+_LOOKUP_SQL = (
+    "SELECT content_hash FROM bronze.api_ingest WHERE source = %s AND stable_id = %s"
+)
 
 _WRITE_SQL = """
     INSERT INTO bronze.api_ingest (source, stable_id, payload, content_hash, run_id)
@@ -89,7 +91,9 @@ class PostgresApiIngestStore:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
+    def write(
+        self, source: str, mechanism: str, records: list[RawRecord], run_id: str
+    ) -> int:
         """See huginn.ingestion.ports.RawStorePort.write. Only mechanism
         "api" is handled (Jira KAN-32 scope; see docs/superpowers/plans/
         2026-09-08-kan-32-raw-store-port.md, Global Constraint 5). Returns
@@ -106,30 +110,35 @@ class PostgresApiIngestStore:
         try:
             uuid.UUID(run_id)
         except ValueError as exc:
-            raise ValueError(f"run_id must be a valid UUID string; got {run_id!r}") from exc
+            raise ValueError(
+                f"run_id must be a valid UUID string; got {run_id!r}"
+            ) from exc
 
         written = 0
         skipped = 0
-        with psycopg.connect(self._database_url) as conn:
-            with conn.cursor() as cur:
-                for record in records:
-                    content_hash = compute_content_hash(
-                        record.payload, sorted(record.payload.keys())
-                    )
-                    cur.execute(*build_lookup_query(source, record.stable_id))
-                    row = cur.fetchone()
-                    existing_hash = row[0] if row else None
+        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
+            for record in records:
+                content_hash = compute_content_hash(
+                    record.payload, sorted(record.payload.keys())
+                )
+                cur.execute(*build_lookup_query(source, record.stable_id))
+                row = cur.fetchone()
+                existing_hash = row[0] if row else None
 
-                    if decide_write_action(existing_hash, content_hash) == ACTION_WRITE:
-                        cur.execute(
-                            *build_write_query(
-                                source, record.stable_id, record.payload, content_hash, run_id
-                            )
+                if decide_write_action(existing_hash, content_hash) == ACTION_WRITE:
+                    cur.execute(
+                        *build_write_query(
+                            source,
+                            record.stable_id,
+                            record.payload,
+                            content_hash,
+                            run_id,
                         )
-                        written += 1
-                    else:
-                        cur.execute(*build_touch_query(source, record.stable_id))
-                        skipped += 1
+                    )
+                    written += 1
+                else:
+                    cur.execute(*build_touch_query(source, record.stable_id))
+                    skipped += 1
 
         logger.info(
             "bronze.api_ingest write source=%s run_id=%s: %d written, %d skipped",

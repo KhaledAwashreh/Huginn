@@ -46,7 +46,8 @@ class _FakeConnection:
 def _patch_connect(monkeypatch, cursor):
     connection = _FakeConnection(cursor)
     monkeypatch.setattr(
-        "huginn.bronze.api_ingest_state.psycopg.connect", lambda database_url: connection
+        "huginn.bronze.api_ingest_state.psycopg.connect",
+        lambda database_url: connection,
     )
     return connection
 

@@ -29,7 +29,10 @@ def test_get_json_returns_parsed_dict_body(monkeypatch):
 
     monkeypatch.setattr(hn.requests, "get", lambda url, timeout: FakeResponse())
 
-    assert hn._get_json("https://example.invalid/item/1.json") == {"id": 1, "type": "story"}
+    assert hn._get_json("https://example.invalid/item/1.json") == {
+        "id": 1,
+        "type": "story",
+    }
 
 
 def test_get_json_raises_on_non_2xx_response(monkeypatch):
@@ -38,7 +41,9 @@ def test_get_json_raises_on_non_2xx_response(monkeypatch):
             raise requests.HTTPError("500 Server Error")
 
         def json(self):
-            raise AssertionError("json() must not be called after raise_for_status raises")
+            raise AssertionError(
+                "json() must not be called after raise_for_status raises"
+            )
 
     monkeypatch.setattr(hn.requests, "get", lambda url, timeout: FakeResponse())
 
@@ -99,11 +104,17 @@ def test_discover_thread_item_raises_when_candidate_is_bare_null(monkeypatch):
         assert "does not look like a Who's Hiring thread" in str(exc)
 
 
-def test_discover_thread_item_raises_a_clear_error_when_the_user_response_is_null(monkeypatch):
+def test_discover_thread_item_raises_a_clear_error_when_the_user_response_is_null(
+    monkeypatch,
+):
     monkeypatch.setattr(
         hn,
         "_get_json",
-        lambda url: None if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json" else ROOT_ITEM,
+        lambda url: (
+            None
+            if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json"
+            else ROOT_ITEM
+        ),
     )
 
     try:
@@ -118,9 +129,11 @@ def test_discover_thread_item_raises_a_clear_error_when_submitted_is_empty(monke
     monkeypatch.setattr(
         hn,
         "_get_json",
-        lambda url: {"submitted": []}
-        if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json"
-        else ROOT_ITEM,
+        lambda url: (
+            {"submitted": []}
+            if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json"
+            else ROOT_ITEM
+        ),
     )
 
     try:

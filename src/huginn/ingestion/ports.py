@@ -143,7 +143,9 @@ class RawStorePort(Protocol):
     for the mechanism-grouped table layout and the hash-based write behavior.
     """
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
+    def write(
+        self, source: str, mechanism: str, records: list[RawRecord], run_id: str
+    ) -> int:
         """Write records to the appropriate Bronze table, returning the
         count actually written (inserted or overwritten), excluding
         hash-match skips. `IngestionService` records this count on

@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 ALGOLIA_APP_ID = "45BWZJ1SGC"
 ALGOLIA_INDEX = "YCCompany_production"
-ALGOLIA_QUERY_URL = f"https://{ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{ALGOLIA_INDEX}/query"
+ALGOLIA_QUERY_URL = (
+    f"https://{ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{ALGOLIA_INDEX}/query"
+)
 ALGOLIA_API_KEY_ENV_VAR = "HUGINN_YC_ALGOLIA_API_KEY"
 ALGOLIA_MAX_HITS_PER_QUERY = 1000
 REQUEST_TIMEOUT_SECONDS = 10.0

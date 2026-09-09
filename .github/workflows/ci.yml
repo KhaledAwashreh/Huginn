@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for Claude attribution trailers
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="${{ github.sha }}"
+          else
+            RANGE="$BASE..${{ github.sha }}"
+          fi
+          if git log "$RANGE" --format=%B | grep -Ei "Co-Authored-By:.*Claude|Claude-Session:"; then
+            echo "::error::A commit message contains a Claude attribution trailer, which CLAUDE.md forbids."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: huginn
+          POSTGRES_DB: huginn
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Apply database schema
+        env:
+          PGPASSWORD: huginn
+        run: |
+          psql -h localhost -U postgres -d huginn -f db/schema/00_extensions.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/ops.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/bronze.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/silver.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/gold.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/operational.sql
+
+      - name: Run tests
+        env:
+          HUGINN_DATABASE_URL: postgresql://postgres:huginn@localhost:5432/huginn
+        run: uv run pytest -v

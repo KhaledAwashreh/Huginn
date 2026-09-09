@@ -58,7 +58,9 @@ topic, per `learning-items/template.md`. Local for now, syncs to Jira later.
    ticket's own description overlaps another ticket's stated scope (it
    happens, KAN-27 vs KAN-28 already did), build only your ticket's part and
    flag the overlap rather than silently deciding who owns it.
-7. **Linter/formatter/type checker: Ruff and pyright** (ADR-0004). Adoption
+7. **Linter/formatter/type checker: Ruff and pyright** (ADR-0004). Ruff is
+   adopted: config in `pyproject.toml`, `uv run ruff check .` and
+   `uv run ruff format --check .` must both pass. Pyright adoption remains
    deferred, low priority, do not install or configure until asked.
 8. **Bounded thread pools for adapter concurrency, never `asyncio`**
    (ADR-0003). `concurrent.futures.ThreadPoolExecutor`, 5-10 workers.
@@ -117,3 +119,17 @@ In Progress → In Review), and (2) add a short, concise comment on the
 ticket saying what changed. Auto-transition stops at In Review: moving a
 ticket to Done/Closed still needs the user's explicit say-so, never do it
 unprompted. Never commit without the user reviewing first.
+
+## Before pushing
+
+1. `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`
+   all pass. CI (`.github/workflows/ci.yml`) runs the same checks; nothing
+   here should be a surprise there.
+2. Run `coderabbit review --agent --base master` and read every finding.
+   Its severities aren't a gate (the same diff reviewed twice can surface
+   different findings, so its exit code is never checked and it never
+   fails a build), but they're worth triaging by hand: fix what's real,
+   note what's deferred, don't push a diff you haven't actually looked at
+   CodeRabbit's opinion of.
+3. The GitHub App (already installed) reviews the PR automatically once
+   pushed. That's the second, independent read, not a substitute for step 2.

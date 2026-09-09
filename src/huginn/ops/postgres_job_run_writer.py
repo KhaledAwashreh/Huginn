@@ -43,20 +43,19 @@ class PostgresJobRunWriter:
         self._database_url = database_url
 
     def write(self, job_run: JobRun) -> None:
-        with psycopg.connect(self._database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    _UPSERT_SQL,
-                    (
-                        job_run.id,
-                        job_run.source,
-                        job_run.started_at,
-                        job_run.finished_at,
-                        job_run.status,
-                        job_run.rows_written,
-                        job_run.error,
-                    ),
-                )
+        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                _UPSERT_SQL,
+                (
+                    job_run.id,
+                    job_run.source,
+                    job_run.started_at,
+                    job_run.finished_at,
+                    job_run.status,
+                    job_run.rows_written,
+                    job_run.error,
+                ),
+            )
         logger.info(
             "ops.job_runs write id=%s source=%s status=%s rows_written=%d",
             job_run.id,

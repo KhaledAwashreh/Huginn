@@ -1,0 +1,13 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  path_filters:
+    - '!.venv/**'
+    - '!.worktrees/**'
+    - '!**/__pycache__/**'
+    - '!*.egg-info/**'
+    - '!.pytest_cache/**'
+  auto_review:
+    enabled: true
+    auto_incremental_review: true

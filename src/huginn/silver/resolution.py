@@ -25,7 +25,7 @@ def normalize_domain(url_or_domain: str) -> str:
     host = parsed.netloc or parsed.path
     host = host.split("/")[0]
     if host.startswith("www."):
-        host = host[len("www."):]
+        host = host[len("www.") :]
     return host
 
 

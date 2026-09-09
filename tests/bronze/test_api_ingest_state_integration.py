@@ -28,9 +28,11 @@ def _database_reachable() -> bool:
     if not DATABASE_URL:
         return False
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with (
+            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
+            conn.cursor() as cur,
+        ):
+            cur.execute("SELECT 1")
         return True
     except psycopg.OperationalError:
         return False
@@ -59,7 +61,9 @@ def test_last_hash_returns_the_hash_a_prior_write_stored():
     payload = {"title": "Integration Test Posting"}
 
     try:
-        store.write(source, "api", [RawRecord(stable_id=stable_id, payload=payload)], run_id)
+        store.write(
+            source, "api", [RawRecord(stable_id=stable_id, payload=payload)], run_id
+        )
 
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(

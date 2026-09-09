@@ -26,9 +26,11 @@ def _database_reachable() -> bool:
     if not DATABASE_URL:
         return False
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with (
+            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
+            conn.cursor() as cur,
+        ):
+            cur.execute("SELECT 1")
         return True
     except psycopg.OperationalError:
         return False
@@ -85,7 +87,10 @@ def test_write_then_write_again_with_same_payload_only_touches_last_checked_at()
         third_run_id = str(uuid.uuid4())
         new_payload = {"title": "Integration Test Posting", "status": "updated"}
         store.write(
-            source, "api", [RawRecord(stable_id=stable_id, payload=new_payload)], third_run_id
+            source,
+            "api",
+            [RawRecord(stable_id=stable_id, payload=new_payload)],
+            third_run_id,
         )
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
@@ -93,7 +98,9 @@ def test_write_then_write_again_with_same_payload_only_touches_last_checked_at()
                 "WHERE source = %s AND stable_id = %s",
                 (source, stable_id),
             )
-            third_hash, third_payload, third_stored_run_id, third_fetched_at = cur.fetchone()
+            third_hash, third_payload, third_stored_run_id, third_fetched_at = (
+                cur.fetchone()
+            )
 
         assert third_hash != second_hash
         assert third_payload == new_payload
