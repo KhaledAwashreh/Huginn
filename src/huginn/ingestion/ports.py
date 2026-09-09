@@ -143,14 +143,20 @@ class RawStorePort(Protocol):
     for the mechanism-grouped table layout and the hash-based write behavior.
     """
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> None:
-        """Write records to the appropriate Bronze table. Implementations must
-        apply the skip-on-hash-match behavior: a record whose content hash
-        matches the last stored hash for its `(source, stable_id)` should not
-        insert a new row, only bump `last_checked_at` on the existing one.
-        A record whose hash differs overwrites the existing row in place
-        (Bronze's `UNIQUE (source, stable_id)` constraint allows exactly one
-        row per entity; no prior version is retained).
+    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
+        """Write records to the appropriate Bronze table, returning the
+        count actually written (inserted or overwritten), excluding
+        hash-match skips. `IngestionService` records this count on
+        `ops.job_runs.rows_written`; it must not be `len(records)`, since a
+        fully-static source correctly writes zero rows every run.
+
+        Implementations must apply the skip-on-hash-match behavior: a
+        record whose content hash matches the last stored hash for its
+        `(source, stable_id)` should not insert a new row, only bump
+        `last_checked_at` on the existing one. A record whose hash differs
+        overwrites the existing row in place (Bronze's
+        `UNIQUE (source, stable_id)` constraint allows exactly one row per
+        entity; no prior version is retained).
         """
         ...
 

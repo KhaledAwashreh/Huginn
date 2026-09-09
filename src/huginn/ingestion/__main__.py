@@ -6,6 +6,7 @@ no framework at this scale; Jira KAN-9 tracks any future upgrade).
 from __future__ import annotations
 
 import logging
+import sys
 
 from huginn.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.config import Config, load_config
@@ -30,11 +31,19 @@ def build_service(config: Config) -> IngestionService:
 def main() -> None:
     """Run one ingestion pass. The application entrypoint, not library
     code, so it owns logging configuration (adr/0005-logging-required-from-day-one.md).
+
+    Exits non-zero if any source failed: `run_once()` isolates per-source
+    failures internally (so cron gets one clean process per scheduled run
+    regardless of which sources fail), but the exit code is the only signal
+    cron-based alerting can act on, so it must not stay 0 when a source
+    genuinely failed.
     """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
-    build_service(load_config()).run_once()
+    failed_count = build_service(load_config()).run_once()
+    if failed_count:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

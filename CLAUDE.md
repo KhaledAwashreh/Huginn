@@ -36,8 +36,10 @@ topic, per `learning-items/template.md`. Local for now, syncs to Jira later.
    `finish_job_run`.
 2. **Interfaces are `typing.Protocol`, written before any concrete
    implementation exists.** A Protocol with zero implementations is normal
-   here, not a gap to fill preemptively (`RawStorePort`, `StatePort`,
-   `JobRunWriterPort` all currently have none). Don't invent a concrete
+   here, not a gap to fill preemptively. `RawStorePort` (`PostgresApiIngestStore`),
+   `StatePort` (`PostgresApiIngestState`), and `JobRunWriterPort`
+   (`PostgresJobRunWriter`) each have one now; check before assuming a
+   Postgres implementation doesn't exist. Don't invent a concrete
    implementation a ticket didn't ask for.
 3. **Docstrings cite, they don't restate.** Point at the architecture
    document by section number, or the ADR/Jira ticket that settled the

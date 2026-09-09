@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from huginn.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.config import Config
-from huginn.ingestion.__main__ import build_service
+from huginn.ingestion import __main__ as main_module
+from huginn.ingestion.__main__ import build_service, main
 from huginn.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.ingestion.adapters.yc import YcDirectoryAdapter
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
@@ -28,3 +31,28 @@ def test_build_service_wires_postgres_backed_ports_with_the_configured_url():
     assert service._raw_store._database_url == config.database_url
     assert isinstance(service._job_run_writer, PostgresJobRunWriter)
     assert service._job_run_writer._database_url == config.database_url
+
+
+class FakeService:
+    def __init__(self, failed_count: int) -> None:
+        self._failed_count = failed_count
+
+    def run_once(self) -> int:
+        return self._failed_count
+
+
+def test_main_exits_zero_when_every_source_succeeds(monkeypatch):
+    monkeypatch.setattr(main_module, "load_config", lambda: Config(database_url="postgresql://example.invalid/db"))
+    monkeypatch.setattr(main_module, "build_service", lambda config: FakeService(failed_count=0))
+
+    main()  # must not raise SystemExit
+
+
+def test_main_exits_non_zero_when_a_source_failed(monkeypatch):
+    monkeypatch.setattr(main_module, "load_config", lambda: Config(database_url="postgresql://example.invalid/db"))
+    monkeypatch.setattr(main_module, "build_service", lambda config: FakeService(failed_count=1))
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1

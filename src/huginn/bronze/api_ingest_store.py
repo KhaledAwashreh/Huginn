@@ -28,8 +28,8 @@ def decide_write_action(existing_hash: str | None, new_hash: str) -> str:
     """Decide whether a record needs a write (fresh insert or
     hash-changed overwrite) or only a last_checked_at touch.
 
-    See architecture document section 4.1 point 4 and this plan's Global
-    Constraint 3: no existing row, or an existing row whose content_hash
+    See architecture document section 4.1 point 4 and docs/superpowers/plans/
+    2026-09-08-kan-32-raw-store-port.md's Global Constraint 3: no existing row, or an existing row whose content_hash
     differs, both write; a matching hash only touches last_checked_at.
     Pure decision logic, no I/O (CLAUDE.md code standard 4).
     """
@@ -82,17 +82,18 @@ def build_touch_query(source: str, stable_id: str) -> tuple[str, tuple[str, str]
 
 class PostgresApiIngestStore:
     """`RawStorePort` implementation against `bronze.api_ingest` only. See
-    architecture document section 4.1 point 4 and this plan's Global
-    Constraint 3 (upsert semantics) and Constraint 4 (stable_fields choice).
+    architecture document section 4.1 point 4 and docs/superpowers/plans/
+    2026-09-08-kan-32-raw-store-port.md's Global Constraint 3 (upsert semantics) and Constraint 4 (stable_fields choice).
     """
 
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> None:
+    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
         """See huginn.ingestion.ports.RawStorePort.write. Only mechanism
-        "api" is handled (Jira KAN-32 scope; see this plan's Global
-        Constraint 5).
+        "api" is handled (Jira KAN-32 scope; see docs/superpowers/plans/
+        2026-09-08-kan-32-raw-store-port.md, Global Constraint 5). Returns
+        the count actually written, excluding hash-match skips.
         """
         if mechanism != "api":
             raise NotImplementedError(
@@ -137,3 +138,4 @@ class PostgresApiIngestStore:
             written,
             skipped,
         )
+        return written

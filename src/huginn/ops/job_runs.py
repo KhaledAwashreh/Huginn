@@ -2,11 +2,10 @@
 and 5, which name cron plus a `job_runs` table as the orchestration
 mechanism, and Jira KAN-27.
 
-This module is the data model and writer contract only. Wiring
-`IngestionService` to actually call `start_job_run`/`finish_job_run` and
-write a row per source per run is Jira KAN-28's job, not this one's; no
-concrete `JobRunWriterPort` implementation exists yet either, same as
-`RawStorePort`/`StatePort` in `huginn.ingestion.ports`.
+This module is the data model and writer contract. `IngestionService`
+(Jira KAN-28) calls `start_job_run`/`finish_job_run` and writes a row per
+source per run through `PostgresJobRunWriter` (Jira KAN-45), the concrete
+`JobRunWriterPort` implementation.
 """
 
 from __future__ import annotations
@@ -81,9 +80,10 @@ def finish_job_run(
 
 class JobRunWriterPort(Protocol):
     """Writes a `JobRun` to `ops.job_runs`. See architecture document
-    sections 3 and 5. No concrete Postgres implementation exists yet
-    (Jira KAN-28), matching `RawStorePort`/`StatePort` in
-    `huginn.ingestion.ports`.
+    sections 3 and 5. `PostgresJobRunWriter` (Jira KAN-45) is the concrete
+    implementation: `write()` must be safe to call twice for the same
+    `job_run.id` (once at `RUNNING`, once at a terminal state), upserting
+    rather than only ever inserting.
     """
 
     def write(self, job_run: JobRun) -> None:

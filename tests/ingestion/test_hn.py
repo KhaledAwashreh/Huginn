@@ -99,6 +99,38 @@ def test_discover_thread_item_raises_when_candidate_is_bare_null(monkeypatch):
         assert "does not look like a Who's Hiring thread" in str(exc)
 
 
+def test_discover_thread_item_raises_a_clear_error_when_the_user_response_is_null(monkeypatch):
+    monkeypatch.setattr(
+        hn,
+        "_get_json",
+        lambda url: None if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json" else ROOT_ITEM,
+    )
+
+    try:
+        hn._discover_thread_item()
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as exc:
+        assert "whoishiring" in str(exc)
+        assert "user profile" in str(exc)
+
+
+def test_discover_thread_item_raises_a_clear_error_when_submitted_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        hn,
+        "_get_json",
+        lambda url: {"submitted": []}
+        if url == f"{hn.FIREBASE_BASE_URL}/user/whoishiring.json"
+        else ROOT_ITEM,
+    )
+
+    try:
+        hn._discover_thread_item()
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as exc:
+        assert "whoishiring" in str(exc)
+        assert "user profile" in str(exc)
+
+
 KID_A_ID = 49573833
 KID_B_ID = 49524098  # deleted stub
 KID_C_ID = 49999999  # bare null, never existed

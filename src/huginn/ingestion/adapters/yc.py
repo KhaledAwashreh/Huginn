@@ -103,11 +103,17 @@ def _fetch_batch(batch: str) -> list[dict]:
     ceiling (6204 total hits spread across all batches), so a single query
     per batch is sufficient; no further pagination within a batch. See
     architecture-notes/yc-fetch-plan.md section 2.
+
+    Uses `facetFilters` (Algolia's structured `attribute:value` list form)
+    rather than the `filters` string DSL: `facetFilters` needs no quoting
+    or escaping of `batch`'s value, so a batch label containing a quote
+    character cannot produce a malformed expression the way
+    `filters: f"batch:'{batch}'"` could.
     """
     response = _algolia_query(
         {
             "query": "",
-            "filters": f"batch:'{batch}'",
+            "facetFilters": [[f"batch:{batch}"]],
             "hitsPerPage": ALGOLIA_MAX_HITS_PER_QUERY,
             "page": 0,
         }

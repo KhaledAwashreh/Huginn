@@ -40,7 +40,13 @@ def _discover_thread_item() -> dict:
     architecture-notes/hn-fetch-plan.md section 1.
     """
     user = _get_json(f"{FIREBASE_BASE_URL}/user/{WHOISHIRING_USER}.json")
-    candidate_id = user["submitted"][0]
+    submitted = user.get("submitted") if user else None
+    if not submitted:
+        raise RuntimeError(
+            f"whoishiring's user profile is null or has no submitted items "
+            f"(response: {user!r}); cannot discover the current thread"
+        )
+    candidate_id = submitted[0]
     item = _get_json(f"{FIREBASE_BASE_URL}/item/{candidate_id}.json")
     title = item.get("title", "") if item else ""
     if not THREAD_TITLE_PATTERN.match(title):

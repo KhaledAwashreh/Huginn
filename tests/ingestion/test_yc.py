@@ -151,10 +151,27 @@ def test_fetch_batch_requests_filtered_query(monkeypatch):
 
     assert captured["body"] == {
         "query": "",
-        "filters": "batch:'Summer 2026'",
+        "facetFilters": [["batch:Summer 2026"]],
         "hitsPerPage": yc.ALGOLIA_MAX_HITS_PER_QUERY,
         "page": 0,
     }
+
+
+def test_fetch_batch_handles_a_batch_value_containing_an_apostrophe(monkeypatch):
+    """facetFilters needs no quoting, unlike the old `filters: "batch:'{batch}'"`
+    string, which would have produced a malformed expression for a batch
+    value containing an apostrophe."""
+    captured = {}
+
+    def fake_algolia_query(body):
+        captured["body"] = body
+        return {"hits": [], "nbHits": 0}
+
+    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
+
+    yc._fetch_batch("Founder's Batch")
+
+    assert captured["body"]["facetFilters"] == [["batch:Founder's Batch"]]
 
 
 def test_fetch_batch_returns_raw_hits_list(monkeypatch):

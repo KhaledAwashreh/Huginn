@@ -4,8 +4,8 @@ document sections 3 and 5, and adr/0005-logging-required-from-day-one.md.
 Written to unblock a live end-to-end verification run: IngestionService
 cannot actually run without a JobRunWriterPort implementation, and none
 existed yet (huginn.ops.job_runs's own docstring flagged this as KAN-28's
-gap, but KAN-28 only wired the calls, per its own ticket scope). Not
-tracked under its own Jira ticket; fold into KAN-31 or file separately.
+gap, but KAN-28 only wired the calls, per its own ticket scope). Tracked
+as its own ticket, Jira KAN-45.
 """
 
 from __future__ import annotations
@@ -18,19 +18,25 @@ from huginn.ops.job_runs import JobRun
 
 logger = logging.getLogger(__name__)
 
-_INSERT_SQL = """
+_UPSERT_SQL = """
     INSERT INTO ops.job_runs (id, source, started_at, finished_at, status, rows_written, error)
     VALUES (%s::uuid, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (id) DO UPDATE
+    SET finished_at = EXCLUDED.finished_at,
+        status = EXCLUDED.status,
+        rows_written = EXCLUDED.rows_written,
+        error = EXCLUDED.error
 """
 
 
 class PostgresJobRunWriter:
     """`JobRunWriterPort` implementation against `ops.job_runs`.
 
-    `IngestionService` calls `write()` exactly once per source per run,
-    with `job_run` already in its terminal (`succeeded`/`failed`) state
-    (see `huginn.ingestion.service.IngestionService.run_once`), so this is
-    a single INSERT, never an UPDATE.
+    `IngestionService` calls `write()` twice per source per run: once at
+    `RUNNING` (so a crashed run is visible, not silently absent), once at
+    a terminal `succeeded`/`failed` state. `ops.job_runs.id` is the primary
+    key, so this is an upsert keyed on `id`: the first call inserts, the
+    second updates the same row in place rather than duplicating it.
     """
 
     def __init__(self, database_url: str) -> None:
@@ -40,7 +46,7 @@ class PostgresJobRunWriter:
         with psycopg.connect(self._database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    _INSERT_SQL,
+                    _UPSERT_SQL,
                     (
                         job_run.id,
                         job_run.source,

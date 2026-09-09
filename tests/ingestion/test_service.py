@@ -20,11 +20,13 @@ class FakeSource:
 
 
 class FakeRawStore:
-    def __init__(self) -> None:
+    def __init__(self, written_count: int | None = None) -> None:
         self.writes: list[tuple[str, str, list[RawRecord], str]] = []
+        self._written_count = written_count
 
-    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> None:
+    def write(self, source: str, mechanism: str, records: list[RawRecord], run_id: str) -> int:
         self.writes.append((source, mechanism, records, run_id))
+        return self._written_count if self._written_count is not None else len(records)
 
 
 class FakeJobRunWriter:
@@ -33,6 +35,17 @@ class FakeJobRunWriter:
 
     def write(self, job_run) -> None:
         self.written.append(job_run)
+
+
+class FakeFailingJobRunWriter:
+    """Raises on every write() call, to prove a bookkeeping failure never
+    aborts the source loop (a prior version let it)."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def write(self, job_run) -> None:
+        raise self._exc
 
 
 def test_run_once_writes_fetched_records_to_raw_store():
@@ -52,6 +65,21 @@ def test_run_once_writes_fetched_records_to_raw_store():
     assert written_run_id == job_run_writer.written[0].id
 
 
+def test_run_once_writes_a_running_job_run_before_fetching():
+    records = [RawRecord(stable_id="1", payload={"id": 1})]
+    source = FakeSource("hn", records)
+    job_run_writer = FakeJobRunWriter()
+    service = IngestionService([source], FakeRawStore(), job_run_writer)
+
+    service.run_once()
+
+    assert len(job_run_writer.written) == 2
+    running_write = job_run_writer.written[0]
+    assert running_write.source == "hn"
+    assert running_write.status == JobRunStatus.RUNNING
+    assert running_write.finished_at is None
+
+
 def test_run_once_writes_a_succeeded_job_run_for_a_successful_source():
     records = [RawRecord(stable_id="1", payload={"id": 1}), RawRecord(stable_id="2", payload={"id": 2})]
     source = FakeSource("hn", records)
@@ -60,13 +88,27 @@ def test_run_once_writes_a_succeeded_job_run_for_a_successful_source():
 
     service.run_once()
 
-    assert len(job_run_writer.written) == 1
-    job_run = job_run_writer.written[0]
+    assert len(job_run_writer.written) == 2
+    job_run = job_run_writer.written[-1]
     assert job_run.source == "hn"
     assert job_run.status == JobRunStatus.SUCCEEDED
     assert job_run.rows_written == 2
     assert job_run.error is None
     assert job_run.finished_at is not None
+
+
+def test_run_once_records_rows_written_from_the_raw_store_return_value_not_fetched_count():
+    records = [RawRecord(stable_id="1", payload={"id": 1}), RawRecord(stable_id="2", payload={"id": 2})]
+    source = FakeSource("hn", records)
+    raw_store = FakeRawStore(written_count=0)  # every record hash-matched and was skipped
+    job_run_writer = FakeJobRunWriter()
+    service = IngestionService([source], raw_store, job_run_writer)
+
+    service.run_once()
+
+    job_run = job_run_writer.written[-1]
+    assert job_run.status == JobRunStatus.SUCCEEDED
+    assert job_run.rows_written == 0
 
 
 class FakeFailingSource:
@@ -103,6 +145,24 @@ def test_run_once_isolates_a_failing_source_and_still_runs_the_next_one():
     assert raw_store.writes[0][0] == "yc"
 
 
+def test_run_once_isolates_a_source_whose_job_run_writer_call_fails():
+    """A transient bookkeeping-write failure must not abort the run: the
+    prior implementation let a job_run_writer.write() exception propagate
+    out of run_once() entirely, aborting every remaining source."""
+    good_records = [RawRecord(stable_id="1", payload={"id": 1})]
+    first_source = FakeSource("hn", good_records)
+    second_source = FakeSource("yc", good_records)
+    raw_store = FakeRawStore()
+    job_run_writer = FakeFailingJobRunWriter(RuntimeError("db unavailable"))
+    service = IngestionService([first_source, second_source], raw_store, job_run_writer)
+
+    service.run_once()
+
+    assert first_source.fetch_calls == 1
+    assert second_source.fetch_calls == 1
+    assert len(raw_store.writes) == 2
+
+
 def test_run_once_records_a_failed_job_run_for_a_raising_fetch():
     failing_source = FakeFailingSource("hn", RuntimeError("boom"))
     job_run_writer = FakeJobRunWriter()
@@ -110,8 +170,8 @@ def test_run_once_records_a_failed_job_run_for_a_raising_fetch():
 
     service.run_once()
 
-    assert len(job_run_writer.written) == 1
-    job_run = job_run_writer.written[0]
+    assert len(job_run_writer.written) == 2
+    job_run = job_run_writer.written[-1]
     assert job_run.source == "hn"
     assert job_run.status == JobRunStatus.FAILED
     assert job_run.rows_written == 0
@@ -128,8 +188,8 @@ def test_run_once_records_a_failed_job_run_for_a_raising_raw_store_write():
 
     service.run_once()
 
-    assert len(job_run_writer.written) == 1
-    job_run = job_run_writer.written[0]
+    assert len(job_run_writer.written) == 2
+    job_run = job_run_writer.written[-1]
     assert job_run.status == JobRunStatus.FAILED
     assert job_run.error == "disk full"
 
@@ -144,9 +204,32 @@ def test_run_once_does_not_abort_when_the_last_source_fails():
 
     service.run_once()
 
-    assert len(job_run_writer.written) == 2
-    statuses = {job_run.source: job_run.status for job_run in job_run_writer.written}
-    assert statuses == {"yc": JobRunStatus.SUCCEEDED, "hn": JobRunStatus.FAILED}
+    assert len(job_run_writer.written) == 4
+    terminal_statuses = {
+        job_run.source: job_run.status
+        for job_run in job_run_writer.written
+        if job_run.finished_at is not None
+    }
+    assert terminal_statuses == {"yc": JobRunStatus.SUCCEEDED, "hn": JobRunStatus.FAILED}
+
+
+def test_run_once_returns_the_failed_source_count():
+    good_source = FakeSource("yc", [RawRecord(stable_id="1", payload={"id": 1})])
+    failing_source = FakeFailingSource("hn", RuntimeError("boom"))
+    service = IngestionService([good_source, failing_source], FakeRawStore(), FakeJobRunWriter())
+
+    failed_count = service.run_once()
+
+    assert failed_count == 1
+
+
+def test_run_once_returns_zero_when_every_source_succeeds():
+    good_source = FakeSource("yc", [RawRecord(stable_id="1", payload={"id": 1})])
+    service = IngestionService([good_source], FakeRawStore(), FakeJobRunWriter())
+
+    failed_count = service.run_once()
+
+    assert failed_count == 0
 
 
 def test_run_once_logs_an_exception_for_a_failing_source(caplog):

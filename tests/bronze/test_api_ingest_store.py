@@ -121,13 +121,14 @@ def test_write_inserts_new_record_when_no_existing_row(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
     records = [RawRecord(stable_id="1", payload={"title": "Backend Engineer"})]
 
-    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
+    written_count = store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     lookup_sql, write_sql = cursor.executed[0], cursor.executed[1]
     assert "SELECT" in lookup_sql[0]
     assert "ON CONFLICT" in write_sql[0]
     assert write_sql[1][0] == "hn"
     assert write_sql[1][1] == "1"
+    assert written_count == 1
 
 
 def test_write_touches_last_checked_at_when_hash_matches(monkeypatch):
@@ -140,13 +141,14 @@ def test_write_touches_last_checked_at_when_hash_matches(monkeypatch):
     store = PostgresApiIngestStore("postgresql://example.invalid/huginn")
     records = [RawRecord(stable_id="1", payload=payload)]
 
-    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
+    written_count = store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     lookup_sql, touch_sql = cursor.executed[0], cursor.executed[1]
     assert "SELECT" in lookup_sql[0]
     assert "UPDATE" in touch_sql[0]
     assert "last_checked_at" in touch_sql[0]
     assert "ON CONFLICT" not in touch_sql[0]
+    assert written_count == 0
 
 
 def test_write_overwrites_when_hash_differs(monkeypatch):
@@ -174,12 +176,15 @@ def test_write_processes_multiple_records_independently(monkeypatch):
         RawRecord(stable_id="2", payload=payload_b),
     ]
 
-    store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
+    written_count = store.write("hn", "api", records, "11111111-1111-1111-1111-111111111111")
 
     # 2 lookups + 1 write (record 1, no existing row) + 1 touch (record 2, hash match)
     assert len(cursor.executed) == 4
     assert "ON CONFLICT" in cursor.executed[1][0]
     assert "last_checked_at" in cursor.executed[3][0] and "ON CONFLICT" not in cursor.executed[3][0]
+    # Only record 1 was actually written; record 2 was a hash-match skip.
+    # rows_written on ops.job_runs must reflect this, not len(records).
+    assert written_count == 1
 
 
 def test_write_raises_for_unsupported_mechanism(monkeypatch):
