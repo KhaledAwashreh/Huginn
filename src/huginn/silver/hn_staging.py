@@ -135,9 +135,10 @@ class PostgresHnStagingLoader:
 
     Reads every bronze row for the source each run rather than tracking
     its own watermark: silver.hn_postings' UNIQUE(stable_id) upsert
-    already makes re-processing a no-op past the first run, mirroring
-    Bronze's own hash-based idempotency (architecture document section
-    4.1).
+    already makes re-processing idempotent, mirroring Bronze's own
+    hash-based idempotency (architecture document section 4.1). The
+    upsert still writes every row on every run; it is the resulting
+    database state, not the work done, that is unchanged.
     """
 
     def __init__(self, database_url: str) -> None:
@@ -145,7 +146,9 @@ class PostgresHnStagingLoader:
 
     def load(self) -> int:
         """Parse and upsert every current HN bronze row, returning the
-        count of rows written (excludes skipped non-comment/deleted rows).
+        count of rows upserted (always equals the count of parseable
+        bronze rows, excluding skipped non-comment/deleted ones; the
+        write executes on every row even when nothing changed).
         """
         written = 0
         with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:

@@ -96,9 +96,10 @@ class PostgresYcStagingLoader:
 
     Reads every bronze row for the source each run rather than tracking
     its own watermark: silver.yc_listings' UNIQUE(stable_id) upsert
-    already makes re-processing a no-op past the first run, mirroring
-    Bronze's own hash-based idempotency (architecture document section
-    4.1).
+    already makes re-processing idempotent, mirroring Bronze's own
+    hash-based idempotency (architecture document section 4.1). The
+    upsert still writes every row on every run; it is the resulting
+    database state, not the work done, that is unchanged.
     """
 
     def __init__(self, database_url: str) -> None:
@@ -106,7 +107,8 @@ class PostgresYcStagingLoader:
 
     def load(self) -> int:
         """Parse and upsert every current YC bronze row, returning the
-        count of rows written.
+        count of rows upserted (always equals the input count; the write
+        executes on every row even when nothing changed).
         """
         written = 0
         with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:

@@ -44,10 +44,14 @@ class PostgresManualReviewQueueWriter:
         """Insert a pending queue row for every 'no_existing_match'
         resolved_signals row not already queued (this plan's Task 1
         UNIQUE(resolved_signal_id) constraint makes the ON CONFLICT DO
-        NOTHING a no-op for one already present), returning the count
-        actually inserted. A row already queued — pending, confirmed, or
-        rejected — is left untouched: re-running this must never reset a
-        reviewer's prior decision.
+        NOTHING skip one already present), returning the count of rows
+        newly inserted (excludes rows already queued, so a rerun with no
+        new unmatched signals returns 0). Unlike the staging loaders'
+        and the resolver's return values, this is not the input count.
+
+        A row already queued — pending, confirmed, or rejected — is left
+        untouched: re-running this must never reset a reviewer's prior
+        decision.
         """
         written = 0
         with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
