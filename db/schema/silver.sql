@@ -6,6 +6,10 @@
 -- source. resolved_signals stays at event grain (one row per signal),
 -- deliberately not split into company/signal tables at this layer; that
 -- dimensional split is Gold's job (section 4.3).
+--
+-- Current-state upsert only, no version history (section 4.2 point 4),
+-- same as Bronze: each table's UNIQUE constraint is its upsert key
+-- (docs/superpowers/plans/2026-09-09-kan-34-35-36-silver-layer.md Task 1).
 
 CREATE SCHEMA IF NOT EXISTS silver;
 
@@ -20,7 +24,8 @@ CREATE TABLE silver.hn_postings (
     occurred_on TIMESTAMPTZ,
     url TEXT,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (stable_id)
 );
 
 CREATE TABLE silver.yc_listings (
@@ -34,7 +39,8 @@ CREATE TABLE silver.yc_listings (
     occurred_on TIMESTAMPTZ,
     url TEXT,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (stable_id)
 );
 
 -- Fed by all staging tables together. resolved_company_key is a plain
@@ -54,7 +60,8 @@ CREATE TABLE silver.resolved_signals (
     url TEXT,
     match_confidence TEXT NOT NULL CHECK (match_confidence IN ('auto_matched', 'manual_review', 'no_existing_match')),
     resolved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (source, source_stable_id)
 );
 
 CREATE TABLE silver.manual_review_queue (
@@ -64,5 +71,6 @@ CREATE TABLE silver.manual_review_queue (
     match_score NUMERIC NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    reviewed_at TIMESTAMPTZ
+    reviewed_at TIMESTAMPTZ,
+    UNIQUE (resolved_signal_id)
 );

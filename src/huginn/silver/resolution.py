@@ -22,7 +22,7 @@ def normalize_domain(url_or_domain: str) -> str:
     if "//" not in value:
         value = f"//{value}"
     parsed = urlparse(value)
-    host = parsed.netloc or parsed.path
+    host = parsed.hostname or parsed.path
     host = host.split("/")[0]
     if host.startswith("www."):
         host = host[len("www.") :]
