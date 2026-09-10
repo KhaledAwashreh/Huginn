@@ -37,8 +37,11 @@ if TYPE_CHECKING:
 
 
 class RepositoryScopePort(Protocol):
-    """The connection scope every Silver port shares. Extended by the
-    ports below rather than injected on its own.
+    """The connection scope every Silver port shares. The ports below
+    extend this Protocol to fold its methods into their own structural
+    contract; the concrete Postgres classes implementing them compose a
+    shared `PostgresConnectionScope` rather than inheriting one, so this
+    contract is satisfied by delegation, not a base class.
     """
 
     def __enter__(self) -> RepositoryScopePort:
@@ -57,10 +60,13 @@ class RepositoryScopePort(Protocol):
 
 
 class BronzeReaderPort(RepositoryScopePort, Protocol):
-    """Reads raw bronze.api_ingest payloads for one source. Extended by
-    both staging ports rather than injected on its own, since the read
-    side is identical regardless of source (architecture document section
-    4.1: one shared api_ingest table, `source` column distinguishes rows).
+    """Reads raw bronze.api_ingest payloads for one source. Both staging
+    ports below extend this Protocol into their own contract; their
+    concrete implementations share the read via a plain function
+    (`huginn.silver.postgres_repository.read_bronze_payloads`), since the
+    read side is identical regardless of source (architecture document
+    section 4.1: one shared api_ingest table, `source` column
+    distinguishes rows).
     """
 
     def read(self, source: str) -> list[dict]: ...

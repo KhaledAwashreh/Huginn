@@ -6,8 +6,10 @@ Jira KAN-35.
 
 from __future__ import annotations
 
+from typing import Self
+
 from huginn.silver.ports import ResolvedSignalRecord, StagedSignal
-from huginn.silver.postgres_repository import PostgresRepositoryScope
+from huginn.silver.postgres_repository import PostgresConnectionScope
 
 _HN_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,
@@ -63,18 +65,31 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
     )
 
 
-class PostgresSignalResolutionRepository(PostgresRepositoryScope):
+class PostgresSignalResolutionRepository:
     """`SignalResolutionRepositoryPort` implementation: reads the
     per-source staging tables and upserts silver.resolved_signals. Knows
     no resolution logic.
 
-    Both sides live on one class so `SignalResolver.resolve_all()` needs a
-    single connection and a single transaction for its whole call, rather
-    than one per port. That also puts the staging reads and the
-    resolved_signals writes in one transaction, so the batch is resolved
-    against a single consistent snapshot. Every method here is only valid
-    between `__enter__` and `__exit__`.
+    Composes a `PostgresConnectionScope` for its connection lifecycle
+    rather than inheriting one, consistent with this codebase's
+    dependency-injection style elsewhere. Both sides live on one class so
+    `SignalResolver.resolve_all()` needs a single connection and a single
+    transaction for its whole call, rather than one per port. That also
+    puts the staging reads and the resolved_signals writes in one
+    transaction, so the batch is resolved against a single consistent
+    snapshot. Every method here is only valid between `__enter__` and
+    `__exit__`.
     """
+
+    def __init__(self, database_url: str) -> None:
+        self._scope = PostgresConnectionScope(database_url)
+
+    def __enter__(self) -> Self:
+        self._scope.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return self._scope.__exit__(exc_type, exc_value, traceback)
 
     def read_hn_postings(self) -> list[StagedSignal]:
         return self._read("hn", _HN_STAGING_SELECT_SQL)
@@ -83,11 +98,13 @@ class PostgresSignalResolutionRepository(PostgresRepositoryScope):
         return self._read("yc", _YC_STAGING_SELECT_SQL)
 
     def _read(self, source: str, select_sql: str) -> list[StagedSignal]:
-        self._cur.execute(select_sql)
-        return [_row_to_staged_signal(source, row) for row in self._cur.fetchall()]
+        self._scope.cursor.execute(select_sql)
+        return [
+            _row_to_staged_signal(source, row) for row in self._scope.cursor.fetchall()
+        ]
 
     def upsert(self, record: ResolvedSignalRecord) -> None:
-        self._cur.execute(
+        self._scope.cursor.execute(
             _UPSERT_SQL,
             (
                 record.source_stable_id,

@@ -5,8 +5,13 @@ and docs/entities.md's HnPostingStaging. Jira KAN-34.
 
 from __future__ import annotations
 
+from typing import Self
+
 from huginn.silver.hn_staging import HnPostingStaging
-from huginn.silver.postgres_repository import PostgresBronzeReadingRepository
+from huginn.silver.postgres_repository import (
+    PostgresConnectionScope,
+    read_bronze_payloads,
+)
 
 _UPSERT_SQL = """
     INSERT INTO silver.hn_postings
@@ -40,15 +45,30 @@ def build_upsert_query(row: HnPostingStaging) -> tuple[str, tuple]:
     )
 
 
-class PostgresHnStagingRepository(PostgresBronzeReadingRepository):
+class PostgresHnStagingRepository:
     """`HnStagingRepositoryPort` implementation: reads bronze.api_ingest
     and upserts silver.hn_postings. No orchestration, no parsing.
 
-    Both sides live on one class so `HnStagingLoader.load()` needs a single
-    connection and a single transaction for its whole batch, rather than
-    one per port. `read` comes from `PostgresBronzeReadingRepository`; both
-    it and `upsert` are only valid between `__enter__` and `__exit__`.
+    Composes a `PostgresConnectionScope` for its connection lifecycle
+    rather than inheriting one, consistent with this codebase's
+    dependency-injection style elsewhere. Both `read` and `upsert` live on
+    one class so `HnStagingLoader.load()` needs a single connection and a
+    single transaction for its whole batch, rather than one per port, and
+    are only valid between `__enter__` and `__exit__`.
     """
 
+    def __init__(self, database_url: str) -> None:
+        self._scope = PostgresConnectionScope(database_url)
+
+    def __enter__(self) -> Self:
+        self._scope.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return self._scope.__exit__(exc_type, exc_value, traceback)
+
+    def read(self, source: str) -> list[dict]:
+        return read_bronze_payloads(self._scope.cursor, source)
+
     def upsert(self, row: HnPostingStaging) -> None:
-        self._cur.execute(*build_upsert_query(row))
+        self._scope.cursor.execute(*build_upsert_query(row))
