@@ -133,6 +133,63 @@ def test_write_all_updates_an_existing_companys_name_without_writing_history():
             cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
+def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
+    """Regression: resolved_at defaults to Postgres's transaction-stable
+    now(), so two rows inserted together share the exact same value.
+    Without a secondary ORDER BY key, which one wins CompanyWriter's
+    domain collapse is undefined; ordering by id afterward makes it
+    deterministic and repeatable across runs.
+    """
+    stable_id_a = str(uuid.uuid4().int)[:10]
+    stable_id_b = str(uuid.uuid4().int)[:10]
+    domain = f"companywritertest-{stable_id_a}.example"
+    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO silver.resolved_signals
+                (source_stable_id, source, resolved_company_key, company_name_raw,
+                 signal_type, occurred_on, url, match_confidence)
+            VALUES
+                (%s, 'hn', %s, 'First', 'hiring', %s, %s, 'auto_matched'),
+                (%s, 'hn', %s, 'Second', 'hiring', %s, %s, 'auto_matched')
+            """,
+            (
+                stable_id_a,
+                domain,
+                datetime.now(UTC),
+                "https://example.invalid",
+                stable_id_b,
+                domain,
+                datetime.now(UTC),
+                "https://example.invalid",
+            ),
+        )
+        cur.execute(
+            "SELECT company_name_raw FROM silver.resolved_signals "
+            "WHERE source_stable_id IN (%s, %s) AND source = 'hn' ORDER BY id",
+            (stable_id_a, stable_id_b),
+        )
+        expected_name = cur.fetchall()[-1][0]
+
+    try:
+        CompanyWriter(PostgresCompanyRepository(DATABASE_URL)).write_all()
+
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT name FROM gold.company WHERE domain = %s", (domain,))
+            (name,) = cur.fetchone()
+
+        assert name == expected_name
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM silver.resolved_signals WHERE source_stable_id IN (%s, %s) "
+                "AND source = 'hn'",
+                (stable_id_a, stable_id_b),
+            )
+            cur.execute("DELETE FROM gold.company_history WHERE domain = %s", (domain,))
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
+
+
 def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
     stable_id = str(uuid.uuid4().int)[:10]
     placeholder_key = f"unresolved:hn:{stable_id}"

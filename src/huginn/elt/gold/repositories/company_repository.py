@@ -14,18 +14,29 @@ import psycopg
 
 from huginn.elt.gold.models import AutoMatchedSignal
 
+# `id` breaks ties deterministically: `resolved_at` defaults to Postgres's
+# transaction-stable now(), so every row silver.resolve_all() writes in one
+# batch shares the exact same value, not just occasionally. Without a
+# secondary key, CompanyWriter.write_all()'s domain-collapse (last row
+# read wins) would depend on whatever incidental order Postgres happens to
+# return same-timestamp rows in.
 _READ_AUTO_MATCHED_SQL = """
     SELECT resolved_company_key, company_name_raw
     FROM silver.resolved_signals
     WHERE match_confidence = 'auto_matched'
-    ORDER BY resolved_at
+    ORDER BY resolved_at, id
 """
 
+# FOR UPDATE: locks an existing row for the rest of this transaction, so a
+# second write_company() call racing on the same domain (a concurrent
+# write_all() run, or a future writer) can't read the same pre-update
+# state this one is about to act on.
 _GET_COMPANY_SQL = """
     SELECT id, business_sector, team_composition_signal, icp_filter_pass,
            current_since
     FROM gold.company
     WHERE domain = %s
+    FOR UPDATE
 """
 
 _INSERT_HISTORY_SQL = """
