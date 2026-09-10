@@ -59,8 +59,11 @@ echo "== coderabbit review --agent --base master =="
 if command -v coderabbit >/dev/null 2>&1; then
     coderabbit review --agent --base master || true
 else
-    echo "(coderabbit CLI not found on PATH — install it to get this check" \
-         "locally; the GitHub App will still review the PR after push.)" >&2
+    echo "coderabbit CLI not found on PATH." >&2
+    echo "Install it: https://docs.coderabbit.ai/cli (or see CLAUDE.md's" >&2
+    echo "'Before pushing' section). Push blocked: this script's whole job is" >&2
+    echo "making sure this check actually runs, not making it optional." >&2
+    exit 1
 fi
 
 exit 0

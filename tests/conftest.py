@@ -91,19 +91,21 @@ def pytest_configure(config) -> None:
 
     database_url = container.get_connection_url()
 
+    # Unlike the container-start step above, a failure here is not treated
+    # as "fall back to skip": by this point Docker and Postgres have both
+    # already proven themselves working (the container started and accepted
+    # a connection), so an exception applying db/schema/*.sql means the SQL
+    # itself is broken, not that the environment is unavailable. Swallowing
+    # that into a quiet skip would hide a real schema bug behind a false
+    # "tests skipped" result instead of a loud failure.
     try:
         with psycopg.connect(database_url, autocommit=True) as conn:
             for filename in _SCHEMA_FILES:
                 conn.execute((_SCHEMA_DIR / filename).read_text())
-    except Exception as exc:
+    except Exception:
         with contextlib.suppress(Exception):
             container.stop()
-        logger.warning(
-            "testcontainers: could not apply db/schema/*.sql, "
-            "integration tests will skip: %s",
-            exc,
-        )
-        return
+        raise
 
     _container = container
     os.environ["HUGINN_DATABASE_URL"] = database_url
