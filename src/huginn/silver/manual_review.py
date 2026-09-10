@@ -44,12 +44,8 @@ class ManualReviewQueuer:
         untouched: re-running this must never reset a reviewer's prior
         decision.
         """
-        # One `with` around the whole method, not one per record: the read
-        # and every insert in this call share a single connection and
-        # commit as one transaction, so a large run costs one connect
-        # rather than one per record, and a mid-loop failure leaves no
-        # partial batch behind. `with` on an injected port is plain
-        # Python; this class still imports no `psycopg`.
+        # See huginn.silver.ports's module docstring for why this whole
+        # method shares one `with self._repository:` scope.
         with self._repository:
             written = 0
             for (

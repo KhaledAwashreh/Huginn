@@ -1,4 +1,4 @@
-"""Live-Postgres integration coverage for PostgresYcStagingLoader.load().
+"""Live-Postgres integration coverage for YcStagingLoader.load().
 
 Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
 """

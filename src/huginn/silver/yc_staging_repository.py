@@ -32,7 +32,7 @@ _UPSERT_SQL = """
 
 def build_upsert_query(row: YcListingStaging) -> tuple[str, tuple]:
     """Parameterized upsert for one staging row, keyed on stable_id
-    (see huginn.silver.ports.py's Task 1 unique constraint)."""
+    (db/schema/silver.sql's UNIQUE(stable_id) on silver.yc_listings)."""
     return _UPSERT_SQL, (
         row.stable_id,
         row.company_name_raw,

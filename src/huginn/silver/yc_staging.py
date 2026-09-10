@@ -80,12 +80,8 @@ class YcStagingLoader:
         count of rows upserted (always equals the input count; the write
         executes on every row even when nothing changed).
         """
-        # One `with` around the whole method, not one per record: every
-        # statement in this call shares a single connection and commits as
-        # one transaction, so a large run costs one connect rather than one
-        # per record, and a mid-loop failure leaves no partial batch
-        # behind. `with` on an injected port is plain Python; this class
-        # still imports no `psycopg`.
+        # See huginn.silver.ports's module docstring for why this whole
+        # method shares one `with self._repository:` scope.
         with self._repository:
             payloads = self._repository.read("yc")
             written = 0

@@ -111,13 +111,8 @@ class SignalResolver:
         count; the write executes on every row even when nothing
         changed).
         """
-        # One `with` around the whole method, not one per record: both
-        # reads and every write in this call share a single connection and
-        # commit as one transaction, so a large run costs one connect
-        # rather than one per record, the batch is resolved against one
-        # consistent snapshot, and a mid-loop failure leaves no partial
-        # batch behind. `with` on an injected port is plain Python; this
-        # class still imports no `psycopg`.
+        # See huginn.silver.ports's module docstring for why this whole
+        # method shares one `with self._repository:` scope.
         with self._repository:
             staged_signals = (
                 self._repository.read_hn_postings()

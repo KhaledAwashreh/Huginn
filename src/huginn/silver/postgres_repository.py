@@ -10,6 +10,7 @@ api_ingest table.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Self
 
 import psycopg
@@ -54,18 +55,28 @@ class PostgresConnectionScope:
         """Commit on a clean exit, roll back if the block raised, and close
         both the cursor and the connection either way.
 
+        Commit/rollback happens before the cursor is closed, and a
+        failure closing the cursor is swallowed rather than raised: a
+        cursor-close error must never replace the with-block's real
+        exception (or skip the rollback that exception should trigger)
+        with a lower-value cleanup failure. `conn.close()` still runs
+        Postgres-side rollback of anything left uncommitted if commit()
+        itself never got a chance to run, so no cleanup step here is
+        load-bearing for data correctness.
+
         Returns None so a failure inside the block still propagates: a
         repository must not swallow its caller's exception.
         """
         try:
-            if self.cursor is not None:
-                self.cursor.close()
             if self._conn is not None:
                 if exc_type is None:
                     self._conn.commit()
                 else:
                     self._conn.rollback()
         finally:
+            if self.cursor is not None:
+                with contextlib.suppress(Exception):
+                    self.cursor.close()
             if self._conn is not None:
                 self._conn.close()
             self.cursor = None
