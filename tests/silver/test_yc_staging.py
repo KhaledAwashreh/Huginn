@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from huginn.silver.yc_staging import parse_yc_listing
+from huginn.silver.yc_staging import YcStagingLoader, parse_yc_listing
 
 # Real YC Algolia hit shape (queried live, docs/sources/yc-directory.md).
 _REAL_HIT_HIRING = {
@@ -115,3 +115,65 @@ def test_yc_listing_staging_is_frozen():
         raise AssertionError("expected FrozenInstanceError")
     except AttributeError:
         pass
+
+
+class FakeYcStagingRepository:
+    def __init__(self, payloads: list[dict]) -> None:
+        self._payloads = payloads
+        self.read_calls: list[str] = []
+        self.upserted = []
+        self.enter_count = 0
+        self.exit_count = 0
+
+    def __enter__(self):
+        self.enter_count += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.exit_count += 1
+
+    def read(self, source: str) -> list[dict]:
+        self.read_calls.append(source)
+        return self._payloads
+
+    def upsert(self, row) -> None:
+        self.upserted.append(row)
+
+
+def test_load_upserts_every_row():
+    repository = FakeYcStagingRepository([_REAL_HIT_HIRING, _REAL_HIT_NOT_HIRING])
+    loader = YcStagingLoader(repository)
+
+    loader.load()
+
+    assert {row.stable_id for row in repository.upserted} == {"30405", "595"}
+
+
+def test_load_returns_the_count_of_rows_written():
+    repository = FakeYcStagingRepository([_REAL_HIT_HIRING, _REAL_HIT_NOT_HIRING])
+    loader = YcStagingLoader(repository)
+
+    written = loader.load()
+
+    assert written == 2
+
+
+def test_load_reads_the_yc_source():
+    repository = FakeYcStagingRepository([_REAL_HIT_HIRING])
+    loader = YcStagingLoader(repository)
+
+    loader.load()
+
+    assert repository.read_calls == ["yc"]
+
+
+def test_load_opens_the_repository_scope_once_for_the_whole_batch():
+    """Regression check: the batch must share one connection scope rather
+    than opening one per record."""
+    repository = FakeYcStagingRepository([_REAL_HIT_HIRING, _REAL_HIT_NOT_HIRING])
+    loader = YcStagingLoader(repository)
+
+    loader.load()
+
+    assert repository.enter_count == 1
+    assert repository.exit_count == 1

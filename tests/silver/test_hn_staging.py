@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from huginn.silver.hn_staging import parse_hn_posting
+from huginn.silver.hn_staging import HnStagingLoader, parse_hn_posting
 
 # Real "Who's Hiring" comment, HTML-escaped exactly as Firebase returns it
 # (confirmed live, architecture-notes/hn-fetch-plan.md).
@@ -181,3 +181,84 @@ def test_hn_posting_staging_is_frozen():
         raise AssertionError("expected FrozenInstanceError")
     except AttributeError:
         pass
+
+
+class FakeHnStagingRepository:
+    def __init__(self, payloads: list[dict]) -> None:
+        self._payloads = payloads
+        self.read_calls: list[str] = []
+        self.upserted = []
+        self.enter_count = 0
+        self.exit_count = 0
+
+    def __enter__(self):
+        self.enter_count += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.exit_count += 1
+
+    def read(self, source: str) -> list[dict]:
+        self.read_calls.append(source)
+        return self._payloads
+
+    def upsert(self, row) -> None:
+        self.upserted.append(row)
+
+
+def test_load_upserts_every_parseable_row_and_skips_unparseable_ones():
+    repository = FakeHnStagingRepository(
+        [
+            _REAL_COMMENT_WITH_TRAILING_LINK,
+            _REAL_ROOT_STORY,
+            _REAL_DELETED_COMMENT,
+            _REAL_COMMENT_WITH_NO_LINK,
+        ]
+    )
+    loader = HnStagingLoader(repository)
+
+    loader.load()
+
+    assert {row.stable_id for row in repository.upserted} == {
+        "49522903",
+        "49523010",
+    }
+
+
+def test_load_returns_the_count_of_rows_upserted_not_read():
+    repository = FakeHnStagingRepository(
+        [
+            _REAL_COMMENT_WITH_TRAILING_LINK,
+            _REAL_ROOT_STORY,
+            _REAL_DELETED_COMMENT,
+            _REAL_COMMENT_WITH_NO_LINK,
+        ]
+    )
+    loader = HnStagingLoader(repository)
+
+    written = loader.load()
+
+    assert written == 2
+
+
+def test_load_reads_the_hn_source():
+    repository = FakeHnStagingRepository([_REAL_COMMENT_WITH_TRAILING_LINK])
+    loader = HnStagingLoader(repository)
+
+    loader.load()
+
+    assert repository.read_calls == ["hn"]
+
+
+def test_load_opens_the_repository_scope_once_for_the_whole_batch():
+    """Regression check: the batch must share one connection scope rather
+    than opening one per record."""
+    repository = FakeHnStagingRepository(
+        [_REAL_COMMENT_WITH_TRAILING_LINK, _REAL_COMMENT_WITH_NO_LINK]
+    )
+    loader = HnStagingLoader(repository)
+
+    loader.load()
+
+    assert repository.enter_count == 1
+    assert repository.exit_count == 1
