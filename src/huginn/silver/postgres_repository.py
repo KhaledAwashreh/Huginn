@@ -34,9 +34,20 @@ class PostgresConnectionScope:
         self.cursor = None
 
     def __enter__(self) -> Self:
-        """Open the connection and cursor this block's statements share."""
+        """Open the connection and cursor this block's statements share.
+
+        If opening the cursor fails, the connection is closed before the
+        exception propagates: `__exit__` never runs when `__enter__`
+        itself raises (the `with` protocol), so this is the only chance
+        to avoid leaking the already-open connection.
+        """
         self._conn = psycopg.connect(self._database_url)
-        self.cursor = self._conn.cursor()
+        try:
+            self.cursor = self._conn.cursor()
+        except Exception:
+            self._conn.close()
+            self._conn = None
+            raise
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
