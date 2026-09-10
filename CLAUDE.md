@@ -120,6 +120,13 @@ ticket saying what changed. Auto-transition stops at In Review: moving a
 ticket to Done/Closed still needs the user's explicit say-so, never do it
 unprompted. Never commit without the user reviewing first.
 
+**Branch and PR, not direct-to-master.** Work for a ticket (or a small
+group of related tickets) happens on its own branch, never committed
+straight to `master`. Once the "Before pushing" checks below pass, the
+user pushes the branch and opens the PR themselves; don't push or open a
+PR without being asked to. CI and the CodeRabbit GitHub App both run
+against the PR automatically.
+
 ## Before pushing
 
 1. `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`
