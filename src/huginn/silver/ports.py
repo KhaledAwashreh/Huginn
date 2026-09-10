@@ -1,19 +1,18 @@
 """Port contracts for the Silver staging loaders, entity resolver, and
 manual-review queue writer. See architecture document section 5's
-ports-and-adapters pattern, already used at the ingestion/Bronze boundary
+ports-and-adapters pattern, already used at the ingestion boundary
 (`huginn.ingestion.ports.RawStorePort`/`StatePort`) and CLAUDE.md design
 standard 6. `HnStagingLoader`, `YcStagingLoader`, `SignalResolver`, and
 `ManualReviewQueuer` depend only on these Protocols, never on `psycopg`
-directly; the concrete Postgres classes implementing them live alongside
-their respective orchestrators.
+directly; the concrete Postgres classes implementing them live in
+`huginn.silver.repositories`.
 
 One port per orchestrator, covering both the reads and the writes that
 orchestrator makes, rather than a separate reader port and writer port.
 An adapter owns its connection, so a split pair would mean two
 connections and two transactions per call; merged, each orchestrator call
 is one connection and one transaction, and its reads and writes share a
-single consistent snapshot. This also matches the Bronze boundary, where
-`ApiIngestRepositoryPort` already covers lookup and write together.
+single consistent snapshot.
 
 Every port here is a context manager, and deliberately so: the connection
 scope belongs to the orchestrator's whole call, not to each individual
@@ -27,13 +26,14 @@ the block's exception: it returns None, never a truthy value.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from huginn.silver.hn_staging import HnPostingStaging
-    from huginn.silver.yc_staging import YcListingStaging
+from huginn.silver.models import (
+    HnPostingStaging,
+    ResolvedSignalRecord,
+    StagedSignal,
+    YcListingStaging,
+)
 
 
 class RepositoryScopePort(Protocol):
@@ -63,9 +63,9 @@ class BronzeReaderPort(RepositoryScopePort, Protocol):
     """Reads raw bronze.api_ingest payloads for one source. Both staging
     ports below extend this Protocol into their own contract; their
     concrete implementations share the read via a plain function
-    (`huginn.silver.postgres_repository.read_bronze_payloads`), since the
-    read side is identical regardless of source (architecture document
-    section 4.1: one shared api_ingest table, `source` column
+    (`huginn.silver.repositories.postgres_repository.read_bronze_payloads`),
+    since the read side is identical regardless of source (architecture
+    document section 4.1: one shared api_ingest table, `source` column
     distinguishes rows).
     """
 
@@ -82,42 +82,6 @@ class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
     """Reads bronze.api_ingest and upserts silver.yc_listings."""
 
     def upsert(self, row: YcListingStaging) -> None: ...
-
-
-@dataclass(frozen=True)
-class StagedSignal:
-    """One row read back from either per-source staging table, tagged
-    with its source so `SignalResolver` can build a placeholder key
-    without the reader needing to know about resolution at all.
-    """
-
-    source: str
-    stable_id: str
-    company_name_raw: str
-    website: str | None
-    signal_type: str
-    stage: str | None
-    description: str
-    occurred_on: datetime
-    url: str
-
-
-@dataclass(frozen=True)
-class ResolvedSignalRecord:
-    """One row to upsert into silver.resolved_signals, produced by
-    `resolve_signal` from a `StagedSignal`.
-    """
-
-    source: str
-    source_stable_id: str
-    resolved_company_key: str
-    company_name_raw: str
-    signal_type: str
-    stage: str | None
-    description: str
-    occurred_on: datetime
-    url: str
-    match_confidence: str
 
 
 class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):

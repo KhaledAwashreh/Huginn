@@ -14,12 +14,10 @@ from __future__ import annotations
 import html
 import logging
 import re
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from huginn.silver.ports import HnStagingRepositoryPort
+from huginn.silver.models import HnPostingStaging
+from huginn.silver.ports import HnStagingRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +26,6 @@ _HN_ITEM_URL = "https://news.ycombinator.com/item?id={id}"
 _TAG_RE = re.compile(r"<[^>]+>")
 _HREF_RE = re.compile(r'<a\s+href="([^"]+)"', re.IGNORECASE)
 _LINK_REMOVE_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
-
-
-@dataclass(frozen=True)
-class HnPostingStaging:
-    """One row of silver.hn_postings. See docs/entities.md's HnPostingStaging."""
-
-    stable_id: str
-    company_name_raw: str
-    website: str | None
-    signal_type: str
-    stage: str | None
-    description: str
-    occurred_on: datetime
-    url: str
 
 
 def _clean_text(fragment: str) -> str:

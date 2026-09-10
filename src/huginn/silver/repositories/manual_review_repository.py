@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from huginn.silver.postgres_repository import PostgresConnectionScope
+from huginn.silver.repositories.postgres_repository import PostgresConnectionScope
 from huginn.silver.resolution import MatchConfidence
 
 _UNMATCHED_SELECT_SQL = "SELECT id, resolved_company_key FROM silver.resolved_signals WHERE match_confidence = %s"

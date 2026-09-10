@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from typing import Self
 
-from huginn.silver.hn_staging import HnPostingStaging
-from huginn.silver.postgres_repository import (
+from huginn.silver.models import HnPostingStaging
+from huginn.silver.repositories.postgres_repository import (
     PostgresConnectionScope,
     read_bronze_payloads,
 )

@@ -12,10 +12,10 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
-from huginn.silver.signal_resolution import SignalResolver
-from huginn.silver.signal_resolution_repository import (
+from huginn.silver.repositories.signal_resolution_repository import (
     PostgresSignalResolutionRepository,
 )
+from huginn.silver.signal_resolution import SignalResolver
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 

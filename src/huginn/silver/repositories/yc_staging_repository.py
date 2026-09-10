@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from typing import Self
 
-from huginn.silver.postgres_repository import (
+from huginn.silver.models import YcListingStaging
+from huginn.silver.repositories.postgres_repository import (
     PostgresConnectionScope,
     read_bronze_payloads,
 )
-from huginn.silver.yc_staging import YcListingStaging
 
 _UPSERT_SQL = """
     INSERT INTO silver.yc_listings

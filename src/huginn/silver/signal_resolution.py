@@ -15,13 +15,10 @@ manual review.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
-from huginn.silver.ports import ResolvedSignalRecord
+from huginn.silver.models import ResolvedSignalRecord
+from huginn.silver.ports import SignalResolutionRepositoryPort
 from huginn.silver.resolution import MatchConfidence, normalize_domain
-
-if TYPE_CHECKING:
-    from huginn.silver.ports import SignalResolutionRepositoryPort
 
 logger = logging.getLogger(__name__)
 

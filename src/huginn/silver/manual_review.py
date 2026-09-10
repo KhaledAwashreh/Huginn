@@ -12,10 +12,8 @@ this plan's Task 7.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from huginn.silver.ports import ManualReviewRepositoryPort
+from huginn.silver.ports import ManualReviewRepositoryPort
 
 logger = logging.getLogger(__name__)
 

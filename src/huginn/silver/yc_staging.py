@@ -13,30 +13,14 @@ plan's Task 4 "Grounding" note.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from huginn.silver.ports import YcStagingRepositoryPort
+from huginn.silver.models import YcListingStaging
+from huginn.silver.ports import YcStagingRepositoryPort
 
 logger = logging.getLogger(__name__)
 
 _YC_COMPANY_URL = "https://www.ycombinator.com/companies/{slug}"
-
-
-@dataclass(frozen=True)
-class YcListingStaging:
-    """One row of silver.yc_listings. See docs/entities.md's YcListingStaging."""
-
-    stable_id: str
-    company_name_raw: str
-    website: str | None
-    signal_type: str
-    stage: str | None
-    description: str
-    occurred_on: datetime
-    url: str
 
 
 def parse_yc_listing(payload: dict) -> YcListingStaging:

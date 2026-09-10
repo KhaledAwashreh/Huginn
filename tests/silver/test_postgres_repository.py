@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from huginn.silver import postgres_repository
-from huginn.silver.postgres_repository import PostgresConnectionScope
+from huginn.silver.repositories import postgres_repository
+from huginn.silver.repositories.postgres_repository import PostgresConnectionScope
 
 
 class _FakeConnectionThatFailsToOpenACursor:

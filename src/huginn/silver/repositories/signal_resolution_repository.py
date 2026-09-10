@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Self
 
-from huginn.silver.ports import ResolvedSignalRecord, StagedSignal
-from huginn.silver.postgres_repository import PostgresConnectionScope
+from huginn.silver.models import ResolvedSignalRecord, StagedSignal
+from huginn.silver.repositories.postgres_repository import PostgresConnectionScope
 
 _HN_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,

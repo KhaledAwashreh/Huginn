@@ -13,7 +13,9 @@ import psycopg
 import pytest
 
 from huginn.silver.manual_review import ManualReviewQueuer
-from huginn.silver.manual_review_repository import PostgresManualReviewRepository
+from huginn.silver.repositories.manual_review_repository import (
+    PostgresManualReviewRepository,
+)
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
