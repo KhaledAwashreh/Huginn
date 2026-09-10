@@ -1,33 +1,15 @@
 """Shared pytest fixtures for the whole suite. See CLAUDE.md code standard
-4 (DB-free unit tests everywhere feasible; live-Postgres integration
-tests gated on HUGINN_DATABASE_URL) and Jira KAN-52.
-
-If HUGINN_DATABASE_URL isn't already set to something reachable (by
-`.env`, a real env var, or CI's own Postgres service — see
-.github/workflows/ci.yml), starts a throwaway Postgres testcontainer,
-applies db/schema/*.sql, and exports its connection string for the rest
-of the session. Checking reachability, not just presence, matters: `.env`
-commonly carries a HUGINN_DATABASE_URL pointing at a database that isn't
-actually running (e.g. from a prior session), and treating that as
-"already configured" would silently skip every integration test instead
-of falling back to a container. Every existing tests/**/*_integration.py
-file already reads HUGINN_DATABASE_URL from the environment at import
-time and skips cleanly if it's unset or unreachable, so this needs no
-changes there: it just makes that check usually succeed instead of
-usually skip, locally.
-
-If Docker isn't available, or anything here fails, this falls back to
-that same skip behavior rather than failing the run: a convenience, not
-a new hard requirement. Every failure path below is deliberately caught,
-not just the container-start step, since pytest_configure runs inside
-pytest's own session setup — an uncaught exception here aborts the whole
-pytest invocation (including plain DB-free unit test runs), not just the
-integration tests this module is trying to make optional.
+4 and Jira KAN-52: starts a throwaway Postgres testcontainer for local dev
+sessions when nothing reachable is already configured, applies
+db/schema/*.sql, and exports HUGINN_DATABASE_URL, all before test
+collection so every existing tests/**/*_integration.py file's own
+module-level skip check picks it up unchanged.
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from pathlib import Path
 
@@ -35,6 +17,8 @@ import psycopg
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def _database_reachable(database_url: str | None) -> bool:
@@ -69,6 +53,12 @@ def pytest_configure(config) -> None:
     """Runs before test collection, so HUGINN_DATABASE_URL is already set
     (or not) by the time each integration test module's own module-level
     skip check runs at import time.
+
+    Every failure path below is deliberately caught, not just container
+    construction and start: pytest_configure runs inside pytest's own
+    session setup, so an uncaught exception here aborts the whole pytest
+    invocation (including plain DB-free unit test runs), not just the
+    integration tests this module is trying to make optional.
     """
     global _container
     if _database_reachable(os.environ.get("HUGINN_DATABASE_URL")):
@@ -77,32 +67,34 @@ def pytest_configure(config) -> None:
     try:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
-        print(
-            "\n(testcontainers not installed (uv sync should have installed "
-            "the dev group), integration tests will skip)"
+        logger.warning(
+            "testcontainers not installed (uv sync should have installed "
+            "the dev group); integration tests will skip"
         )
         return
 
-    container = PostgresContainer(
-        "postgres:16-alpine",
-        username="postgres",
-        password="huginn",
-        dbname="huginn",
-        driver=None,
-    )
+    container = None
     try:
+        container = PostgresContainer(
+            "postgres:16-alpine",
+            username="postgres",
+            password="huginn",
+            dbname="huginn",
+            driver=None,
+        )
         container.start()
     except Exception as exc:
-        # start() can fail after Docker has already created and started
-        # the container (e.g. the internal psql readiness wait times out),
-        # so it may need stopping even though it never got far enough to
-        # become `_container`. Best-effort: a failure here must not mask
-        # the original exception below.
-        with contextlib.suppress(Exception):
-            container.stop()
-        print(
-            f"\n(testcontainers: could not start a Postgres container, "
-            f"integration tests will skip: {exc})"
+        # Construction itself (not just start()) can fail, e.g. if the
+        # Docker client can't be initialized — guard the whole thing, not
+        # just start(), and only attempt cleanup if construction actually
+        # produced a container to stop.
+        if container is not None:
+            with contextlib.suppress(Exception):
+                container.stop()
+        logger.warning(
+            "testcontainers: could not start a Postgres container, "
+            "integration tests will skip: %s",
+            exc,
         )
         return
 
@@ -115,9 +107,10 @@ def pytest_configure(config) -> None:
     except Exception as exc:
         with contextlib.suppress(Exception):
             container.stop()
-        print(
-            f"\n(testcontainers: could not apply db/schema/*.sql, "
-            f"integration tests will skip: {exc})"
+        logger.warning(
+            "testcontainers: could not apply db/schema/*.sql, "
+            "integration tests will skip: %s",
+            exc,
         )
         return
 
