@@ -11,7 +11,9 @@ import uuid
 import psycopg
 import pytest
 
-from huginn.elt.silver.repositories.yc_staging_repository import PostgresYcStagingRepository
+from huginn.elt.silver.repositories.yc_staging_repository import (
+    PostgresYcStagingRepository,
+)
 from huginn.elt.silver.yc_staging import YcStagingLoader
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")

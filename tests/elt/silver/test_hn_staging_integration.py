@@ -12,7 +12,9 @@ import psycopg
 import pytest
 
 from huginn.elt.silver.hn_staging import HnStagingLoader
-from huginn.elt.silver.repositories.hn_staging_repository import PostgresHnStagingRepository
+from huginn.elt.silver.repositories.hn_staging_repository import (
+    PostgresHnStagingRepository,
+)
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
