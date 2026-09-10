@@ -77,6 +77,10 @@ def pytest_configure(config) -> None:
     try:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
+        print(
+            "\n(testcontainers not installed (uv sync should have installed "
+            "the dev group), integration tests will skip)"
+        )
         return
 
     container = PostgresContainer(
@@ -109,7 +113,8 @@ def pytest_configure(config) -> None:
             for filename in _SCHEMA_FILES:
                 conn.execute((_SCHEMA_DIR / filename).read_text())
     except Exception as exc:
-        container.stop()
+        with contextlib.suppress(Exception):
+            container.stop()
         print(
             f"\n(testcontainers: could not apply db/schema/*.sql, "
             f"integration tests will skip: {exc})"
@@ -122,4 +127,5 @@ def pytest_configure(config) -> None:
 
 def pytest_unconfigure(config) -> None:
     if _container is not None:
-        _container.stop()
+        with contextlib.suppress(Exception):
+            _container.stop()
