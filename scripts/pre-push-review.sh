@@ -16,6 +16,16 @@
 # block on them.
 set -uo pipefail
 
+# A dirty working tree (uncommitted changes) isn't necessarily what's
+# actually about to be pushed: git push sends committed objects, not
+# working-tree state. Refuse to run checks against a state that might not
+# match the push, rather than let a pass here mean nothing.
+if [ -n "$(git status --porcelain)" ]; then
+    echo "Working tree has uncommitted changes. Commit or stash them first" >&2
+    echo "so these checks test exactly what's about to be pushed. Push blocked." >&2
+    exit 1
+fi
+
 fail=0
 
 echo "== uv run pytest =="

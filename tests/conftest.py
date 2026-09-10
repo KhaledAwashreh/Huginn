@@ -1,9 +1,5 @@
 """Shared pytest fixtures for the whole suite. See CLAUDE.md code standard
-4 and Jira KAN-52: starts a throwaway Postgres testcontainer for local dev
-sessions when nothing reachable is already configured, applies
-db/schema/*.sql, and exports HUGINN_DATABASE_URL, all before test
-collection so every existing tests/**/*_integration.py file's own
-module-level skip check picks it up unchanged.
+4 and Jira KAN-52.
 """
 
 from __future__ import annotations
@@ -50,15 +46,10 @@ _container = None
 
 
 def pytest_configure(config) -> None:
-    """Runs before test collection, so HUGINN_DATABASE_URL is already set
-    (or not) by the time each integration test module's own module-level
-    skip check runs at import time.
-
-    Every failure path below is deliberately caught, not just container
-    construction and start: pytest_configure runs inside pytest's own
-    session setup, so an uncaught exception here aborts the whole pytest
-    invocation (including plain DB-free unit test runs), not just the
-    integration tests this module is trying to make optional.
+    """Must run before collection (HUGINN_DATABASE_URL needs to already be
+    set when each integration test module's own skip check fires) and must
+    never raise: an uncaught exception here aborts the whole pytest run,
+    not just the integration tests this is meant to make optional.
     """
     global _container
     if _database_reachable(os.environ.get("HUGINN_DATABASE_URL")):
