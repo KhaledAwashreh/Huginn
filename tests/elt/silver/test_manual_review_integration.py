@@ -45,6 +45,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _insert_resolved_signal(cur, source_stable_id: str, key_derivation: str) -> str:
+    """Insert a Silver signal with the requested key-derivation status."""
     cur.execute(
         """
         INSERT INTO silver.resolved_signals
@@ -64,6 +65,7 @@ def _insert_resolved_signal(cur, source_stable_id: str, key_derivation: str) -> 
 
 
 def test_queue_unmatched_inserts_a_pending_row_for_unresolved():
+    """Queue an unresolved Silver signal for pending manual review."""
     source_stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         resolved_signal_id = _insert_resolved_signal(
@@ -99,6 +101,7 @@ def test_queue_unmatched_inserts_a_pending_row_for_unresolved():
 
 
 def test_queue_unmatched_does_not_queue_a_domain_normalized_signal():
+    """Do not queue a signal whose company domain was normalized."""
     source_stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         resolved_signal_id = _insert_resolved_signal(
@@ -123,6 +126,7 @@ def test_queue_unmatched_does_not_queue_a_domain_normalized_signal():
 
 
 def test_queue_unmatched_does_not_duplicate_an_already_queued_row():
+    """Keep queue insertion idempotent for an unresolved signal."""
     source_stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         resolved_signal_id = _insert_resolved_signal(

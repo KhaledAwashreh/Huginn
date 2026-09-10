@@ -104,6 +104,7 @@ class PostgresSignalResolutionRepository:
         ]
 
     def upsert(self, record: ResolvedSignalRecord) -> None:
+        """Implement `SignalResolutionRepositoryPort.upsert`."""
         self._scope.cursor.execute(
             _UPSERT_SQL,
             (

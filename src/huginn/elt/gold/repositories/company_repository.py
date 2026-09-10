@@ -159,6 +159,7 @@ class PostgresCompanyRepository:
         return None
 
     def read_domain_normalized_signals(self) -> list[DomainNormalizedSignal]:
+        """Implement `CompanyRepositoryPort.read_domain_normalized_signals`."""
         self._cur.execute(_READ_DOMAIN_NORMALIZED_SQL)
         return [
             DomainNormalizedSignal(domain=row[0], company_name_raw=row[1])

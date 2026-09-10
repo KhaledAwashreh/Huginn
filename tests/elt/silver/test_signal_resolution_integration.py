@@ -58,6 +58,7 @@ def _insert_hn_posting(cur, stable_id: str, website: str | None) -> None:
 
 
 def test_resolve_all_auto_matches_a_row_with_a_website():
+    """Persist a normalized domain key for a row with a company website."""
     stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         _insert_hn_posting(cur, stable_id, "https://www.resolutiontestco.example")
@@ -90,6 +91,7 @@ def test_resolve_all_auto_matches_a_row_with_a_website():
 
 
 def test_resolve_all_marks_unresolved_when_website_is_none():
+    """Persist an unresolved derivation status when the website is absent."""
     stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         _insert_hn_posting(cur, stable_id, None)

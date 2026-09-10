@@ -45,6 +45,7 @@ class PostgresManualReviewRepository:
         return self._scope.__exit__(exc_type, exc_value, traceback)
 
     def read_unmatched(self) -> list[tuple[str, str]]:
+        """Implement `ManualReviewRepositoryPort.read_unmatched`."""
         self._scope.cursor.execute(_UNMATCHED_SELECT_SQL, (KeyDerivation.UNRESOLVED,))
         return list(self._scope.cursor.fetchall())
 

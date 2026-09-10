@@ -39,6 +39,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
+    """Insert a domain-normalized Silver signal for a writer test."""
     cur.execute(
         """
         INSERT INTO silver.resolved_signals
@@ -57,6 +58,7 @@ def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
 
 
 def test_write_all_creates_a_new_company_from_a_domain_normalized_signal():
+    """Create a Gold company from a domain-normalized Silver signal."""
     stable_id = str(uuid.uuid4().int)[:10]
     domain = f"companywritertest-{stable_id}.example"
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
@@ -191,6 +193,7 @@ def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
 
 
 def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
+    """Exclude unresolved placeholder keys from Gold company writes."""
     stable_id = str(uuid.uuid4().int)[:10]
     placeholder_key = f"unresolved:hn:{stable_id}"
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:

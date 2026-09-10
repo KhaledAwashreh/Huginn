@@ -7,6 +7,8 @@ from huginn.elt.gold.models import DomainNormalizedSignal
 
 
 class FakeCompanyRepository:
+    """In-memory `CompanyRepositoryPort` test double."""
+
     def __init__(self, signals, companies=None):
         self._signals = signals
         self._companies = companies or {}
@@ -23,6 +25,7 @@ class FakeCompanyRepository:
         self.exit_count += 1
 
     def read_domain_normalized_signals(self):
+        """Return the domain-normalized signals configured for this fake."""
         return self._signals
 
     def get_company(self, domain):
@@ -36,6 +39,7 @@ class FakeCompanyRepository:
 
 
 def _signal(domain: str, name: str) -> DomainNormalizedSignal:
+    """Build the Gold input shape used by CompanyWriter tests."""
     return DomainNormalizedSignal(domain=domain, company_name_raw=name)
 
 
@@ -103,6 +107,7 @@ def test_write_company_never_writes_history_on_first_occurrence_even_if_a_type_2
 
 
 def test_write_all_processes_every_domain_normalized_signal():
+    """Write each distinct domain-normalized signal in the batch."""
     repo = FakeCompanyRepository(
         signals=[_signal("acme.com", "Acme"), _signal("getnao.io", "Nao")]
     )

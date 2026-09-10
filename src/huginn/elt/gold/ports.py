@@ -19,6 +19,8 @@ from huginn.elt.gold.models import DomainNormalizedSignal
 
 
 class CompanyRepositoryPort(Protocol):
+    """Persistence contract for Gold company writes. See ADR-0002."""
+
     def __enter__(self) -> CompanyRepositoryPort:
         """Acquire whatever the statements below need, and return the
         object those statements are then called on.

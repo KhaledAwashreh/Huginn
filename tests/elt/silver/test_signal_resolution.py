@@ -13,6 +13,7 @@ from huginn.elt.silver.signal_resolution import (
 
 
 def test_resolve_signal_normalizes_a_normalizable_domain():
+    """Derive a company key from a normalizable website domain."""
     key, confidence = resolve_signal("hn", "1", "https://www.acme.com/careers")
 
     assert key == "acme.com"
@@ -20,6 +21,7 @@ def test_resolve_signal_normalizes_a_normalizable_domain():
 
 
 def test_resolve_signal_returns_unresolved_when_website_is_none():
+    """Mark a signal without a website as unresolved."""
     key, confidence = resolve_signal("hn", "1", None)
 
     assert key == "unresolved:hn:1"
@@ -27,6 +29,7 @@ def test_resolve_signal_returns_unresolved_when_website_is_none():
 
 
 def test_resolve_signal_returns_unresolved_when_website_is_empty_string():
+    """Mark a signal with an empty website as unresolved."""
     key, confidence = resolve_signal("hn", "1", "")
 
     assert key == "unresolved:hn:1"
@@ -34,6 +37,7 @@ def test_resolve_signal_returns_unresolved_when_website_is_empty_string():
 
 
 def test_resolve_signal_rejects_a_denylisted_ats_host():
+    """Reject an applicant-tracking host as a company key."""
     key, confidence = resolve_signal(
         "hn", "1", "https://acme.bamboohr.com/jobs/view/42"
     )
@@ -43,6 +47,7 @@ def test_resolve_signal_rejects_a_denylisted_ats_host():
 
 
 def test_resolve_signal_rejects_a_denylisted_platform_host():
+    """Reject a shared platform host as a company key."""
     key, confidence = resolve_signal("yc", "7", "https://www.ycombinator.com/companies")
 
     assert key == "unresolved:yc:7"
@@ -50,6 +55,7 @@ def test_resolve_signal_rejects_a_denylisted_platform_host():
 
 
 def test_resolve_signal_rejects_a_subdomain_of_a_denylisted_host():
+    """Reject subdomains belonging to a denylisted host."""
     key, confidence = resolve_signal("hn", "2", "https://boards.greenhouse.io/acme")
 
     assert key == "unresolved:hn:2"
@@ -57,6 +63,7 @@ def test_resolve_signal_rejects_a_subdomain_of_a_denylisted_host():
 
 
 def test_resolve_signal_rejects_every_denylisted_host():
+    """Keep every configured non-company host unresolved."""
     for host in _NON_COMPANY_HOSTS:
         key, confidence = resolve_signal("hn", "1", f"https://{host}/careers")
 
@@ -147,6 +154,7 @@ def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count():
 
 
 def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed():
+    """Persist the key and derivation status computed for each signal."""
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[_staged_signal("yc", "2", None)],
