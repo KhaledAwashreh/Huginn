@@ -26,7 +26,7 @@ _YC_STAGING_SELECT_SQL = """
 _UPSERT_SQL = """
     INSERT INTO silver.resolved_signals
         (source_stable_id, source, resolved_company_key, company_name_raw,
-         signal_type, stage, description, occurred_on, url, match_confidence)
+         signal_type, stage, description, occurred_on, url, key_derivation)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (source, source_stable_id) DO UPDATE
     SET resolved_company_key = EXCLUDED.resolved_company_key,
@@ -36,7 +36,7 @@ _UPSERT_SQL = """
         description = EXCLUDED.description,
         occurred_on = EXCLUDED.occurred_on,
         url = EXCLUDED.url,
-        match_confidence = EXCLUDED.match_confidence,
+        key_derivation = EXCLUDED.key_derivation,
         updated_at = now()
 """
 
@@ -104,6 +104,7 @@ class PostgresSignalResolutionRepository:
         ]
 
     def upsert(self, record: ResolvedSignalRecord) -> None:
+        """Implement `SignalResolutionRepositoryPort.upsert`."""
         self._scope.cursor.execute(
             _UPSERT_SQL,
             (
@@ -116,6 +117,6 @@ class PostgresSignalResolutionRepository:
                 record.description,
                 record.occurred_on,
                 record.url,
-                record.match_confidence,
+                record.key_derivation,
             ),
         )

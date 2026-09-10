@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from huginn.elt.silver.models import StagedSignal
-from huginn.elt.silver.resolution import MatchConfidence
+from huginn.elt.silver.resolution import KeyDerivation
 from huginn.elt.silver.signal_resolution import (
     _NON_COMPANY_HOSTS,
     SignalResolver,
@@ -12,59 +12,66 @@ from huginn.elt.silver.signal_resolution import (
 )
 
 
-def test_resolve_signal_auto_matches_a_normalizable_domain():
+def test_resolve_signal_normalizes_a_normalizable_domain():
+    """Derive a company key from a normalizable website domain."""
     key, confidence = resolve_signal("hn", "1", "https://www.acme.com/careers")
 
     assert key == "acme.com"
-    assert confidence == MatchConfidence.AUTO_MATCHED
+    assert confidence == KeyDerivation.DOMAIN_NORMALIZED
 
 
-def test_resolve_signal_returns_no_existing_match_when_website_is_none():
+def test_resolve_signal_returns_unresolved_when_website_is_none():
+    """Mark a signal without a website as unresolved."""
     key, confidence = resolve_signal("hn", "1", None)
 
     assert key == "unresolved:hn:1"
-    assert confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert confidence == KeyDerivation.UNRESOLVED
 
 
-def test_resolve_signal_returns_no_existing_match_when_website_is_empty_string():
+def test_resolve_signal_returns_unresolved_when_website_is_empty_string():
+    """Mark a signal with an empty website as unresolved."""
     key, confidence = resolve_signal("hn", "1", "")
 
     assert key == "unresolved:hn:1"
-    assert confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert confidence == KeyDerivation.UNRESOLVED
 
 
 def test_resolve_signal_rejects_a_denylisted_ats_host():
+    """Reject an applicant-tracking host as a company key."""
     key, confidence = resolve_signal(
         "hn", "1", "https://acme.bamboohr.com/jobs/view/42"
     )
 
     assert key == "unresolved:hn:1"
-    assert confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert confidence == KeyDerivation.UNRESOLVED
 
 
 def test_resolve_signal_rejects_a_denylisted_platform_host():
+    """Reject a shared platform host as a company key."""
     key, confidence = resolve_signal("yc", "7", "https://www.ycombinator.com/companies")
 
     assert key == "unresolved:yc:7"
-    assert confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert confidence == KeyDerivation.UNRESOLVED
 
 
 def test_resolve_signal_rejects_a_subdomain_of_a_denylisted_host():
+    """Reject subdomains belonging to a denylisted host."""
     key, confidence = resolve_signal("hn", "2", "https://boards.greenhouse.io/acme")
 
     assert key == "unresolved:hn:2"
-    assert confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert confidence == KeyDerivation.UNRESOLVED
 
 
 def test_resolve_signal_rejects_every_denylisted_host():
+    """Keep every configured non-company host unresolved."""
     for host in _NON_COMPANY_HOSTS:
         key, confidence = resolve_signal("hn", "1", f"https://{host}/careers")
 
-        assert confidence == MatchConfidence.NO_EXISTING_MATCH, host
+        assert confidence == KeyDerivation.UNRESOLVED, host
         assert key == "unresolved:hn:1", host
 
 
-def test_resolve_signal_still_auto_matches_a_real_company_domain():
+def test_resolve_signal_still_normalizes_a_real_company_domain():
     """Regression check for the denylist: a company domain that merely
     resembles a denylisted one, or contains it as a non-suffix substring,
     must still auto-match.
@@ -78,7 +85,7 @@ def test_resolve_signal_still_auto_matches_a_real_company_domain():
     ):
         _, confidence = resolve_signal("hn", "1", website)
 
-        assert confidence == MatchConfidence.AUTO_MATCHED, website
+        assert confidence == KeyDerivation.DOMAIN_NORMALIZED, website
 
 
 def test_unresolved_placeholder_key_is_scoped_by_source_and_stable_id():
@@ -147,6 +154,7 @@ def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count():
 
 
 def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed():
+    """Persist the key and derivation status computed for each signal."""
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[_staged_signal("yc", "2", None)],
@@ -158,11 +166,11 @@ def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed():
     by_stable_id = {record.source_stable_id: record for record in repository.upserted}
     matched = by_stable_id["1"]
     assert matched.resolved_company_key == "acme.com"
-    assert matched.match_confidence == MatchConfidence.AUTO_MATCHED
+    assert matched.key_derivation == KeyDerivation.DOMAIN_NORMALIZED
 
     unmatched = by_stable_id["2"]
     assert unmatched.resolved_company_key == "unresolved:yc:2"
-    assert unmatched.match_confidence == MatchConfidence.NO_EXISTING_MATCH
+    assert unmatched.key_derivation == KeyDerivation.UNRESOLVED
 
 
 def test_resolve_all_returns_the_total_written_count():

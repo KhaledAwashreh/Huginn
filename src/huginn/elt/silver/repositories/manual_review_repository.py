@@ -8,9 +8,9 @@ from __future__ import annotations
 from typing import Self
 
 from huginn.elt.silver.repositories.postgres_repository import PostgresConnectionScope
-from huginn.elt.silver.resolution import MatchConfidence
+from huginn.elt.silver.resolution import KeyDerivation
 
-_UNMATCHED_SELECT_SQL = "SELECT id, resolved_company_key FROM silver.resolved_signals WHERE match_confidence = %s"
+_UNMATCHED_SELECT_SQL = "SELECT id, resolved_company_key FROM silver.resolved_signals WHERE key_derivation = %s"
 
 _INSERT_SQL = """
     INSERT INTO silver.manual_review_queue
@@ -45,9 +45,8 @@ class PostgresManualReviewRepository:
         return self._scope.__exit__(exc_type, exc_value, traceback)
 
     def read_unmatched(self) -> list[tuple[str, str]]:
-        self._scope.cursor.execute(
-            _UNMATCHED_SELECT_SQL, (MatchConfidence.NO_EXISTING_MATCH,)
-        )
+        """Implement `ManualReviewRepositoryPort.read_unmatched`."""
+        self._scope.cursor.execute(_UNMATCHED_SELECT_SQL, (KeyDerivation.UNRESOLVED,))
         return list(self._scope.cursor.fetchall())
 
     def insert_if_new(

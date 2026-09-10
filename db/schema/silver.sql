@@ -58,7 +58,7 @@ CREATE TABLE silver.resolved_signals (
     description TEXT,
     occurred_on TIMESTAMPTZ,
     url TEXT,
-    match_confidence TEXT NOT NULL CHECK (match_confidence IN ('auto_matched', 'manual_review', 'no_existing_match')),
+    key_derivation TEXT NOT NULL CHECK (key_derivation IN ('domain_normalized', 'fuzzy_matched', 'unresolved')),
     resolved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (source, source_stable_id)

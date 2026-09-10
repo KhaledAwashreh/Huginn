@@ -99,7 +99,7 @@ class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
 
 class ManualReviewRepositoryPort(RepositoryScopePort, Protocol):
     """Reads every silver.resolved_signals row not yet resolved to a real
-    company (match_confidence = 'no_existing_match') and queues each one
+    company (key_derivation = 'unresolved') and queues each one
     for manual review, if not already queued. See docs/entities.md's
     ManualReviewCandidate: a row already queued (pending, confirmed, or
     rejected) must be left untouched.
