@@ -163,7 +163,7 @@ Fed by all staging tables together. Still event grain — one row per original s
 - Description: String
 - OccurredOn: DateTimeOffset (nullable)
 - Url: String
-- MatchConfidence: Enum (AutoMatched, ManualReview, NoExistingMatch) — which entity-resolution band produced `ResolvedCompanyKey` (domain match, Jaro-Winkler ≥0.92 auto-match, 0.85–0.92 manual-review band, or first occurrence of a new key)
+- KeyDerivation: Enum (DomainNormalized, FuzzyMatched, Unresolved) — how `ResolvedCompanyKey` was derived for this row: a normalized domain (one-sided candidate-key derivation, not a comparison against anything), a Jaro-Winkler ≥0.92 fuzzy match against an existing company (KAN-4, unbuilt), or no reliable key at all (synthetic placeholder, queued for manual review)
 - ResolvedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
 

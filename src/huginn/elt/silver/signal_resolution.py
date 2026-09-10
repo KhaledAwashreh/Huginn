@@ -2,12 +2,12 @@
 See architecture document section 6, ADR-0001, docs/entities.md's
 ResolvedSignal. Jira KAN-35.
 
-Domain-key matching only (architecture document section 6's first
+Domain-key normalization only (architecture document section 6's first
 step). The Jaro-Winkler/token-Jaccard fallback is unimplemented debt
 (Jira KAN-4, see huginn.elt.silver.resolution.fuzzy_match) and out of this
-plan's scope: a row with no matchable domain gets a synthetic
-placeholder key (this plan's Task 6) and match_confidence =
-"no_existing_match", never a fabricated real-looking key or a NULL
+plan's scope: a row with no derivable domain gets a synthetic
+placeholder key (this plan's Task 6) and key_derivation =
+"unresolved", never a fabricated real-looking key or a NULL
 (resolved_company_key is NOT NULL). Task 7 queues every such row for
 manual review.
 """
@@ -18,7 +18,7 @@ import logging
 
 from huginn.elt.silver.models import ResolvedSignalRecord
 from huginn.elt.silver.ports import SignalResolutionRepositoryPort
-from huginn.elt.silver.resolution import MatchConfidence, normalize_domain
+from huginn.elt.silver.resolution import KeyDerivation, normalize_domain
 
 logger = logging.getLogger(__name__)
 
@@ -68,26 +68,26 @@ def unresolved_placeholder_key(source: str, source_stable_id: str) -> str:
 def resolve_signal(
     source: str, source_stable_id: str, website: str | None
 ) -> tuple[str, str]:
-    """Decide (resolved_company_key, match_confidence) for one staging
-    row. See architecture document section 6: domain is the canonical
-    key; no domain match falls through to "no_existing_match" (the
-    fuzzy fallback is unimplemented, Jira KAN-4).
+    """Decide (resolved_company_key, key_derivation) for one staging
+    row. See architecture document section 6: domain normalization is the
+    canonical key source; no derivable domain falls through to
+    "unresolved" (the fuzzy fallback is unimplemented, Jira KAN-4).
 
-    A domain in `_NON_COMPANY_HOSTS` is not a match. `website` is
-    freeform on both sources (HN's link extraction, YC's raw directory
+    A domain in `_NON_COMPANY_HOSTS` doesn't count as derivable. `website`
+    is freeform on both sources (HN's link extraction, YC's raw directory
     field) and sometimes carries an ATS or platform host instead of the
     company's own site; this plan's final review found those hosts
-    auto-matching and merging unrelated companies under one key. A wrong
-    confident match is worse than none, so these route to manual review
-    like any other unmatchable row.
+    producing a confident-looking key that merged unrelated companies. A
+    wrong confident key is worse than none, so these route to manual
+    review like any other unresolvable row.
     """
     if website:
         domain = normalize_domain(website)
         if domain and not _is_non_company_host(domain):
-            return domain, MatchConfidence.AUTO_MATCHED
+            return domain, KeyDerivation.DOMAIN_NORMALIZED
     return (
         unresolved_placeholder_key(source, source_stable_id),
-        MatchConfidence.NO_EXISTING_MATCH,
+        KeyDerivation.UNRESOLVED,
     )
 
 
@@ -118,7 +118,7 @@ class SignalResolver:
 
             written = 0
             for signal in staged_signals:
-                resolved_company_key, match_confidence = resolve_signal(
+                resolved_company_key, key_derivation = resolve_signal(
                     signal.source, signal.stable_id, signal.website
                 )
                 self._repository.upsert(
@@ -132,7 +132,7 @@ class SignalResolver:
                         description=signal.description,
                         occurred_on=signal.occurred_on,
                         url=signal.url,
-                        match_confidence=match_confidence,
+                        key_derivation=key_derivation,
                     )
                 )
                 written += 1

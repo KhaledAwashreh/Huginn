@@ -43,8 +43,8 @@ def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
         """
         INSERT INTO silver.resolved_signals
             (source_stable_id, source, resolved_company_key, company_name_raw,
-             signal_type, occurred_on, url, match_confidence)
-        VALUES (%s, 'hn', %s, %s, 'hiring', %s, %s, 'auto_matched')
+             signal_type, occurred_on, url, key_derivation)
+        VALUES (%s, 'hn', %s, %s, 'hiring', %s, %s, 'domain_normalized')
         """,
         (
             source_stable_id,
@@ -56,7 +56,7 @@ def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
     )
 
 
-def test_write_all_creates_a_new_company_from_an_auto_matched_signal():
+def test_write_all_creates_a_new_company_from_a_domain_normalized_signal():
     stable_id = str(uuid.uuid4().int)[:10]
     domain = f"companywritertest-{stable_id}.example"
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
@@ -148,10 +148,10 @@ def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
             """
             INSERT INTO silver.resolved_signals
                 (source_stable_id, source, resolved_company_key, company_name_raw,
-                 signal_type, occurred_on, url, match_confidence)
+                 signal_type, occurred_on, url, key_derivation)
             VALUES
-                (%s, 'hn', %s, 'First', 'hiring', %s, %s, 'auto_matched'),
-                (%s, 'hn', %s, 'Second', 'hiring', %s, %s, 'auto_matched')
+                (%s, 'hn', %s, 'First', 'hiring', %s, %s, 'domain_normalized'),
+                (%s, 'hn', %s, 'Second', 'hiring', %s, %s, 'domain_normalized')
             """,
             (
                 stable_id_a,
@@ -198,8 +198,8 @@ def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
             """
             INSERT INTO silver.resolved_signals
                 (source_stable_id, source, resolved_company_key, company_name_raw,
-                 signal_type, occurred_on, url, match_confidence)
-            VALUES (%s, 'hn', %s, 'UnmatchedCo', 'hiring', %s, %s, 'no_existing_match')
+                 signal_type, occurred_on, url, key_derivation)
+            VALUES (%s, 'hn', %s, 'UnmatchedCo', 'hiring', %s, %s, 'unresolved')
             """,
             (
                 stable_id,

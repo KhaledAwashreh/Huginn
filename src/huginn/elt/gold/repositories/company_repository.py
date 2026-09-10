@@ -12,7 +12,7 @@ from datetime import datetime
 
 import psycopg
 
-from huginn.elt.gold.models import AutoMatchedSignal
+from huginn.elt.gold.models import DomainNormalizedSignal
 
 # `id` breaks ties deterministically: `resolved_at` defaults to Postgres's
 # transaction-stable now(), so every row silver.resolve_all() writes in one
@@ -20,10 +20,10 @@ from huginn.elt.gold.models import AutoMatchedSignal
 # secondary key, CompanyWriter.write_all()'s domain-collapse (last row
 # read wins) would depend on whatever incidental order Postgres happens to
 # return same-timestamp rows in.
-_READ_AUTO_MATCHED_SQL = """
+_READ_DOMAIN_NORMALIZED_SQL = """
     SELECT resolved_company_key, company_name_raw
     FROM silver.resolved_signals
-    WHERE match_confidence = 'auto_matched'
+    WHERE key_derivation = 'domain_normalized'
     ORDER BY resolved_at, id
 """
 
@@ -158,10 +158,10 @@ class PostgresCompanyRepository:
             self._conn = None
         return None
 
-    def read_auto_matched_signals(self) -> list[AutoMatchedSignal]:
-        self._cur.execute(_READ_AUTO_MATCHED_SQL)
+    def read_domain_normalized_signals(self) -> list[DomainNormalizedSignal]:
+        self._cur.execute(_READ_DOMAIN_NORMALIZED_SQL)
         return [
-            AutoMatchedSignal(domain=row[0], company_name_raw=row[1])
+            DomainNormalizedSignal(domain=row[0], company_name_raw=row[1])
             for row in self._cur.fetchall()
         ]
 

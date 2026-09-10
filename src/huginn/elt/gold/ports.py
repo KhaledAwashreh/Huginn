@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from huginn.elt.gold.models import AutoMatchedSignal
+from huginn.elt.gold.models import DomainNormalizedSignal
 
 
 class CompanyRepositoryPort(Protocol):
@@ -33,11 +33,11 @@ class CompanyRepositoryPort(Protocol):
         """
         ...
 
-    def read_auto_matched_signals(self) -> list[AutoMatchedSignal]:
+    def read_domain_normalized_signals(self) -> list[DomainNormalizedSignal]:
         """Every silver.resolved_signals row with
-        match_confidence = 'auto_matched'. A placeholder key
-        (no_existing_match) is not a company identity yet and is never
-        returned here; see `huginn.elt.gold.models.AutoMatchedSignal`.
+        key_derivation = 'domain_normalized'. A placeholder key
+        (unresolved) is not a company identity yet and is never
+        returned here; see `huginn.elt.gold.models.DomainNormalizedSignal`.
         """
         ...
 

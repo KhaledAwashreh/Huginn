@@ -29,12 +29,18 @@ def normalize_domain(url_or_domain: str) -> str:
     return host
 
 
-class MatchConfidence:
-    """The three entity-resolution bands from architecture document section 6."""
+class KeyDerivation:
+    """The three entity-resolution bands from architecture document section
+    6, naming how `resolved_company_key` was derived for a row, not
+    whether it was compared against anything: this is a one-sided
+    normalization/candidate-key step (Fellegi-Sunter "blocking", AWS
+    Entity Resolution's "Normalization"), distinct from actual record
+    matching, which is what FUZZY_MATCHED will be once KAN-4 builds it.
+    """
 
-    AUTO_MATCHED = "auto_matched"
-    MANUAL_REVIEW = "manual_review"
-    NO_EXISTING_MATCH = "no_existing_match"
+    DOMAIN_NORMALIZED = "domain_normalized"
+    FUZZY_MATCHED = "fuzzy_matched"
+    UNRESOLVED = "unresolved"
 
 
 def fuzzy_match(name: str, candidates: list[str]) -> tuple[str | None, float, str]:

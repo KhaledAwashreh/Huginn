@@ -53,7 +53,7 @@ Build tasks:
 
 Gap carried forward: KAN-4 (fuzzy-match research) stays open. Every domain-less signal lands in `manual_review_queue` with no automated resolution path in this epic.
 
-Integration artifact handed to Gold: rows in `silver.resolved_signals` with `resolved_company_key` and `match_confidence` set.
+Integration artifact handed to Gold: rows in `silver.resolved_signals` with `resolved_company_key` and `key_derivation` set.
 
 ## 4. Gold (KAN-25)
 

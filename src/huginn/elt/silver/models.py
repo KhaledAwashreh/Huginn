@@ -73,4 +73,4 @@ class ResolvedSignalRecord:
     description: str
     occurred_on: datetime
     url: str
-    match_confidence: str
+    key_derivation: str

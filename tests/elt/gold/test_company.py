@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from huginn.elt.gold.company import CompanyWriter, write_company
-from huginn.elt.gold.models import AutoMatchedSignal
+from huginn.elt.gold.models import DomainNormalizedSignal
 
 
 class FakeCompanyRepository:
@@ -22,7 +22,7 @@ class FakeCompanyRepository:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.exit_count += 1
 
-    def read_auto_matched_signals(self):
+    def read_domain_normalized_signals(self):
         return self._signals
 
     def get_company(self, domain):
@@ -35,8 +35,8 @@ class FakeCompanyRepository:
         self.history_inserted.append((company_id, domain, snapshot, valid_from))
 
 
-def _signal(domain: str, name: str) -> AutoMatchedSignal:
-    return AutoMatchedSignal(domain=domain, company_name_raw=name)
+def _signal(domain: str, name: str) -> DomainNormalizedSignal:
+    return DomainNormalizedSignal(domain=domain, company_name_raw=name)
 
 
 def test_write_company_inserts_a_new_company_on_first_occurrence():
@@ -102,7 +102,7 @@ def test_write_company_never_writes_history_on_first_occurrence_even_if_a_type_2
     assert repo.history_inserted == []
 
 
-def test_write_all_processes_every_auto_matched_signal():
+def test_write_all_processes_every_domain_normalized_signal():
     repo = FakeCompanyRepository(
         signals=[_signal("acme.com", "Acme"), _signal("getnao.io", "Nao")]
     )

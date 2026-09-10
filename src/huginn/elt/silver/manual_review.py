@@ -1,5 +1,5 @@
 """Manual review queue writer: silver.resolved_signals rows with
-match_confidence='no_existing_match' -> silver.manual_review_queue. See
+key_derivation='unresolved' -> silver.manual_review_queue. See
 architecture document section 6, docs/entities.md's
 ManualReviewCandidate. Jira KAN-36.
 
@@ -31,7 +31,7 @@ class ManualReviewQueuer:
         self._repository = repository
 
     def queue_unmatched(self) -> int:
-        """Insert a pending queue row for every 'no_existing_match'
+        """Insert a pending queue row for every 'unresolved'
         resolved_signals row not already queued, returning the count of
         rows newly inserted (excludes rows already queued, so a rerun
         with no new unmatched signals returns 0). Unlike the staging

@@ -50,15 +50,15 @@ def write_company(
 
 
 class CompanyWriter:
-    """Reads every auto-matched silver.resolved_signals row and upserts
-    gold.company via `write_company`. Jira KAN-40.
+    """Reads every domain-normalized silver.resolved_signals row and
+    upserts gold.company via `write_company`. Jira KAN-40.
 
-    Only auto-matched rows: a placeholder key awaiting manual review
-    (`huginn.elt.silver.resolution.MatchConfidence.NO_EXISTING_MATCH`) is
+    Only domain-normalized rows: a placeholder key awaiting manual review
+    (`huginn.elt.silver.resolution.KeyDerivation.UNRESOLVED`) is
     not a real company identity yet (architecture document section 6), so
     writing it into Company would put a synthetic "unresolved:..." value
     where the durable natural key belongs. Enforced by
-    `CompanyRepositoryPort.read_auto_matched_signals`'s own query, not
+    `CompanyRepositoryPort.read_domain_normalized_signals`'s own query, not
     here.
 
     Only `domain` and `name` are derivable from resolved_signals today:
@@ -73,10 +73,10 @@ class CompanyWriter:
         self._repository = repository
 
     def write_all(self) -> int:
-        """Upsert every distinct company found among auto-matched signals,
-        returning the count of companies written.
+        """Upsert every distinct company found among domain-normalized
+        signals, returning the count of companies written.
 
-        `read_auto_matched_signals` returns event grain (one row per
+        `read_domain_normalized_signals` returns event grain (one row per
         original signal, per docs/entities.md's ResolvedSignal); the same
         domain can appear many times. Collapsing to one write per domain
         here, keeping the most recently resolved `company_name_raw`, saves
@@ -86,7 +86,7 @@ class CompanyWriter:
         survived anyway.
         """
         with self._repository:
-            signals = self._repository.read_auto_matched_signals()
+            signals = self._repository.read_domain_normalized_signals()
             name_by_domain = {
                 signal.domain: signal.company_name_raw for signal in signals
             }

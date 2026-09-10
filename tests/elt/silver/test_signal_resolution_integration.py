@@ -70,14 +70,14 @@ def test_resolve_all_auto_matches_a_row_with_a_website():
 
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT resolved_company_key, match_confidence FROM silver.resolved_signals "
+                "SELECT resolved_company_key, key_derivation FROM silver.resolved_signals "
                 "WHERE source = 'hn' AND source_stable_id = %s",
                 (stable_id,),
             )
             key, confidence = cur.fetchone()
 
         assert key == "resolutiontestco.example"
-        assert confidence == "auto_matched"
+        assert confidence == "domain_normalized"
     finally:
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
@@ -89,7 +89,7 @@ def test_resolve_all_auto_matches_a_row_with_a_website():
             )
 
 
-def test_resolve_all_marks_no_existing_match_when_website_is_none():
+def test_resolve_all_marks_unresolved_when_website_is_none():
     stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         _insert_hn_posting(cur, stable_id, None)
@@ -99,14 +99,14 @@ def test_resolve_all_marks_no_existing_match_when_website_is_none():
 
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT resolved_company_key, match_confidence FROM silver.resolved_signals "
+                "SELECT resolved_company_key, key_derivation FROM silver.resolved_signals "
                 "WHERE source = 'hn' AND source_stable_id = %s",
                 (stable_id,),
             )
             key, confidence = cur.fetchone()
 
         assert key == f"unresolved:hn:{stable_id}"
-        assert confidence == "no_existing_match"
+        assert confidence == "unresolved"
     finally:
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(

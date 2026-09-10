@@ -11,11 +11,11 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class AutoMatchedSignal:
-    """One silver.resolved_signals row with a real domain match, read for
-    building or updating a gold.company row. See docs/entities.md's
-    ResolvedSignal and architecture document section 6 (match_confidence
-    bands): only `auto_matched` rows carry a durable domain key, a
+class DomainNormalizedSignal:
+    """One silver.resolved_signals row with a cleanly derived domain, read
+    for building or updating a gold.company row. See docs/entities.md's
+    ResolvedSignal and architecture document section 6 (key_derivation
+    bands): only `domain_normalized` rows carry a durable domain key, a
     placeholder key awaiting manual review is not a company identity yet.
     """
 
