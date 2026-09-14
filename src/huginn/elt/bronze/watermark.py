@@ -28,9 +28,18 @@ def compute_content_hash(payload: dict, stable_fields: list[str]) -> str:
     represent "the content that matters" for that source, excluding
     volatile noise (e.g. an Algolia relevance score) that would otherwise
     make every fetch look changed. See architecture document section 4.1.
+
+    Each field's contribution encodes presence alongside its value
+    (`field\\x1epresent\\x1evalue`), not just the value: hashing
+    `payload.get(field, "")` alone made a field missing from the payload
+    and a field present-but-explicitly-empty-string hash identically,
+    silently masking a real change if a field appears or disappears
+    between fetches (KAN-47; architecture-notes/opencorporates-fetch-plan.md
+    section 6).
     """
-    normalized_values = [
-        normalize_field(str(payload.get(field, ""))) for field in sorted(stable_fields)
+    field_contributions = [
+        f"{field}\x1e{field in payload}\x1e{normalize_field(str(payload.get(field, '')))}"
+        for field in sorted(stable_fields)
     ]
-    joined = "\x1f".join(normalized_values)
+    joined = "\x1f".join(field_contributions)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()

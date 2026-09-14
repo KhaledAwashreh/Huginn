@@ -4,6 +4,11 @@ a connection to run it. See huginn.elt.gold.ports, huginn.elt.gold.company
 (the writer this persists for), db/schema/gold.sql, ADR-0002, and
 BEST_PRACTICES.md section 8.1 (bind parameters only, never string-built
 SQL).
+
+`PostgresCompanyRepository` also implements `EnrichmentCandidatePort`
+(structurally, no shared base class): an unrelated read used by
+ingestion's wiring, not by `CompanyWriter`. See
+architecture-notes/opencorporates-fetch-plan.md section 5.
 """
 
 from __future__ import annotations
@@ -39,6 +44,14 @@ _GET_COMPANY_SQL = """
     FOR UPDATE
 """
 
+_READ_UNENRICHED_COMPANY_NAMES_SQL = """
+    SELECT name
+    FROM gold.company
+    WHERE business_sector IS NULL
+    ORDER BY created_at ASC
+    LIMIT %s
+"""
+
 _INSERT_HISTORY_SQL = """
     INSERT INTO gold.company_history
         (company_id, domain, business_sector, team_composition_signal,
@@ -64,6 +77,16 @@ _COMPANY_COLUMNS = (
     "team_composition_signal",
     "icp_filter_pass",
 )
+
+
+def build_read_unenriched_company_names_query(limit: int) -> tuple[str, tuple[int]]:
+    """Parameterized query for `EnrichmentCandidatePort.read_unenriched_company_names`:
+    up to `limit` gold.company names with `business_sector IS NULL`,
+    oldest-created first (architecture-notes/opencorporates-fetch-plan.md
+    section 5). `limit` is always a bind parameter, never interpolated
+    into the SQL text (BEST_PRACTICES.md section 8.1).
+    """
+    return _READ_UNENRICHED_COMPANY_NAMES_SQL, (limit,)
 
 
 def build_upsert_query(
@@ -165,6 +188,11 @@ class PostgresCompanyRepository:
             DomainNormalizedSignal(domain=row[0], company_name_raw=row[1])
             for row in self._cur.fetchall()
         ]
+
+    def read_unenriched_company_names(self, limit: int) -> list[str]:
+        """Implement `EnrichmentCandidatePort.read_unenriched_company_names`."""
+        self._cur.execute(*build_read_unenriched_company_names_query(limit))
+        return [row[0] for row in self._cur.fetchall()]
 
     def get_company(self, domain: str) -> dict | None:
         self._cur.execute(_GET_COMPANY_SQL, (domain,))

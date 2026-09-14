@@ -90,3 +90,24 @@ class CompanyRepositoryPort(Protocol):
         keeps the two boundaries as one instant instead of two clocks.
         """
         ...
+
+
+class EnrichmentCandidatePort(Protocol):
+    """Read contract for selecting gold.company rows still awaiting
+    third-party enrichment (e.g. OpenCorporates). Deliberately separate
+    from `CompanyRepositoryPort` above: that Protocol is `CompanyWriter`'s
+    writes-only contract (see its own docstring), and this read is used by
+    ingestion's wiring (`src/huginn/elt/ingestion/__main__.py`), not by
+    `CompanyWriter`. Python Protocols are structural, so
+    `PostgresCompanyRepository` implements both without inheriting either.
+    See architecture-notes/opencorporates-fetch-plan.md section 5.
+    """
+
+    def read_unenriched_company_names(self, limit: int) -> list[str]:
+        """Up to `limit` gold.company names with `business_sector IS NULL`,
+        oldest-created first: never-enriched companies, oldest first,
+        capped by the caller's run budget. `business_sector IS NULL`
+        doubles as "never successfully enriched yet," with no separate
+        enrichment-status column needed (fetch-plan section 5).
+        """
+        ...
