@@ -78,7 +78,8 @@ def test_build_read_unenriched_company_names_query_binds_limit_as_a_parameter():
     assert "50" not in sql
     assert "gold.company" in sql
     assert "business_sector IS NULL" in sql
-    assert "ORDER BY created_at" in sql
+    assert "DISTINCT ON (name)" in sql
+    assert "ORDER BY created_at, id" in sql
     assert "LIMIT %s" in sql
 
 

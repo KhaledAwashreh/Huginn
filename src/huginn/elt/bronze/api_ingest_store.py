@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
 
 from huginn.elt.bronze.ports import ApiIngestRepositoryPort
 from huginn.elt.bronze.watermark import compute_content_hash
@@ -51,8 +52,16 @@ class PostgresApiIngestStore:
     routing both through one repository keeps that query defined once.
     """
 
-    def __init__(self, repository: ApiIngestRepositoryPort) -> None:
+    def __init__(
+        self,
+        repository: ApiIngestRepositoryPort,
+        stable_fields_by_source: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
         self._repository = repository
+        self._stable_fields_by_source = {
+            source: tuple(stable_fields)
+            for source, stable_fields in (stable_fields_by_source or {}).items()
+        }
 
     def write(
         self, source: str, mechanism: str, records: list[RawRecord], run_id: str
@@ -85,8 +94,14 @@ class PostgresApiIngestStore:
         # per record, and a mid-loop failure leaves no partial batch behind.
         with self._repository:
             for record in records:
+                has_configured_stable_fields = source in self._stable_fields_by_source
+                stable_fields = self._stable_fields_by_source.get(
+                    source, tuple(record.payload.keys())
+                )
                 content_hash = compute_content_hash(
-                    record.payload, sorted(record.payload.keys())
+                    record.payload,
+                    stable_fields,
+                    include_field_presence=has_configured_stable_fields,
                 )
                 existing_hash = self._repository.lookup_hash(source, record.stable_id)
 

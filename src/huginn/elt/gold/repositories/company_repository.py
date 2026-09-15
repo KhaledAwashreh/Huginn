@@ -46,9 +46,13 @@ _GET_COMPANY_SQL = """
 
 _READ_UNENRICHED_COMPANY_NAMES_SQL = """
     SELECT name
-    FROM gold.company
-    WHERE business_sector IS NULL
-    ORDER BY created_at ASC
+    FROM (
+        SELECT DISTINCT ON (name) name, created_at, id
+        FROM gold.company
+        WHERE business_sector IS NULL
+        ORDER BY name, created_at, id
+    ) AS distinct_companies
+    ORDER BY created_at, id
     LIMIT %s
 """
 
@@ -81,10 +85,11 @@ _COMPANY_COLUMNS = (
 
 def build_read_unenriched_company_names_query(limit: int) -> tuple[str, tuple[int]]:
     """Parameterized query for `EnrichmentCandidatePort.read_unenriched_company_names`:
-    up to `limit` gold.company names with `business_sector IS NULL`,
-    oldest-created first (architecture-notes/opencorporates-fetch-plan.md
-    section 5). `limit` is always a bind parameter, never interpolated
-    into the SQL text (BEST_PRACTICES.md section 8.1).
+    up to `limit` distinct gold.company names with `business_sector IS NULL`,
+    oldest-created first with `id` as the deterministic tie-breaker
+    (architecture-notes/opencorporates-fetch-plan.md section 5). `limit` is
+    always a bind parameter, never interpolated into the SQL text
+    (BEST_PRACTICES.md section 8.1).
     """
     return _READ_UNENRICHED_COMPANY_NAMES_SQL, (limit,)
 

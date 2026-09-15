@@ -51,11 +51,11 @@ def test_build_service_wires_all_three_adapters(monkeypatch):
 
 
 def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkeypatch):
-    fake_repository = None
+    repositories = []
 
     def fake_company_repository(database_url):
-        nonlocal fake_repository
         fake_repository = _FakeCompanyRepository(database_url)
+        repositories.append(fake_repository)
         return fake_repository
 
     monkeypatch.setattr(
@@ -65,9 +65,23 @@ def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkey
 
     service = build_service(config)
 
+    assert repositories == []
     opencorporates_adapter = service._sources[2]
-    assert opencorporates_adapter._companies == ["Acme Robotics", "Beta Corp"]
     assert opencorporates_adapter._max_calls == main_module.OPENCORPORATES_MAX_CALLS
+    monkeypatch.setattr(
+        main_module,
+        "_search_companies",
+        lambda name: {"results": {"companies": []}},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "huginn.elt.ingestion.adapters.opencorporates._search_companies",
+        lambda name: {"results": {"companies": []}},
+    )
+    opencorporates_adapter.fetch()
+
+    assert len(repositories) == 1
+    fake_repository = repositories[0]
     assert fake_repository.database_url == config.database_url
     assert fake_repository.requested_limit == main_module.OPENCORPORATES_MAX_CALLS
 
@@ -85,6 +99,9 @@ def test_build_service_wires_postgres_backed_ports_with_the_configured_url(monke
     # URL reaches bronze.api_ingest through that one injected object.
     assert isinstance(service._raw_store._repository, PostgresApiIngestRepository)
     assert service._raw_store._repository._database_url == config.database_url
+    assert service._raw_store._stable_fields_by_source == {
+        "opencorporates": OpenCorporatesAdapter.stable_fields
+    }
     assert isinstance(service._job_run_writer, PostgresJobRunWriter)
     assert service._job_run_writer._database_url == config.database_url
 

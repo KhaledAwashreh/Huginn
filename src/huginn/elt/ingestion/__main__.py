@@ -37,27 +37,35 @@ def build_service(config: Config) -> IngestionService:
     `StatePort`/`PostgresApiIngestState` still has no caller (Jira KAN-46).
 
     Unlike `HackerNewsAdapter`/`YcDirectoryAdapter`, `OpenCorporatesAdapter`
-    is not stateless: it needs a Gold read first, to learn which company
-    names this run should search for (architecture-notes/
-    opencorporates-fetch-plan.md section 5). That read happens here, in the
-    CLI composition root, not inside `IngestionService` or any core
-    orchestration logic (fetch-plan section 5's "wiring-level exception"
-    note).
+    is not stateless: it needs a Gold read to learn which company names this
+    run should search for (architecture-notes/opencorporates-fetch-plan.md
+    section 5). The adapter invokes this composition-root loader lazily from
+    `fetch()`, keeping service construction free of database I/O without
+    leaking the cross-layer read into `IngestionService`.
     """
     api_ingest_repository = PostgresApiIngestRepository(config.database_url)
-    with PostgresCompanyRepository(config.database_url) as company_repository:
-        opencorporates_companies = company_repository.read_unenriched_company_names(
-            OPENCORPORATES_MAX_CALLS
-        )
+
+    def load_opencorporates_companies() -> list[str]:
+        with PostgresCompanyRepository(config.database_url) as company_repository:
+            return company_repository.read_unenriched_company_names(
+                OPENCORPORATES_MAX_CALLS
+            )
+
     return IngestionService(
         sources=[
             HackerNewsAdapter(),
             YcDirectoryAdapter(),
             OpenCorporatesAdapter(
-                companies=opencorporates_companies, max_calls=OPENCORPORATES_MAX_CALLS
+                company_loader=load_opencorporates_companies,
+                max_calls=OPENCORPORATES_MAX_CALLS,
             ),
         ],
-        raw_store=PostgresApiIngestStore(api_ingest_repository),
+        raw_store=PostgresApiIngestStore(
+            api_ingest_repository,
+            stable_fields_by_source={
+                "opencorporates": OpenCorporatesAdapter.stable_fields
+            },
+        ),
         job_run_writer=PostgresJobRunWriter(config.database_url),
     )
 

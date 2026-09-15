@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 
 import requests
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 API_BASE_URL = "https://api.opencorporates.com/v0.4"
 API_TOKEN_ENV_VAR = "HUGINN_OPENCORPORATES_API_TOKEN"
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+
+class OpenCorporatesRequestError(RuntimeError):
+    """A sanitized OpenCorporates request failure safe to log."""
 
 
 def _api_token() -> str:
@@ -55,13 +60,27 @@ def _search_companies(name: str) -> dict:
     Response shape; architecture-notes/opencorporates-fetch-plan.md
     section 2.
     """
-    response = requests.get(
-        f"{API_BASE_URL}/companies/search",
-        params={"q": name, "api_token": _api_token()},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return response.json()
+    api_token = _api_token()
+    response = None
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/companies/search",
+            params={"q": name, "api_token": api_token},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        if isinstance(exc, requests.HTTPError):
+            status_code = getattr(response, "status_code", None)
+            failure = (
+                f"HTTP {status_code}" if isinstance(status_code, int) else "HTTP error"
+            )
+        else:
+            failure = type(exc).__name__
+        raise OpenCorporatesRequestError(
+            f"OpenCorporates company search failed: {failure}"
+        ) from None
 
 
 def _extract_companies(search_response: dict) -> list[dict]:
@@ -76,20 +95,41 @@ def _extract_companies(search_response: dict) -> list[dict]:
     return [entry["company"] for entry in search_response["results"]["companies"]]
 
 
+def _company_record(company: dict) -> RawRecord:
+    jurisdiction_code = company["jurisdiction_code"]
+    company_number = company["company_number"]
+    if not jurisdiction_code or not company_number:
+        raise ValueError("company identity fields must be non-empty")
+    stable_id = f"{jurisdiction_code}:{company_number}"
+    return RawRecord(stable_id=stable_id, payload=company)
+
+
+def _extract_company_records(search_response: dict) -> list[RawRecord]:
+    """Convert company wrappers into Bronze-ready records.
+
+    The complete company object remains the payload, while the source-native
+    jurisdiction and company number form its stable identifier.
+    """
+    return [_company_record(company) for company in _extract_companies(search_response)]
+
+
 class OpenCorporatesAdapter(ApiSourcePort):
     source = "opencorporates"
     mechanism = "api"
+    stable_fields = ("current_status", "dissolution_date", "updated_at")
 
-    def __init__(self, companies: list[str], max_calls: int) -> None:
-        """`companies` is the list of company names to search for: this
-        adapter does not decide which companies to enrich, it's handed the
-        list (see `src/huginn/elt/ingestion/__main__.py`). `max_calls` caps
-        how many search calls this `fetch()` call makes, a simple per-run
-        budget, not the stateful cross-run quota tracker
+    def __init__(self, company_loader: Callable[[], list[str]], max_calls: int) -> None:
+        """`company_loader` supplies the company names to search at fetch time.
+
+        The adapter does not decide which companies to enrich; the loader is
+        injected by `src/huginn/elt/ingestion/__main__.py`. Deferring the call
+        until `fetch()` keeps service construction free of database I/O.
+        `max_calls` caps how many searches this fetch makes, a simple per-run
+        budget rather than the stateful cross-run quota tracker
         architecture-notes/opencorporates-fetch-plan.md section 7
         explicitly defers.
         """
-        self._companies = companies
+        self._company_loader = company_loader
         self._max_calls = max_calls
 
     def fetch(self) -> list[RawRecord]:
@@ -105,18 +145,40 @@ class OpenCorporatesAdapter(ApiSourcePort):
         one hit or the run budget is spent trying.
         """
         records = []
-        for name in self._companies[: self._max_calls]:
+        seen_stable_ids = set()
+        for name in self._company_loader()[: self._max_calls]:
             response = _search_companies(name)
-            matches = _extract_companies(response)
-            if len(matches) != 1:
+            try:
+                companies = _extract_companies(response)
+            except KeyError, TypeError, ValueError:
+                logger.warning(
+                    "opencorporates fetch: skipping %r, malformed search response",
+                    name,
+                )
+                continue
+            if len(companies) != 1:
                 logger.info(
                     "opencorporates fetch: skipping %r, %d search results "
                     "(need exactly 1 to enrich unambiguously)",
                     name,
-                    len(matches),
+                    len(companies),
                 )
                 continue
-            company = matches[0]
-            stable_id = f"{company['jurisdiction_code']}:{company['company_number']}"
-            records.append(RawRecord(stable_id=stable_id, payload=company))
+            try:
+                record = _company_record(companies[0])
+            except KeyError, TypeError, ValueError:
+                logger.warning(
+                    "opencorporates fetch: skipping %r, malformed company record",
+                    name,
+                )
+                continue
+            if record.stable_id in seen_stable_ids:
+                logger.info(
+                    "opencorporates fetch: skipping %r, duplicate stable ID %r",
+                    name,
+                    record.stable_id,
+                )
+                continue
+            seen_stable_ids.add(record.stable_id)
+            records.append(record)
         return records

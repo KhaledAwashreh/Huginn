@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 import requests
 
 from huginn.elt.ingestion.adapters import opencorporates
@@ -14,7 +15,9 @@ def test_opencorporates_adapter_explicitly_implements_api_source_port():
 
 
 def test_opencorporates_adapter_source_and_mechanism():
-    adapter = opencorporates.OpenCorporatesAdapter(companies=[], max_calls=1)
+    adapter = opencorporates.OpenCorporatesAdapter(
+        company_loader=lambda: [], max_calls=1
+    )
     assert adapter.source == "opencorporates"
     assert adapter.mechanism == "api"
 
@@ -74,8 +77,14 @@ def test_search_companies_requests_expected_url_params_and_timeout(monkeypatch):
 
 def test_search_companies_raises_on_non_2xx_response(monkeypatch):
     class FakeResponse:
+        status_code = 403
+
         def raise_for_status(self):
-            raise requests.HTTPError("403 Forbidden")
+            raise requests.HTTPError(
+                "403 Forbidden for url: "
+                "https://api.opencorporates.com/v0.4/companies/search?"
+                "q=Acme&api_token=test-token"
+            )
 
         def json(self):
             raise AssertionError(
@@ -89,9 +98,55 @@ def test_search_companies_raises_on_non_2xx_response(monkeypatch):
 
     try:
         opencorporates._search_companies("Acme Robotics")
-        raise AssertionError("expected requests.HTTPError")
-    except requests.HTTPError:
-        pass
+        raise AssertionError("expected OpenCorporatesRequestError")
+    except opencorporates.OpenCorporatesRequestError as exc:
+        assert "HTTP 403" in str(exc)
+        assert "test-token" not in str(exc)
+
+
+def test_search_companies_sanitizes_request_exceptions(monkeypatch):
+    def fake_get(url, params, timeout):
+        raise requests.ConnectionError(
+            f"failed for {url}?q=Acme&api_token={params['api_token']}"
+        )
+
+    monkeypatch.setattr(opencorporates.requests, "get", fake_get)
+    monkeypatch.setenv(opencorporates.API_TOKEN_ENV_VAR, "test-token")
+
+    try:
+        opencorporates._search_companies("Acme Robotics")
+        raise AssertionError("expected OpenCorporatesRequestError")
+    except opencorporates.OpenCorporatesRequestError as exc:
+        assert "ConnectionError" in str(exc)
+        assert "test-token" not in str(exc)
+
+
+def test_search_companies_sanitizes_malformed_json(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise requests.exceptions.JSONDecodeError(
+                "malformed response",
+                "https://api.opencorporates.com/v0.4/companies/search?"
+                "q=Acme&api_token=test-token",
+                0,
+            )
+
+    monkeypatch.setattr(
+        opencorporates.requests, "get", lambda url, params, timeout: FakeResponse()
+    )
+    monkeypatch.setenv(opencorporates.API_TOKEN_ENV_VAR, "test-token")
+
+    try:
+        opencorporates._search_companies("Acme Robotics")
+        raise AssertionError("expected OpenCorporatesRequestError")
+    except opencorporates.OpenCorporatesRequestError as exc:
+        assert "JSONDecodeError" in str(exc)
+        assert "test-token" not in str(exc)
 
 
 def test_search_companies_raises_when_api_token_missing(monkeypatch):
@@ -104,28 +159,54 @@ def test_search_companies_raises_when_api_token_missing(monkeypatch):
         assert opencorporates.API_TOKEN_ENV_VAR in str(exc)
 
 
-def test_extract_companies_unwraps_the_company_wrapped_list():
+def test_extract_company_records_unwraps_the_company_wrapped_list():
     response = {
         "results": {
             "companies": [
-                {"company": {"name": "Acme Robotics", "company_number": "123"}},
-                {"company": {"name": "Acme Robotics Ltd", "company_number": "456"}},
+                {
+                    "company": {
+                        "name": "Acme Robotics",
+                        "jurisdiction_code": "gb",
+                        "company_number": "123",
+                    }
+                },
+                {
+                    "company": {
+                        "name": "Acme Robotics Ltd",
+                        "jurisdiction_code": "us_de",
+                        "company_number": "456",
+                    }
+                },
             ]
         }
     }
 
-    companies = opencorporates._extract_companies(response)
+    records = opencorporates._extract_company_records(response)
 
-    assert companies == [
-        {"name": "Acme Robotics", "company_number": "123"},
-        {"name": "Acme Robotics Ltd", "company_number": "456"},
+    assert records == [
+        RawRecord(
+            stable_id="gb:123",
+            payload={
+                "name": "Acme Robotics",
+                "jurisdiction_code": "gb",
+                "company_number": "123",
+            },
+        ),
+        RawRecord(
+            stable_id="us_de:456",
+            payload={
+                "name": "Acme Robotics Ltd",
+                "jurisdiction_code": "us_de",
+                "company_number": "456",
+            },
+        ),
     ]
 
 
-def test_extract_companies_returns_empty_list_when_no_companies():
+def test_extract_company_records_returns_empty_list_when_no_companies():
     response = {"results": {"companies": []}}
 
-    assert opencorporates._extract_companies(response) == []
+    assert opencorporates._extract_company_records(response) == []
 
 
 def test_fetch_builds_one_record_when_search_returns_exactly_one_match(monkeypatch):
@@ -141,7 +222,7 @@ def test_fetch_builds_one_record_when_search_returns_exactly_one_match(monkeypat
     monkeypatch.setattr(opencorporates, "_search_companies", fake_search_companies)
 
     records = opencorporates.OpenCorporatesAdapter(
-        companies=["Acme Robotics"], max_calls=5
+        company_loader=lambda: ["Acme Robotics"], max_calls=5
     ).fetch()
 
     assert records == [RawRecord(stable_id="us_de:1234567", payload=company)]
@@ -156,7 +237,7 @@ def test_fetch_skips_a_company_with_zero_search_results(monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO, logger=opencorporates.logger.name):
         records = opencorporates.OpenCorporatesAdapter(
-            companies=["Nonexistent Co"], max_calls=5
+            company_loader=lambda: ["Nonexistent Co"], max_calls=5
         ).fetch()
 
     assert records == []
@@ -180,7 +261,7 @@ def test_fetch_skips_a_company_with_more_than_one_search_result(monkeypatch, cap
 
     with caplog.at_level(logging.INFO, logger=opencorporates.logger.name):
         records = opencorporates.OpenCorporatesAdapter(
-            companies=["Acme"], max_calls=5
+            company_loader=lambda: ["Acme"], max_calls=5
         ).fetch()
 
     assert records == []
@@ -202,7 +283,7 @@ def test_fetch_payload_is_the_matched_company_object_unmodified(monkeypatch):
     )
 
     records = opencorporates.OpenCorporatesAdapter(
-        companies=["Acme Robotics"], max_calls=5
+        company_loader=lambda: ["Acme Robotics"], max_calls=5
     ).fetch()
 
     assert records[0].payload == company
@@ -222,10 +303,29 @@ def test_fetch_stable_id_is_jurisdiction_code_and_company_number(monkeypatch):
     )
 
     records = opencorporates.OpenCorporatesAdapter(
-        companies=["Acme Robotics"], max_calls=5
+        company_loader=lambda: ["Acme Robotics"], max_calls=5
     ).fetch()
 
     assert records[0].stable_id == "us_de:1234567"
+
+
+def test_fetch_deduplicates_matching_stable_ids_across_company_names(monkeypatch):
+    shared_company = {
+        "name": "Acme Robotics",
+        "jurisdiction_code": "gb",
+        "company_number": "123",
+    }
+    monkeypatch.setattr(
+        opencorporates,
+        "_search_companies",
+        lambda name: {"results": {"companies": [{"company": shared_company}]}},
+    )
+
+    records = opencorporates.OpenCorporatesAdapter(
+        company_loader=lambda: ["Acme Robotics", "Acme Robotics Ltd"], max_calls=5
+    ).fetch()
+
+    assert records == [RawRecord(stable_id="gb:123", payload=shared_company)]
 
 
 def test_fetch_stops_after_max_calls(monkeypatch):
@@ -238,7 +338,7 @@ def test_fetch_stops_after_max_calls(monkeypatch):
     monkeypatch.setattr(opencorporates, "_search_companies", fake_search_companies)
 
     opencorporates.OpenCorporatesAdapter(
-        companies=["A", "B", "C", "D"], max_calls=2
+        company_loader=lambda: ["A", "B", "C", "D"], max_calls=2
     ).fetch()
 
     assert call_count["n"] == 2
@@ -250,4 +350,69 @@ def test_fetch_returns_empty_list_when_companies_list_is_empty(monkeypatch):
 
     monkeypatch.setattr(opencorporates, "_search_companies", _unexpected_search)
 
-    assert opencorporates.OpenCorporatesAdapter(companies=[], max_calls=5).fetch() == []
+    assert (
+        opencorporates.OpenCorporatesAdapter(
+            company_loader=lambda: [], max_calls=5
+        ).fetch()
+        == []
+    )
+
+
+def test_fetch_skips_a_malformed_response_and_continues(monkeypatch, caplog):
+    good_company = {
+        "name": "Good Co",
+        "jurisdiction_code": "gb",
+        "company_number": "42",
+    }
+
+    def fake_search_companies(name):
+        if name == "Malformed Co":
+            return {"results": {"companies": [{"company": {"name": name}}]}}
+        return {"results": {"companies": [{"company": good_company}]}}
+
+    monkeypatch.setattr(opencorporates, "_search_companies", fake_search_companies)
+
+    with caplog.at_level(logging.WARNING, logger=opencorporates.logger.name):
+        records = opencorporates.OpenCorporatesAdapter(
+            company_loader=lambda: ["Malformed Co", "Good Co"], max_calls=2
+        ).fetch()
+
+    assert records == [RawRecord(stable_id="gb:42", payload=good_company)]
+    assert "Malformed Co" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "malformed_company",
+    [
+        {
+            "name": "Empty Jurisdiction Co",
+            "jurisdiction_code": "",
+            "company_number": "1",
+        },
+        {"name": "Empty Number Co", "jurisdiction_code": "gb", "company_number": ""},
+    ],
+)
+def test_fetch_skips_empty_company_identity_and_continues(
+    monkeypatch, caplog, malformed_company
+):
+    good_company = {
+        "name": "Good Co",
+        "jurisdiction_code": "gb",
+        "company_number": "42",
+    }
+
+    def fake_search_companies(name):
+        company = (
+            malformed_company if name == malformed_company["name"] else good_company
+        )
+        return {"results": {"companies": [{"company": company}]}}
+
+    monkeypatch.setattr(opencorporates, "_search_companies", fake_search_companies)
+
+    with caplog.at_level(logging.WARNING, logger=opencorporates.logger.name):
+        records = opencorporates.OpenCorporatesAdapter(
+            company_loader=lambda: [malformed_company["name"], "Good Co"], max_calls=2
+        ).fetch()
+
+    assert records == [RawRecord(stable_id="gb:42", payload=good_company)]
+    assert malformed_company["name"] in caplog.text
