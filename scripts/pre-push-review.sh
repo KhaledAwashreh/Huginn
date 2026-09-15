@@ -5,15 +5,9 @@
 # independent of whether the pusher (human or Claude Code) remembers to run
 # them by hand.
 #
-# Steps 1 and 2 below are the exact commands CLAUDE.md's "Before pushing"
-# section names. Step 1 is a hard gate: a failure here blocks the push,
-# matching CI (.github/workflows/ci.yml), which runs the same checks. Step 2
-# (CodeRabbit) is deliberately NOT a gate: CLAUDE.md states its severities
-# aren't one ("the same diff reviewed twice can surface different findings,
-# so its exit code is never checked and it never fails a build") — this
-# script honors that by always printing its findings but never failing the
-# push on them. Its job is to make the findings impossible to miss, not to
-# block on them.
+# The test and lint commands are hard gates, matching CI. AI review is handled
+# by the explicit pre-MR skill so a push stays deterministic and does not
+# unexpectedly transmit the diff to a service.
 set -uo pipefail
 
 # A dirty working tree (uncommitted changes) isn't necessarily what's
@@ -51,18 +45,6 @@ fi
 if [ "$fail" -ne 0 ]; then
     echo
     echo "One or more hard checks failed above. Push blocked." >&2
-    exit 1
-fi
-
-echo
-echo "== coderabbit review --agent --base master =="
-if command -v coderabbit >/dev/null 2>&1; then
-    coderabbit review --agent --base master || true
-else
-    echo "coderabbit CLI not found on PATH." >&2
-    echo "Install it: https://docs.coderabbit.ai/cli (or see CLAUDE.md's" >&2
-    echo "'Before pushing' section). Push blocked: this script's whole job is" >&2
-    echo "making sure this check actually runs, not making it optional." >&2
     exit 1
 fi
 

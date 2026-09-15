@@ -13,10 +13,18 @@ from huginn.elt.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
+from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
+from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
 from huginn.elt.ingestion.service import IngestionService
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
+
+# OpenCorporates' free tier caps at 50 requests/day (docs/sources/
+# opencorporates-api.md, Access); this is a simple per-run call budget, not
+# the stateful cross-run quota tracker architecture-notes/
+# opencorporates-fetch-plan.md section 7 explicitly defers.
+OPENCORPORATES_MAX_CALLS = 50
 
 
 def build_service(config: Config) -> IngestionService:
@@ -27,11 +35,41 @@ def build_service(config: Config) -> IngestionService:
     The `bronze.api_ingest` repository is built once here and injected, so
     every consumer of that table shares one implementation of its queries.
     `StatePort`/`PostgresApiIngestState` still has no caller (Jira KAN-46).
+
+    Unlike `HackerNewsAdapter`/`YcDirectoryAdapter`, `OpenCorporatesAdapter`
+    is not stateless: it needs a Gold read to learn which company names this
+    run should search for (architecture-notes/opencorporates-fetch-plan.md
+    section 5). The adapter invokes this composition-root loader lazily from
+    `fetch()`, keeping service construction free of database I/O without
+    leaking the cross-layer read into `IngestionService`.
     """
     api_ingest_repository = PostgresApiIngestRepository(config.database_url)
+
+    def load_opencorporates_companies() -> list[str]:
+        """Load the bounded Gold candidate set described in the fetch plan.
+
+        See architecture-notes/opencorporates-fetch-plan.md section 5.
+        """
+        with PostgresCompanyRepository(config.database_url) as company_repository:
+            return company_repository.read_unenriched_company_names(
+                OPENCORPORATES_MAX_CALLS
+            )
+
     return IngestionService(
-        sources=[HackerNewsAdapter(), YcDirectoryAdapter()],
-        raw_store=PostgresApiIngestStore(api_ingest_repository),
+        sources=[
+            HackerNewsAdapter(),
+            YcDirectoryAdapter(),
+            OpenCorporatesAdapter(
+                company_loader=load_opencorporates_companies,
+                max_calls=OPENCORPORATES_MAX_CALLS,
+            ),
+        ],
+        raw_store=PostgresApiIngestStore(
+            api_ingest_repository,
+            stable_fields_by_source={
+                "opencorporates": OpenCorporatesAdapter.stable_fields
+            },
+        ),
         job_run_writer=PostgresJobRunWriter(config.database_url),
     )
 

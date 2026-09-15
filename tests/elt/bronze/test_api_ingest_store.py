@@ -8,6 +8,7 @@ from huginn.elt.bronze.api_ingest_store import (
     PostgresApiIngestStore,
     decide_write_action,
 )
+from huginn.elt.bronze.watermark import compute_content_hash
 from huginn.elt.ingestion.models import RawRecord
 
 
@@ -80,6 +81,33 @@ def test_write_inserts_new_record_when_no_existing_row():
     assert write_call[3] == {"title": "Backend Engineer"}
     assert write_call[5] == "11111111-1111-1111-1111-111111111111"
     assert written_count == 1
+
+
+def test_write_uses_presence_aware_stable_fields_for_configured_source():
+    """Configured fields preserve missing-versus-empty distinctions."""
+    payload = {
+        "current_status": "Active",
+        "dissolution_date": "",
+        "updated_at": "2026-09-14",
+        "volatile": "ignored",
+    }
+    stable_fields = ("current_status", "dissolution_date", "updated_at")
+    repository = _FakeApiIngestRepository(lookup_results=[None])
+    store = PostgresApiIngestStore(
+        repository,
+        stable_fields_by_source={"opencorporates": stable_fields},
+    )
+
+    store.write(
+        "opencorporates",
+        "api",
+        [RawRecord(stable_id="gb:123", payload=payload)],
+        "11111111-1111-1111-1111-111111111111",
+    )
+
+    assert repository.calls[1][4] == compute_content_hash(
+        payload, stable_fields, include_field_presence=True
+    )
 
 
 def test_write_touches_last_checked_at_when_hash_matches():

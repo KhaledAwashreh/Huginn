@@ -3,6 +3,7 @@ import pytest
 from huginn.elt.gold.repositories import company_repository
 from huginn.elt.gold.repositories.company_repository import (
     PostgresCompanyRepository,
+    build_read_unenriched_company_names_query,
     build_upsert_query,
 )
 
@@ -68,6 +69,19 @@ def test_build_upsert_query_is_an_on_conflict_upsert_targeting_domain():
 
     assert "ON CONFLICT (domain)" in sql
     assert "INSERT INTO gold.company" in sql
+
+
+def test_build_read_unenriched_company_names_query_binds_limit_as_a_parameter():
+    """The candidate query binds its limit and selects unenriched names."""
+    sql, params = build_read_unenriched_company_names_query(50)
+
+    assert params == (50,)
+    assert "50" not in sql
+    assert "gold.company" in sql
+    assert "business_sector IS NULL" in sql
+    assert "DISTINCT ON (name)" in sql
+    assert "ORDER BY created_at, id" in sql
+    assert "LIMIT %s" in sql
 
 
 class _FakeConnectionThatFailsToOpenACursor:

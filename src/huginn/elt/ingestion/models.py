@@ -16,8 +16,9 @@ class RawRecord:
 
     `stable_id` is the source-native identifier used for the
     `(source, stable_id)` uniqueness key at Bronze (see architecture
-    document section 4.1). `payload` is the raw, unmodified data as
-    fetched, stored as-is in Bronze's `payload` column.
+    document section 4.1). `payload` is the source-provided data as fetched,
+    subject only to documented adapter-level privacy filtering before it is
+    stored in Bronze's `payload` column.
     """
 
     stable_id: str

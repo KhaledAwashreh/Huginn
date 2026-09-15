@@ -127,30 +127,27 @@ user pushes the branch and opens the PR themselves; don't push or open a
 PR without being asked to. CI and the CodeRabbit GitHub App both run
 against the PR automatically.
 
+## Before committing
+
+The installed `.git/hooks/pre-commit` runs `scripts/pre-commit-review.sh`.
+It performs the fast Ruff checks on every commit. Install or refresh both
+repository hooks with `scripts/install-git-hooks.sh`; the installer respects
+Git's configured hooks path and linked worktrees.
+
 ## Before pushing
 
 Enforced by `scripts/pre-push-review.sh`, installed as this clone's
-`.git/hooks/pre-push` (git hooks aren't versioned, so a fresh clone needs to
-reinstall it once: copy the script into `.git/hooks/pre-push` and `chmod +x`
-it, or see the script's own header). Runs automatically on every `git push`
-in this repo rather than depending on whoever's pushing to remember the
-checklist by hand:
+`.git/hooks/pre-push`. Runs automatically on every `git push` in this repo:
 
 1. `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`
    all pass, a hard gate that blocks the push on failure. CI
    (`.github/workflows/ci.yml`) runs the same checks; nothing here should be
    a surprise there.
-2. `coderabbit review --agent --base master` runs and prints every finding.
-   Not a gate: severities aren't checked and a finding never blocks the push
-   (the same diff reviewed twice can surface different findings, so treating
-   its exit code as pass/fail would be meaningless). The findings are
-   printed, not just available if someone remembers to go looking, so
-   they're always seen and worth triaging by hand: fix what's real, note
-   what's deferred. When fixing a finding, re-scan the same file(s) for
-   every other place that same pattern recurs and fix those too, not just
-   the named instance, before moving on.
-3. The GitHub App (already installed) reviews the PR automatically once
-   pushed. That's the second, independent read, not a substitute for step 2.
-   Running step 2 locally first (the actual `coderabbit` CLI, not a
-   different tool standing in for it) is what makes step 3 mostly confirm
-   step 2 rather than surface a first finding of its own.
+2. Before opening the MR or PR, invoke the `pre-mr-review` skill. This is the
+   required AI review checkpoint: it runs the complete local verification,
+   reviews the diff, and uses readable CodeRabbit output when authorized.
+   Every finding must be verified, fixed, or explicitly deferred. The hook
+   cannot enforce this AI step because external review requires explicit user
+   authorization.
+3. The GitHub App reviews the PR automatically once pushed. That is an
+   independent read, not a substitute for the local pre-MR review.

@@ -1,0 +1,4 @@
+interface:
+  display_name: Pre-MR Review
+  short_description: Verify a branch before opening a merge request
+  default_prompt: Use $pre-mr-review to verify this branch before I open the MR.
