@@ -57,6 +57,11 @@ class PostgresApiIngestStore:
         repository: ApiIngestRepositoryPort,
         stable_fields_by_source: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
+        """Configure the repository and per-source watermark fields.
+
+        See architecture document section 4.1 and
+        architecture-notes/opencorporates-fetch-plan.md section 4.
+        """
         self._repository = repository
         self._stable_fields_by_source = {
             source: tuple(stable_fields)

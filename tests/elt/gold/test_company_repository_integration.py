@@ -24,6 +24,7 @@ DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
 
 def _database_reachable() -> bool:
+    """Return whether the configured integration database accepts a query."""
     if not DATABASE_URL:
         return False
     try:
@@ -46,6 +47,7 @@ pytestmark = pytest.mark.skipif(
 def _insert_company(
     cur, domain: str, name: str, business_sector: str | None, created_at: datetime
 ) -> None:
+    """Insert one isolated company fixture through the supplied cursor."""
     cur.execute(
         """
         INSERT INTO gold.company (domain, name, business_sector, created_at)
@@ -56,6 +58,7 @@ def _insert_company(
 
 
 def test_read_unenriched_company_names_returns_only_rows_with_null_business_sector():
+    """Candidate reads exclude companies that already have a sector."""
     suffix = str(uuid.uuid4().int)[:10]
     unenriched_domain = f"opencorptest-unenriched-{suffix}.example"
     enriched_domain = f"opencorptest-enriched-{suffix}.example"
@@ -80,6 +83,7 @@ def test_read_unenriched_company_names_returns_only_rows_with_null_business_sect
 
 
 def test_read_unenriched_company_names_orders_oldest_created_first():
+    """Candidate reads prioritize the oldest company row."""
     suffix = str(uuid.uuid4().int)[:10]
     older_domain = f"opencorptest-older-{suffix}.example"
     newer_domain = f"opencorptest-newer-{suffix}.example"
@@ -106,6 +110,7 @@ def test_read_unenriched_company_names_orders_oldest_created_first():
 
 
 def test_read_unenriched_company_names_respects_the_limit():
+    """Candidate reads never exceed the caller's requested limit."""
     suffix = str(uuid.uuid4().int)[:10]
     domains = [f"opencorptest-limit-{suffix}-{i}.example" for i in range(3)]
     now = datetime.now(UTC)

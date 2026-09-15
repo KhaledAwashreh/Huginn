@@ -72,6 +72,7 @@ def test_build_upsert_query_is_an_on_conflict_upsert_targeting_domain():
 
 
 def test_build_read_unenriched_company_names_query_binds_limit_as_a_parameter():
+    """The candidate query binds its limit and selects unenriched names."""
     sql, params = build_read_unenriched_company_names_query(50)
 
     assert params == (50,)

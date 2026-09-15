@@ -84,6 +84,7 @@ def test_write_inserts_new_record_when_no_existing_row():
 
 
 def test_write_uses_presence_aware_stable_fields_for_configured_source():
+    """Configured fields preserve missing-versus-empty distinctions."""
     payload = {
         "current_status": "Active",
         "dissolution_date": "",

@@ -46,6 +46,10 @@ def build_service(config: Config) -> IngestionService:
     api_ingest_repository = PostgresApiIngestRepository(config.database_url)
 
     def load_opencorporates_companies() -> list[str]:
+        """Load the bounded Gold candidate set described in the fetch plan.
+
+        See architecture-notes/opencorporates-fetch-plan.md section 5.
+        """
         with PostgresCompanyRepository(config.database_url) as company_repository:
             return company_repository.read_unenriched_company_names(
                 OPENCORPORATES_MAX_CALLS

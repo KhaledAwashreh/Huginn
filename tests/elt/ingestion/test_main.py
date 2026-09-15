@@ -22,20 +22,25 @@ class _FakeCompanyRepository:
     """
 
     def __init__(self, database_url: str) -> None:
+        """Capture the URL that production wiring passes to the repository."""
         self.database_url = database_url
 
     def __enter__(self):
+        """Return the database-free repository double."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Leave the database-free repository context without suppression."""
         return None
 
     def read_unenriched_company_names(self, limit: int) -> list[str]:
+        """Return candidates while recording the requested run budget."""
         self.requested_limit = limit
         return ["Acme Robotics", "Beta Corp"]
 
 
 def test_build_service_wires_all_three_adapters(monkeypatch):
+    """The service includes HN, YC, and OpenCorporates adapters."""
     monkeypatch.setattr(
         main_module, "PostgresCompanyRepository", _FakeCompanyRepository
     )
@@ -51,9 +56,11 @@ def test_build_service_wires_all_three_adapters(monkeypatch):
 
 
 def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkeypatch):
+    """OpenCorporates loads a bounded candidate set lazily from Gold."""
     repositories = []
 
     def fake_company_repository(database_url):
+        """Create and retain the repository double for wiring assertions."""
         fake_repository = _FakeCompanyRepository(database_url)
         repositories.append(fake_repository)
         return fake_repository
@@ -87,6 +94,7 @@ def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkey
 
 
 def test_build_service_wires_postgres_backed_ports_with_the_configured_url(monkeypatch):
+    """Postgres-backed ports receive the configured database URL."""
     monkeypatch.setattr(
         main_module, "PostgresCompanyRepository", _FakeCompanyRepository
     )
