@@ -37,9 +37,15 @@ Reasons:
 
 ## 4. Field mapping: officers, ownership, and `company_type` excluded from structured fields
 
-Decision: `RawRecord.payload` carries the entire matched company object unmodified (see `docs/sources/opencorporates-api.md`, Response shape, "Company detail record" field list) — nothing is stripped out at fetch time. But this adapter's own structured field selection (what Silver eventually maps out of the payload, a later ticket's scope) explicitly excludes:
+Decision: `RawRecord.payload` carries the matched company object close to as
+returned (see `docs/sources/opencorporates-api.md`, Response shape, "Company
+detail record" field list), with the privacy-safe exception that this adapter
+removes the top-level `officers` field before Bronze persistence. The adapter
+does not mutate the API response object. Its structured field selection (what
+Silver eventually maps out of the payload, a later ticket's scope) also
+explicitly excludes:
 
-- **`officers`** — `docs/sources/opencorporates-api.md`'s Open questions/risks flags this as containing names, positions, sometimes dates of birth and home addresses. No data-retention policy exists yet for that class of data, independent of and separate from the licensing question KAN-12 already accepted. Excluding it from structured use (not from the raw payload, which is opaque JSONB either way) means no PII decision needs to be made to ship this adapter.
+- **`officers`** — `docs/sources/opencorporates-api.md`'s Open questions/risks flags this as containing names, positions, sometimes dates of birth and home addresses. No data-retention policy exists yet for that class of data, independent of and separate from the licensing question KAN-12 already accepted. It is therefore removed from the Bronze payload at `_company_record`, rather than merely excluded from later structured use.
 - **`controlling_entity`, `ultimate_beneficial_owners`, `ultimate_controlling_company`, `corporate_groupings`** — genuinely new signal (parent/ownership structure), not something the original proposed mapping in `docs/sources/opencorporates-api.md` accounted for. Jira KAN-57 is the dedicated epic for deciding what, if anything, Huginn should do with this; this adapter's job is only to not lose the data (it survives in `raw_payload` regardless), not to design its use.
 - **`company_type`** — `db/schema/gold.sql`'s `gold.company.company_type` is `CHECK (company_type IN ('enterprise', 'startup', 'sme'))`, a size/structure classification. OpenCorporates' `company_type` is a legal form ("Private Limited Company", "LLC"). These are different axes measuring different things; mapping one onto the other would silently corrupt the column, not just under-populate it.
 

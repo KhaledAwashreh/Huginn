@@ -7,6 +7,9 @@ Mechanism: "api" (`companies/search`, a structured JSON endpoint), not a
 scrape. Fetch-plan decisions: architecture-notes/opencorporates-fetch-plan.md
 (KAN-53, KAN-54).
 
+The Bronze payload is copied from the matched company object and excludes
+the source's `officers` field because it may contain personal data.
+
 The response envelope this adapter parses (`results.companies[].company`)
 is a documented OpenCorporates convention, not independently live-verified
 (no API token was registered for the KAN-53 design session) — see the flag
@@ -96,19 +99,28 @@ def _extract_companies(search_response: dict) -> list[dict]:
 
 
 def _company_record(company: dict) -> RawRecord:
+    """Build a Bronze record without retaining OpenCorporates officers.
+
+    Copying before removal keeps the parsed API response available to the
+    caller while ensuring the payload handed to Bronze is privacy-safe.
+    """
     jurisdiction_code = company["jurisdiction_code"]
     company_number = company["company_number"]
     if not jurisdiction_code or not company_number:
         raise ValueError("company identity fields must be non-empty")
     stable_id = f"{jurisdiction_code}:{company_number}"
-    return RawRecord(stable_id=stable_id, payload=company)
+    payload = company.copy()
+    payload.pop("officers", None)
+    return RawRecord(stable_id=stable_id, payload=payload)
 
 
 def _extract_company_records(search_response: dict) -> list[RawRecord]:
     """Convert company wrappers into Bronze-ready records.
 
-    The complete company object remains the payload, while the source-native
-    jurisdiction and company number form its stable identifier.
+    The company object remains otherwise close to the source payload, while
+    the source-native jurisdiction and company number form its stable
+    identifier. Privacy-sensitive officer data is excluded by
+    `_company_record` before persistence.
     """
     return [_company_record(company) for company in _extract_companies(search_response)]
 

@@ -269,7 +269,7 @@ def test_fetch_skips_a_company_with_more_than_one_search_result(monkeypatch, cap
     assert any("Acme" in r.getMessage() for r in infos)
 
 
-def test_fetch_payload_is_the_matched_company_object_unmodified(monkeypatch):
+def test_fetch_payload_excludes_officers_without_mutating_api_response(monkeypatch):
     company = {
         "name": "Acme Robotics",
         "jurisdiction_code": "gb",
@@ -286,8 +286,14 @@ def test_fetch_payload_is_the_matched_company_object_unmodified(monkeypatch):
         company_loader=lambda: ["Acme Robotics"], max_calls=5
     ).fetch()
 
-    assert records[0].payload == company
-    assert records[0].payload is company
+    assert records[0].payload == {
+        "name": "Acme Robotics",
+        "jurisdiction_code": "gb",
+        "company_number": "999",
+    }
+    assert "officers" not in records[0].payload
+    assert company["officers"] == [{"name": "Jane Doe"}]
+    assert records[0].payload is not company
 
 
 def test_fetch_stable_id_is_jurisdiction_code_and_company_number(monkeypatch):
