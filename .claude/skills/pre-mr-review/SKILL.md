@@ -50,15 +50,18 @@ maintainability problems while they are still local.
    authorization, ensure the complete intended diff is reviewed. Use
    `--committed --base master` only when the working tree is clean. For a mixed
    committed/uncommitted tree, explicitly review the uncommitted diff with
-   `--uncommitted` and separately ensure the committed changes from `master` to
-   `HEAD` are covered; do not silently omit either portion. For a clean tree,
+   `--uncommitted --include-untracked` and separately ensure the committed
+   changes from `master` to `HEAD` are covered; do not silently omit either
+   portion. `--include-untracked` is required because `--uncommitted`
+   otherwise reviews staged changes and tracked edits only. For a clean tree,
    run a human-readable review:
 
    ```bash
    coderabbit review --committed --base master
    ```
 
-   Use `--uncommitted` to review the uncommitted portion when applicable.
+   Use `--uncommitted --include-untracked` to review the uncommitted portion
+   when applicable.
    `--agent` emits structured output for automation, so if it is used, follow
    it immediately with `coderabbit review findings` for readable findings.
    Never send a private diff to an external review service without explicit
