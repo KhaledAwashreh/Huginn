@@ -44,8 +44,9 @@ def _resolves_to_public_address(domain: str) -> bool:
 def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
     """Check if a domain is reachable via HTTP HEAD/GET.
 
-    SSRF-TOCTOU limitation: see KAN-62. Transient-retry mitigation: see
-    Global Constraint 3. Parking-page exclusion: see Global Constraint 4.
+    See Jira KAN-62 for overall design. Global Constraint 1 describes the
+    SSRF-TOCTOU limitation. Transient-retry mitigation: see Global
+    Constraint 3. Parking-page exclusion: see Global Constraint 4.
     """
     if not _resolves_to_public_address(domain):
         return False
