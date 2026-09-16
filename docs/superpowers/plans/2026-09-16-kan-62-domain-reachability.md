@@ -117,11 +117,21 @@ for Jira KAN-16, not built here.
    reachable under this ticket's definition. Do not build parking-page
    detection. One sentence in the function's docstring naming this as a
    known, accepted limitation is enough, citing this ticket.
-5. **HEAD-then-GET-fallback, exactly as specified.** Try `requests.head`
-   first (with the UA header, Constraint 2). If the response status is
-   `405` (Method Not Allowed) or the head request itself raises
-   `requests.RequestException` in a way that a plain GET might not (many
-   servers reject HEAD outright), retry the same URL with `requests.get`.
+5. **HEAD-then-GET-fallback.** Try `requests.head` first (with the UA
+   header, Constraint 2). Fall back to `requests.get` on the same URL
+   whenever HEAD didn't clearly succeed: either it returned a response
+   outside the 200-399 range (this repo's binding ruling: any non-2xx/3xx
+   status, not only `405`, since real WAFs/CDNs commonly reject HEAD with
+   400, 403, 501, and others, matching this ticket's own "if HEAD is
+   rejected" language which cites 405 only as the common example, not the
+   whole rule), or it failed outright after its retry (a `None` result
+   from the retry helper, e.g. two consecutive `Timeout`/`ConnectionError`
+   attempts) rather than returning any response at all. This closes a real
+   gap an earlier draft of this constraint left open: "response is not
+   None and ..." as originally written here would have skipped the GET
+   fallback entirely whenever HEAD failed by exception rather than by a
+   bad status, exactly the case an unreachable-via-HEAD-but-fine-via-GET
+   host hits.
    Both calls share the SSRF pre-check (Constraint 1), the UA header
    (Constraint 2), and the transient-retry mitigation (Constraint 3).
 6. **Docstrings cite, don't restate** (`CLAUDE.md` code standard 3). Point
