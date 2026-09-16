@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from huginn.elt.silver import signal_resolution
 from huginn.elt.silver.models import StagedSignal
 from huginn.elt.silver.resolution import KeyDerivation
 from huginn.elt.silver.signal_resolution import (
@@ -12,8 +13,12 @@ from huginn.elt.silver.signal_resolution import (
 )
 
 
-def test_resolve_signal_normalizes_a_normalizable_domain():
+def test_resolve_signal_normalizes_a_normalizable_domain(monkeypatch):
     """Derive a company key from a normalizable website domain."""
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     key, confidence = resolve_signal("hn", "1", "https://www.acme.com/careers")
 
     assert key == "acme.com"
@@ -71,11 +76,15 @@ def test_resolve_signal_rejects_every_denylisted_host():
         assert key == "unresolved:hn:1", host
 
 
-def test_resolve_signal_still_normalizes_a_real_company_domain():
+def test_resolve_signal_still_normalizes_a_real_company_domain(monkeypatch):
     """Regression check for the denylist: a company domain that merely
     resembles a denylisted one, or contains it as a non-suffix substring,
     must still auto-match.
     """
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     for website in (
         "https://modash.io",
         "https://www.acme.com/careers",
@@ -138,7 +147,13 @@ class FakeSignalResolutionRepository:
         self.upserted.append(record)
 
 
-def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count():
+def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[
@@ -153,8 +168,14 @@ def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count():
     assert len(repository.upserted) == 3
 
 
-def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed():
+def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed(
+    monkeypatch,
+):
     """Persist the key and derivation status computed for each signal."""
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[_staged_signal("yc", "2", None)],
@@ -173,7 +194,11 @@ def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed():
     assert unmatched.key_derivation == KeyDerivation.UNRESOLVED
 
 
-def test_resolve_all_returns_the_total_written_count():
+def test_resolve_all_returns_the_total_written_count(monkeypatch):
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[_staged_signal("yc", "2", None)],
@@ -185,9 +210,15 @@ def test_resolve_all_returns_the_total_written_count():
     assert written == 2
 
 
-def test_resolve_all_opens_the_repository_scope_once_for_the_whole_batch():
+def test_resolve_all_opens_the_repository_scope_once_for_the_whole_batch(
+    monkeypatch,
+):
     """Regression check: the batch must share one connection scope rather
     than opening one per record."""
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     repository = FakeSignalResolutionRepository(
         hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
         yc_listings=[_staged_signal("yc", "2", None)],
@@ -198,3 +229,61 @@ def test_resolve_all_opens_the_repository_scope_once_for_the_whole_batch():
 
     assert repository.enter_count == 1
     assert repository.exit_count == 1
+
+
+def test_resolve_signal_returns_unresolved_when_domain_is_not_reachable(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: False
+    )
+
+    key, confidence = resolve_signal("hn", "1", "https://www.acme.com/careers")
+
+    assert key == "unresolved:hn:1"
+    assert confidence == KeyDerivation.UNRESOLVED
+
+
+def test_resolve_signal_normalizes_when_domain_is_reachable(monkeypatch):
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
+    key, confidence = resolve_signal("hn", "1", "https://www.acme.com/careers")
+
+    assert key == "acme.com"
+    assert confidence == KeyDerivation.DOMAIN_NORMALIZED
+
+
+def test_resolve_signal_checks_reachability_on_the_normalized_domain(monkeypatch):
+    """The domain passed to check_domain_reachable must be the normalized
+    host (no scheme/path), not the raw website string."""
+    seen = {}
+
+    def fake_check(domain, timeout=5.0):
+        seen["domain"] = domain
+        return True
+
+    monkeypatch.setattr(signal_resolution, "check_domain_reachable", fake_check)
+
+    resolve_signal("hn", "1", "https://www.acme.com/careers")
+
+    assert seen["domain"] == "acme.com"
+
+
+def test_resolve_signal_does_not_check_reachability_for_a_denylisted_host(
+    monkeypatch,
+):
+    """A denylisted host is rejected before reachability is ever checked,
+    no network call should be attempted for it at all."""
+
+    def fail_if_called(domain, timeout=5.0):
+        raise AssertionError("check_domain_reachable should not be called")
+
+    monkeypatch.setattr(signal_resolution, "check_domain_reachable", fail_if_called)
+
+    key, confidence = resolve_signal(
+        "hn", "1", "https://acme.bamboohr.com/jobs/view/42"
+    )
+
+    assert confidence == KeyDerivation.UNRESOLVED
