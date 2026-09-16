@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
+from huginn.elt.silver import signal_resolution
 from huginn.elt.silver.repositories.signal_resolution_repository import (
     PostgresSignalResolutionRepository,
 )
@@ -57,8 +58,19 @@ def _insert_hn_posting(cur, stable_id: str, website: str | None) -> None:
     )
 
 
-def test_resolve_all_auto_matches_a_row_with_a_website():
-    """Persist a normalized domain key for a row with a company website."""
+def test_resolve_all_auto_matches_a_row_with_a_website(monkeypatch):
+    """Persist a normalized domain key for a row with a company website.
+
+    Reachability itself is `check_domain_reachable`'s own concern (KAN-62,
+    see `test_resolution.py`); this test isolates the DB-write wiring from
+    that network dependency the same way the unit tests in
+    `test_signal_resolution.py` do, since `resolutiontestco.example` is a
+    documentation-reserved domain that never resolves.
+    """
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
     stable_id = str(uuid.uuid4().int)[:10]
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
         _insert_hn_posting(cur, stable_id, "https://www.resolutiontestco.example")

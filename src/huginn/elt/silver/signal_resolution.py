@@ -18,7 +18,11 @@ import logging
 
 from huginn.elt.silver.models import ResolvedSignalRecord
 from huginn.elt.silver.ports import SignalResolutionRepositoryPort
-from huginn.elt.silver.resolution import KeyDerivation, normalize_domain
+from huginn.elt.silver.resolution import (
+    KeyDerivation,
+    check_domain_reachable,
+    normalize_domain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +84,20 @@ def resolve_signal(
     producing a confident-looking key that merged unrelated companies. A
     wrong confident key is worse than none, so these route to manual
     review like any other unresolvable row.
+
+    A domain must also pass `check_domain_reachable` to earn
+    `DOMAIN_NORMALIZED` (Jira KAN-62). A transient network failure is
+    retried once inside `check_domain_reachable` itself rather than
+    distinguished from a confident negative here (see this plan's Global
+    Constraint 3).
     """
     if website:
         domain = normalize_domain(website)
-        if domain and not _is_non_company_host(domain):
+        if (
+            domain
+            and not _is_non_company_host(domain)
+            and check_domain_reachable(domain)
+        ):
             return domain, KeyDerivation.DOMAIN_NORMALIZED
     return (
         unresolved_placeholder_key(source, source_stable_id),
