@@ -160,12 +160,16 @@ def test_check_domain_reachable_retries_once_on_timeout_then_succeeds(monkeypatc
 
 
 def test_check_domain_reachable_false_after_two_consecutive_timeouts(monkeypatch):
+    """When HEAD times out twice, it returns None and GET is attempted. If
+    GET also fails (whether by timeout or bad status), the overall result
+    is False."""
     _patch_dns(monkeypatch, "93.184.216.34")
 
     def always_timeout(url, timeout, headers, allow_redirects):
         raise requests.Timeout("slow")
 
     monkeypatch.setattr(resolution.requests, "head", always_timeout)
+    monkeypatch.setattr(resolution.requests, "get", always_timeout)
 
     assert check_domain_reachable("example.com") is False
 
@@ -279,3 +283,31 @@ def test_check_domain_reachable_logs_debug_on_outcome(monkeypatch, caplog):
         check_domain_reachable("example.com")
 
     assert any(record.levelname == "DEBUG" for record in caplog.records)
+
+
+def test_check_domain_reachable_false_for_ipv6_site_local_address(monkeypatch):
+    """IPv6 site-local addresses (fec0::/10, deprecated by RFC 3879) must be
+    rejected as part of the SSRF guard. ipaddress.IPv6Address has a dedicated
+    .is_site_local property for this range (KAN-62)."""
+    _patch_dns(monkeypatch, "fec0::1")
+
+    assert check_domain_reachable("site-local.internal.invalid") is False
+
+
+def test_check_domain_reachable_falls_back_to_get_on_head_connection_error(monkeypatch):
+    """If HEAD fails with a connection error (not just a bad HTTP response),
+    the function must still attempt GET. A host that drops HEAD outright but
+    serves GET should not be wrongly marked unreachable (KAN-62)."""
+    _patch_dns(monkeypatch, "93.184.216.34")
+
+    def head_connection_error(url, timeout, headers, allow_redirects):
+        raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr(resolution.requests, "head", head_connection_error)
+    monkeypatch.setattr(
+        resolution.requests,
+        "get",
+        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+    )
+
+    assert check_domain_reachable("example.com") is True

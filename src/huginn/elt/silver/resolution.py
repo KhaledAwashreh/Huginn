@@ -35,9 +35,9 @@ def _resolves_to_public_address(domain: str) -> bool:
     empty label or an overlong label, both of which surface as
     UnicodeError/ValueError from the idna codec rather than
     socket.gaierror) or if any resolved address is private, loopback,
-    link-local, reserved, multicast, or CGNAT shared address space
-    (RFC 6598, 100.64.0.0/10). Returns True only if every resolved address
-    is a normal public address.
+    link-local, reserved, multicast, site-local (IPv6 only), or CGNAT
+    shared address space (RFC 6598, 100.64.0.0/10). Returns True only if
+    every resolved address is a normal public address.
     """
     try:
         results = socket.getaddrinfo(domain, 443)
@@ -54,6 +54,7 @@ def _resolves_to_public_address(domain: str) -> bool:
             or ip.is_reserved
             or ip.is_multicast
             or ip in _CGNAT_NETWORK
+            or (ip.version == 6 and ip.is_site_local)
         ):
             logger.warning(
                 "silver.resolution _resolves_to_public_address: rejecting "
@@ -100,14 +101,16 @@ def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
 
     See Jira KAN-62 for overall design. Global Constraint 1 describes the
     SSRF-TOCTOU limitation (mitigated here by rejecting private/loopback/
-    link-local/reserved/multicast/CGNAT addresses up front and disabling
-    redirects on every request this module makes). Transient-retry
+    link-local/reserved/multicast/site-local/CGNAT addresses up front and
+    disabling redirects on every request this module makes). Transient-retry
     mitigation: see Global Constraint 3. Parking-page exclusion: see
     Global Constraint 4.
 
-    A HEAD response outside the 200-399 range (any 4xx or 5xx, not only
-    405) falls back to GET, since WAFs/CDNs commonly reject HEAD with
-    400, 403, 501, and others, not only 405.
+    HEAD fallback to GET is triggered if HEAD fails (connection error,
+    timeout, or any other exception that returns None from _request_with_retry)
+    or returns a response outside the 200-399 range. This handles both WAF/CDN
+    rejections of HEAD (which commonly return 400, 403, 501, etc., not just 405)
+    and hosts that drop/refuse HEAD entirely but serve GET normally.
     """
     if not _resolves_to_public_address(domain):
         return False
@@ -116,7 +119,7 @@ def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
     headers = {"User-Agent": REACHABILITY_USER_AGENT}
 
     response = _request_with_retry(requests.head, url, timeout, headers)
-    if response is not None and not (200 <= response.status_code < 400):
+    if response is None or not (200 <= response.status_code < 400):
         response = _request_with_retry(requests.get, url, timeout, headers)
 
     reachable = response is not None and 200 <= response.status_code < 400
