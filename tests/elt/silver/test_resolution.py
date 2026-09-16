@@ -36,6 +36,10 @@ class _FakeResponse:
     def __init__(self, status_code):
         self.status_code = status_code
 
+    def close(self):
+        """No-op close method for compatibility with stream=True."""
+        pass
+
 
 def _patch_dns(monkeypatch, ip: str):
     """Point getaddrinfo at a fixed IP so the SSRF pre-check and the
@@ -52,7 +56,7 @@ def test_check_domain_reachable_true_on_head_2xx(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(200),
     )
 
     assert check_domain_reachable("example.com") is True
@@ -63,7 +67,7 @@ def test_check_domain_reachable_true_on_head_3xx(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(301),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(301),
     )
 
     assert check_domain_reachable("example.com") is True
@@ -74,14 +78,14 @@ def test_check_domain_reachable_false_on_head_4xx(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(404),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(404),
     )
     # HEAD 4xx now falls back to GET (see the 403 test below); mock GET too
     # so the fallback also fails and the overall result stays False.
     monkeypatch.setattr(
         resolution.requests,
         "get",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(404),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(404),
     )
 
     assert check_domain_reachable("example.com") is False
@@ -92,12 +96,12 @@ def test_check_domain_reachable_falls_back_to_get_on_405(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(405),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(405),
     )
     monkeypatch.setattr(
         resolution.requests,
         "get",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(200),
     )
 
     assert check_domain_reachable("example.com") is True
@@ -111,12 +115,12 @@ def test_check_domain_reachable_falls_back_to_get_on_403(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(403),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(403),
     )
     monkeypatch.setattr(
         resolution.requests,
         "get",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(200),
     )
 
     assert check_domain_reachable("example.com") is True
@@ -147,7 +151,7 @@ def test_check_domain_reachable_retries_once_on_timeout_then_succeeds(monkeypatc
     _patch_dns(monkeypatch, "93.184.216.34")
     calls = {"n": 0}
 
-    def flaky_head(url, timeout, headers, allow_redirects):
+    def flaky_head(url, timeout, headers, allow_redirects, stream=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise requests.Timeout("slow")
@@ -165,7 +169,7 @@ def test_check_domain_reachable_false_after_two_consecutive_timeouts(monkeypatch
     is False."""
     _patch_dns(monkeypatch, "93.184.216.34")
 
-    def always_timeout(url, timeout, headers, allow_redirects):
+    def always_timeout(url, timeout, headers, allow_redirects, stream=None):
         raise requests.Timeout("slow")
 
     monkeypatch.setattr(resolution.requests, "head", always_timeout)
@@ -178,7 +182,7 @@ def test_check_domain_reachable_sends_a_browser_user_agent(monkeypatch):
     _patch_dns(monkeypatch, "93.184.216.34")
     seen_headers = {}
 
-    def fake_head(url, timeout, headers, allow_redirects):
+    def fake_head(url, timeout, headers, allow_redirects, stream=None):
         seen_headers.update(headers)
         return _FakeResponse(200)
 
@@ -217,7 +221,7 @@ def test_check_domain_reachable_get_fallback_disables_redirects(monkeypatch):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(405),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(405),
     )
 
     def fake_get(url, timeout, headers, **kwargs):
@@ -276,7 +280,7 @@ def test_check_domain_reachable_logs_debug_on_outcome(monkeypatch, caplog):
     monkeypatch.setattr(
         resolution.requests,
         "head",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(200),
     )
 
     with caplog.at_level("DEBUG", logger=resolution.logger.name):
@@ -300,14 +304,14 @@ def test_check_domain_reachable_falls_back_to_get_on_head_connection_error(monke
     serves GET should not be wrongly marked unreachable (KAN-62)."""
     _patch_dns(monkeypatch, "93.184.216.34")
 
-    def head_connection_error(url, timeout, headers, allow_redirects):
+    def head_connection_error(url, timeout, headers, allow_redirects, stream=None):
         raise requests.ConnectionError("connection refused")
 
     monkeypatch.setattr(resolution.requests, "head", head_connection_error)
     monkeypatch.setattr(
         resolution.requests,
         "get",
-        lambda url, timeout, headers, allow_redirects: _FakeResponse(200),
+        lambda url, timeout, headers, allow_redirects, stream=None: _FakeResponse(200),
     )
 
     assert check_domain_reachable("example.com") is True

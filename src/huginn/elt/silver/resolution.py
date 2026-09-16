@@ -86,7 +86,13 @@ def _request_with_retry(
     """
     for attempt in range(2):
         try:
-            return method(url, timeout=timeout, headers=headers, allow_redirects=False)
+            return method(
+                url,
+                timeout=timeout,
+                headers=headers,
+                allow_redirects=False,
+                stream=True,
+            )
         except requests.Timeout, requests.ConnectionError:
             if attempt == 0:
                 continue
@@ -120,9 +126,13 @@ def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
 
     response = _request_with_retry(requests.head, url, timeout, headers)
     if response is None or not (200 <= response.status_code < 400):
+        if response is not None:
+            response.close()
         response = _request_with_retry(requests.get, url, timeout, headers)
 
     reachable = response is not None and 200 <= response.status_code < 400
+    if response is not None:
+        response.close()
     # DEBUG, not INFO: matching this codebase's existing precedent for
     # per-entity calls inside a batch loop (StatePort.last_hash) — logging
     # every one of ~6,000+ per-run domain checks at INFO would flood the log.
