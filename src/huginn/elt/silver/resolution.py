@@ -11,7 +11,74 @@ researched-but-unverified recipe is production-ready.
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 from urllib.parse import urlparse
+
+import requests
+
+REACHABILITY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+
+
+def _resolves_to_public_address(domain: str) -> bool:
+    """Check if domain resolves to a public IP address.
+
+    Returns False on DNS failure or if any resolved address is private,
+    loopback, link-local, or reserved. Returns True only if at least one
+    resolved address is a normal public address.
+    """
+    try:
+        results = socket.getaddrinfo(domain, 443)
+    except socket.gaierror:
+        return False
+
+    for result in results:
+        ip_str = result[4][0]
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return False
+
+    return len(results) > 0
+
+
+def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
+    """Check if a domain is reachable via HTTP HEAD/GET.
+
+    SSRF-TOCTOU limitation: see KAN-62. Transient-retry mitigation: see
+    Global Constraint 3. Parking-page exclusion: see Global Constraint 4.
+    """
+    if not _resolves_to_public_address(domain):
+        return False
+
+    url = f"https://{domain}"
+    headers = {"User-Agent": REACHABILITY_USER_AGENT}
+
+    try:
+        response = requests.head(url, timeout=timeout, headers=headers)
+    except requests.Timeout, requests.ConnectionError:
+        try:
+            response = requests.head(url, timeout=timeout, headers=headers)
+        except requests.Timeout, requests.ConnectionError:
+            return False
+        except requests.RequestException:
+            return False
+    except requests.RequestException:
+        return False
+
+    if response.status_code == 405:
+        try:
+            response = requests.get(url, timeout=timeout, headers=headers)
+        except requests.Timeout, requests.ConnectionError:
+            try:
+                response = requests.get(url, timeout=timeout, headers=headers)
+            except requests.Timeout, requests.ConnectionError:
+                return False
+            except requests.RequestException:
+                return False
+        except requests.RequestException:
+            return False
+
+    return 200 <= response.status_code < 400
 
 
 def normalize_domain(url_or_domain: str) -> str:
