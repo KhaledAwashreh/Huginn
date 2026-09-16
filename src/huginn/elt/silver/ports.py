@@ -23,6 +23,10 @@ N records costs one connect rather than one per record and a mid-loop
 failure leaves no partial batch behind. Every data method below is only
 valid between `__enter__` and `__exit__`, and no `__exit__` may suppress
 the block's exception: it returns None, never a truthy value.
+
+Exception: see `SignalResolutionRepositoryPort`'s own docstring below for
+why `SignalResolver.resolve_all()` opens this one port's scope twice
+rather than following the one-scope rule above (ADR-0006).
 """
 
 from __future__ import annotations
@@ -88,6 +92,12 @@ class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
 class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
     """Reads every row currently in the per-source staging tables and
     upserts silver.resolved_signals.
+
+    `SignalResolver.resolve_all()` opens this port's scope twice, once for
+    reads and once for writes, rather than the one-scope-per-orchestrator
+    pattern this module states above. See ADR-0006 for why: a network
+    call was added to the per-row resolution logic (Jira KAN-62), and the
+    database connection's lifetime must not be coupled to that.
     """
 
     def read_hn_postings(self) -> list[StagedSignal]: ...

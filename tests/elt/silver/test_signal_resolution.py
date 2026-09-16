@@ -129,21 +129,27 @@ class FakeSignalResolutionRepository:
         self.upserted = []
         self.enter_count = 0
         self.exit_count = 0
+        self.calls: list[str] = []
 
     def __enter__(self):
         self.enter_count += 1
+        self.calls.append("enter")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.exit_count += 1
+        self.calls.append("exit")
 
     def read_hn_postings(self) -> list[StagedSignal]:
+        self.calls.append("read_hn")
         return self._hn_postings
 
     def read_yc_listings(self) -> list[StagedSignal]:
+        self.calls.append("read_yc")
         return self._yc_listings
 
     def upsert(self, record) -> None:
+        self.calls.append("upsert")
         self.upserted.append(record)
 
 
@@ -210,11 +216,12 @@ def test_resolve_all_returns_the_total_written_count(monkeypatch):
     assert written == 2
 
 
-def test_resolve_all_opens_the_repository_scope_once_for_the_whole_batch(
-    monkeypatch,
-):
-    """Regression check: the batch must share one connection scope rather
-    than opening one per record."""
+def test_resolve_all_opens_the_repository_scope_twice_read_then_write(monkeypatch):
+    """ADR-0006: reads and writes now open two separate connection scopes,
+    not one, so resolve_signal()'s network call (KAN-62) never runs while
+    a database connection is held open. Sharing a single scope across the
+    whole batch, as this orchestrator did before ADR-0006, is exactly what
+    that ADR moved away from."""
     monkeypatch.setattr(
         signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
     )
@@ -227,8 +234,72 @@ def test_resolve_all_opens_the_repository_scope_once_for_the_whole_batch(
 
     resolver.resolve_all()
 
-    assert repository.enter_count == 1
-    assert repository.exit_count == 1
+    assert repository.enter_count == 2
+    assert repository.exit_count == 2
+
+
+def test_resolve_all_completes_every_read_before_opening_the_write_scope(monkeypatch):
+    """ADR-0006: no upsert may happen inside the read scope, and no read
+    may happen inside the write scope, only sequential
+    enter/read.../exit/enter/upsert.../exit."""
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[_staged_signal("yc", "2", None)],
+    )
+    resolver = SignalResolver(repository)
+
+    resolver.resolve_all()
+
+    second_enter_index = [
+        index for index, call in enumerate(repository.calls) if call == "enter"
+    ][1]
+    read_indices = [
+        index
+        for index, call in enumerate(repository.calls)
+        if call in ("read_hn", "read_yc")
+    ]
+    upsert_indices = [
+        index for index, call in enumerate(repository.calls) if call == "upsert"
+    ]
+    assert all(index < second_enter_index for index in read_indices)
+    assert all(index > second_enter_index for index in upsert_indices)
+
+
+def test_resolve_all_runs_every_reachability_check_with_no_scope_open(monkeypatch):
+    """ADR-0006's actual point: resolve_signal()'s network call must run
+    strictly between the read scope's exit and the write scope's enter,
+    never while either connection scope is open. Recording enter/read/
+    upsert/exit alone (the previous test) cannot tell an implementation
+    that does the checks inside the read scope apart from one that does
+    them in the gap; recording the check calls into the same ordered
+    sequence closes that gap."""
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[_staged_signal("yc", "2", "https://getnao.io")],
+    )
+
+    def fake_check(domain, timeout=5.0):
+        repository.calls.append("check")
+        return True
+
+    monkeypatch.setattr(signal_resolution, "check_domain_reachable", fake_check)
+    resolver = SignalResolver(repository)
+
+    resolver.resolve_all()
+
+    first_exit_index = repository.calls.index("exit")
+    second_enter_index = [
+        index for index, call in enumerate(repository.calls) if call == "enter"
+    ][1]
+    check_indices = [
+        index for index, call in enumerate(repository.calls) if call == "check"
+    ]
+    assert len(check_indices) == 2
+    assert all(first_exit_index < index < second_enter_index for index in check_indices)
 
 
 def test_resolve_signal_returns_unresolved_when_domain_is_not_reachable(
