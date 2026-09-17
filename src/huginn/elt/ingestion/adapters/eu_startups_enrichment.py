@@ -8,10 +8,10 @@ Unlike OpenCorporates' API, EU-Startups' search is a substring match, so
 `_extract_exact_matches` filters the raw results before the zero/one/many
 skip rule applies. Candidate gate: ADR-0010 (`gold.company
 .eu_startups_searched_at`, wired at the composition root, not read from
-here). Reuses `extract_listing_fields` and the confirmed Cloudflare/UA
-behavior from `eu_startups.py` (KAN-64); this module does not call
-`extract_listing_fields` itself (Bronze stores raw HTML only, KAN-64 plan
-Global Constraint 6). Jira KAN-65.
+here). Reuses the confirmed Cloudflare/UA behavior from `eu_startups.py`
+(KAN-64); this module does not call that module's `extract_listing_fields`
+(Bronze stores raw HTML only, KAN-64 plan Global Constraint 6, field
+extraction is a Silver-layer concern). Jira KAN-65.
 """
 
 from __future__ import annotations
