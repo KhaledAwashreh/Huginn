@@ -7,8 +7,9 @@ that exact name, fetch its detail page and store the raw HTML in Bronze.
 Unlike OpenCorporates' API, EU-Startups' search is a substring match, so
 `_extract_exact_matches` filters the raw results before the zero/one/many
 skip rule applies. Candidate gate: ADR-0010 (`gold.company
-.eu_startups_searched_at`, wired at the composition root, not read from
-here). Reuses the confirmed Cloudflare/UA behavior from `eu_startups.py`
+.eu_startups_searched_at`); not read from here, and wiring that read into
+the composition root is outside this ticket's scope (see `__init__`).
+Reuses the confirmed Cloudflare/UA behavior from `eu_startups.py`
 (KAN-64); this module does not call that module's `extract_listing_fields`
 (Bronze stores raw HTML only, KAN-64 plan Global Constraint 6, field
 extraction is a Silver-layer concern). Jira KAN-65.
@@ -17,6 +18,7 @@ extraction is a Silver-layer concern). Jira KAN-65.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import urlencode
@@ -84,27 +86,77 @@ def _build_search_url(name: str) -> str:
     return f"{_SEARCH_URL}?{urlencode(params)}"
 
 
+def _extract_raw_matches(html: str) -> list[tuple[str, str]]:
+    """Every raw `(name, url)` anchor pair from a directory search results
+    page, in document order, before any exact-match filtering or
+    truncation check runs (plan Global Constraint 7). A zero-result page
+    has no `.search-results` container at all, but `.select(...)` on it
+    still returns `[]`, no special-casing needed.
+
+    Kept as its own step, not inlined into `_extract_exact_matches`, so
+    both the exact-match filter and the truncation check
+    (`_is_result_set_truncated`, final whole-branch review Fix 1) work
+    from the same raw extraction and neither has to reparse the page.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    return [
+        (anchor.get_text(strip=True), anchor.get("href"))
+        for anchor in soup.select(".search-results .listing-title a")
+    ]
+
+
 def _extract_exact_matches(html: str, query_name: str) -> list[tuple[str, str]]:
-    """Every `(name, url)` pair from a directory search results page whose
-    displayed name case-insensitively equals `query_name`, in document
-    order (plan Global Constraints 7 and 8).
+    """Every `(name, url)` pair from `_extract_raw_matches(html)` whose
+    displayed name case-insensitively equals `query_name` (plan Global
+    Constraints 7 and 8).
 
     EU-Startups' search is a substring match, not exact: a query can return
     several raw results sharing a substring (confirmed live, "Minut"
     returns 9 results, only one of which is the real "Minut"). This filter
     runs on every raw result before any zero/one/many skip decision is
     made, so a substring collision never masks a genuine unambiguous match.
-    A zero-result page has no `.search-results` container at all, but
-    `.select(...)` on it still returns `[]`, no special-casing needed.
+    """
+    query_folded = query_name.strip().casefold()
+    return [
+        (name, url)
+        for name, url in _extract_raw_matches(html)
+        if name.casefold() == query_folded
+    ]
+
+
+def _parsed_result_count(html: str) -> int | None:
+    """The page-reported total from a search results page's own
+    `<h3>Search Results (N)</h3>` heading, or `None` when that heading is
+    missing or its count isn't a plain integer.
+
+    Confirmed live in all 4 real fixtures under `tests/fixtures/eu_startups/`
+    (search_minut.html: 9, search_brightroom.html: 1, search_varm.html: 1,
+    search_zero_results.html: 0), each matching that page's own raw anchor
+    count exactly. Used by `_is_result_set_truncated` to detect a possibly
+    paginated results page before the exact-match filter runs (final
+    whole-branch review Fix 1: full pagination-following is a separate,
+    future ticket, this is truncation detection only).
     """
     soup = BeautifulSoup(html, "html.parser")
-    query_folded = query_name.strip().casefold()
-    matches = []
-    for anchor in soup.select(".search-results .listing-title a"):
-        name = anchor.get_text(strip=True)
-        if name.casefold() == query_folded:
-            matches.append((name, anchor.get("href")))
-    return matches
+    for heading in soup.find_all("h3"):
+        match = re.search(r"Search Results\s*\((\d+)\)", heading.get_text())
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _is_result_set_truncated(raw_match_count: int, parsed_count: int | None) -> bool:
+    """True when a search results page's own reported total doesn't equal
+    the number of raw anchors actually extracted, or when that total
+    couldn't be found/parsed at all: either way, a signal the fetched page
+    may not be the complete, unpaginated result set.
+
+    A distinct, separately-testable step (pure integers in, no HTML
+    parsing here) so it is visibly a precondition to the exact-match
+    filter, not folded invisibly into it (final whole-branch review
+    Fix 1).
+    """
+    return parsed_count is None or parsed_count != raw_match_count
 
 
 class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
@@ -170,6 +222,14 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         search (network error, non-2xx) is a WARNING, not an abort: it must
         not prevent the rest of the batch from being tried (same reasoning
         as KAN-64's per-listing fetch isolation).
+
+        Before the exact-match filter runs, `_is_result_set_truncated`
+        checks the page's own reported result count against the raw anchor
+        count: WPBDP search pages paginate, and one fetched page is not on
+        its own verified to be the complete result set. A mismatch (or a
+        missing/unparsable count) is a WARNING, skip, same as any other
+        unresolvable search this run (final whole-branch review Fix 1;
+        following pagination is out of this ticket's scope).
         """
         records = []
         seen_stable_ids = set()
@@ -183,17 +243,41 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 )
                 continue
 
+            raw_matches = _extract_raw_matches(search_html)
+            parsed_count = _parsed_result_count(search_html)
+            if _is_result_set_truncated(len(raw_matches), parsed_count):
+                logger.warning(
+                    "eu_startups_enrichment fetch: skipping %r, search results "
+                    "page may be truncated (raw anchor count=%d, page-reported "
+                    "count=%s)",
+                    name,
+                    len(raw_matches),
+                    parsed_count if parsed_count is not None else "not found",
+                )
+                continue
+
             matches = _extract_exact_matches(search_html, name)
             if len(matches) != 1:
                 logger.info(
                     "eu_startups_enrichment fetch: skipping %r, %d exact "
-                    "match(es) (need exactly 1 to enrich unambiguously)",
+                    "match(es) out of %d raw search result(s) (need exactly 1 "
+                    "exact match to enrich unambiguously)",
                     name,
                     len(matches),
+                    len(raw_matches),
                 )
                 continue
 
             _matched_name, detail_url = matches[0]
+            stable_id = _listing_slug(detail_url)
+            if stable_id in seen_stable_ids:
+                logger.info(
+                    "eu_startups_enrichment fetch: skipping %r, duplicate stable ID %r",
+                    name,
+                    stable_id,
+                )
+                continue
+
             try:
                 detail_html = self.fetch_page(detail_url)
             except EuStartupsEnrichmentFetchError:
@@ -205,14 +289,6 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 )
                 continue
 
-            stable_id = _listing_slug(detail_url)
-            if stable_id in seen_stable_ids:
-                logger.info(
-                    "eu_startups_enrichment fetch: skipping %r, duplicate stable ID %r",
-                    name,
-                    stable_id,
-                )
-                continue
             seen_stable_ids.add(stable_id)
             records.append(
                 RawRecord(
