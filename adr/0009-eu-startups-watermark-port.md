@@ -1,0 +1,88 @@
+# 0009: EU-Startups discovery gets its own watermark port, not StatePort
+
+Status: Accepted
+Date: 2026-09-17
+Deciders: Khaled Awashreh (with Claude Sonnet 5 assisting, autonomous overnight run per explicit authorization, KAN-64)
+
+## Context and Problem Statement
+
+KAN-64 flags its own open question: "Bronze's only existing watermark
+(`bronze/ports.py` `StatePort`, `bronze/watermark.py`) is a per-entity
+content-hash dedup keyed on `(source, stable_id)`, not a crawl-level 'max
+lastmod processed' cursor. Decide whether to extend `StatePort` or add a
+new mechanism." `StatePort.last_hash(source, stable_id)` answers "has this
+specific entity's content changed since last time," a per-row question,
+already handled automatically by `RawStorePort.write()`'s hash-match skip
+for every adapter regardless of source. What ADR-0008's sitemap-only
+discovery needs is a different question entirely: "what is the newest
+`lastmod` this adapter has already processed, across the whole sitemap,"
+a single scalar per source, not one value per entity.
+
+## Decision Drivers
+
+1. `StatePort`'s contract (`last_hash(source, stable_id) -> str | None`) has
+   no shape for a single per-source scalar; extending it to also mean "the
+   crawl-level watermark" would overload one Protocol with two unrelated
+   concepts (per-entity content identity vs. per-source crawl progress).
+2. `RawStorePort.write()` already deduplicates at the entity level for
+   every adapter automatically; the watermark's actual job is narrower and
+   cheaper than that: deciding which listing URLs are worth a detail-page
+   fetch *at all*, before Bronze's own dedup ever runs. Skipping the fetch
+   entirely for an unchanged listing is the whole point, since the network
+   cost (one HTTP request per listing) is what the watermark exists to
+   avoid, not the Bronze write itself, which is already cheap.
+3. `CompanyWriter`/`CompanySignalWriter` (KAN-40/41) aren't wired into any
+   orchestrator yet either. This adapter doesn't need a concrete,
+   Postgres-backed watermark implementation to be useful and testable now,
+   matching `CLAUDE.md` code standard 2: a Protocol with zero
+   implementations is normal here, not a gap to fill preemptively.
+
+## Considered Options
+
+1. A new, adapter-scoped `DiscoveryWatermarkPort` Protocol
+   (`read_watermark() -> str | None`, `save_watermark(value: str) -> None`),
+   injected at construction, no concrete implementation required by this
+   ticket (matching `EnrichmentCandidatePort`'s precedent: a small, focused
+   Protocol injected as a dependency, not yet backed by a Postgres
+   implementation when it was first added). (chosen)
+2. Extend `StatePort` with a second method for a per-source scalar.
+3. No watermark at all: re-walk and re-fetch every listing's detail page on
+   every run, rely on `RawStorePort.write()`'s hash-match skip to keep the
+   Bronze write cheap even though the network fetch is not.
+
+## Decision Outcome
+
+Chosen option: 1. A new, narrowly-scoped Protocol keeps `StatePort`'s
+existing contract exactly what it already is (Decision Driver 1), and
+matches this codebase's own precedent for deferring a concrete
+implementation until an orchestrator actually needs one (Decision Driver 3).
+Option 3 was rejected: at this source's real scale (on the order of tens of
+thousands of listings, growing), re-fetching every detail page every run
+forever is exactly the kind of unbounded, avoidable cost KAN-62/KAN-67
+already had to reckon with elsewhere in this pipeline, worth avoiding from
+the start rather than shipping and revisiting under pressure later.
+
+### Consequences
+
+1. Good: `StatePort`'s contract stays untouched, no risk to any existing
+   caller.
+2. Good: the adapter is fully testable with an in-memory fake watermark
+   port, no database dependency introduced by this ticket.
+3. Neutral: whichever ticket eventually wires this adapter into an
+   orchestrator must also decide `DiscoveryWatermarkPort`'s concrete,
+   persisted implementation (a new `ops`-schema table, a row in an existing
+   table, a file) and is free to choose then, with real requirements in
+   hand rather than guessed now.
+4. Bad: until that wiring ticket exists, the watermark is a real contract
+   with no working persistence behind it, same shape of "protocol before
+   implementation" gap this codebase already treats as normal, not new here.
+
+## Related
+
+1. `huginn.elt.bronze.ports.StatePort`: the existing mechanism this ADR
+   explicitly does not extend, and why.
+2. ADR-0008: the sitemap-based discovery mechanism this watermark serves.
+3. `src/huginn/elt/gold/ports.py`'s `EnrichmentCandidatePort`: the precedent
+   for a small, focused Protocol with no concrete implementation yet at the
+   time it was added, mirrored here for `DiscoveryWatermarkPort`.
+4. KAN-64 (this decision's ticket).
