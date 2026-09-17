@@ -5,24 +5,49 @@ Incremental watermark (`DiscoveryWatermarkPort`, not `StatePort`): ADR-0009.
 Research this adapter is built from: `docs/sources/eu-startups.md`. Ticket:
 Jira KAN-64.
 
-This module currently holds the sitemap-parsing functions
-(`_parse_sitemap_index`, `_parse_listing_sitemap`) and detail-page field
-extraction (`extract_listing_fields`); the `WebScrapeSourcePort` adapter
-class lands in a later task of the same plan.
+This module holds the sitemap-parsing functions (`_parse_sitemap_index`,
+`_parse_listing_sitemap`), detail-page field extraction
+(`extract_listing_fields`), and `EuStartupsDiscoveryAdapter`, the
+`WebScrapeSourcePort` implementation. Per Global Constraint 6 of the KAN-64
+plan, `EuStartupsDiscoveryAdapter.fetch()` stores only raw HTML in Bronze;
+it does not call `extract_listing_fields` itself, that belongs to the
+Silver staging loader.
 """
 
 from __future__ import annotations
 
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from xml.etree import ElementTree
 
+import requests
 from bs4 import BeautifulSoup
+
+from huginn.elt.ingestion.models import RawRecord
+from huginn.elt.ingestion.ports import DiscoveryWatermarkPort, WebScrapeSourcePort
+
+logger = logging.getLogger(__name__)
 
 _SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 _SITEMAP_URL_TAG = f"{{{_SITEMAP_NAMESPACE}}}url"
 _SITEMAP_LOC_TAG = f"{{{_SITEMAP_NAMESPACE}}}loc"
 _SITEMAP_LASTMOD_TAG = f"{{{_SITEMAP_NAMESPACE}}}lastmod"
 _LISTING_SITEMAP_MARKER = "wpbdp_listing-sitemap"
+
+_SITEMAP_INDEX_URL = "https://www.eu-startups.com/sitemap_index.xml"
+
+# Confirmed live (docs/sources/eu-startups.md): a plain browser User-Agent
+# clears the Cloudflare check for this source. Independent of, and not
+# imported from, huginn.elt.silver.resolution.REACHABILITY_USER_AGENT,
+# which is scoped to domain-reachability checks (Global Constraint 5).
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
+
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_MAX_CONCURRENT_FETCHES = 5
 
 # Confirmed live detail-page field slugs (KAN-64 plan, Global Constraint 2).
 # `category`, `business_description`, `based_in`, `founded`, `website` are
@@ -88,3 +113,100 @@ def extract_listing_fields(html_text: str) -> dict[str, str | None]:
         value_element = soup.select_one(f"div.wpbdp-field-{slug} .value")
         fields[slug] = value_element.get_text(strip=True) if value_element else None
     return fields
+
+
+class EuStartupsFetchError(RuntimeError):
+    """A sanitized EU-Startups page-fetch failure safe to log."""
+
+
+def _listing_slug(url: str) -> str:
+    """The listing's directory slug from its detail-page URL, e.g.
+    `https://www.eu-startups.com/directory/brightroom/` -> `"brightroom"`.
+    Used as `RawRecord.stable_id` (Global Constraint 6): a short identifier,
+    not a URL.
+    """
+    return url.rstrip("/").rsplit("/", 1)[-1]
+
+
+class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
+    """`WebScrapeSourcePort` for eu-startups.com. Discovery is sitemap-only
+    (ADR-0008): walk `sitemap_index.xml`, every `wpbdp_listing-sitemap*.xml`
+    it lists, every `(loc, lastmod)` pair in each, fetch and store the raw
+    detail-page HTML for every listing newer than the current watermark
+    (ADR-0009, `DiscoveryWatermarkPort`). See Jira KAN-64 and
+    `docs/sources/eu-startups.md`.
+    """
+
+    source = "eu_startups"
+    mechanism = "web_scrape"
+
+    def __init__(
+        self,
+        watermark_port: DiscoveryWatermarkPort,
+        timeout: float = _REQUEST_TIMEOUT_SECONDS,
+        max_workers: int = _MAX_CONCURRENT_FETCHES,
+    ) -> None:
+        self._watermark_port = watermark_port
+        self._timeout = timeout
+        self._max_workers = max_workers
+
+    def fetch_page(self, url: str) -> str:
+        """GET `url` with the confirmed browser User-Agent, raising a
+        sanitized `EuStartupsFetchError` on a non-2xx response or a request
+        failure (Global Constraint 5, mirrors `opencorporates.py`'s
+        `try`/`except requests.RequestException` pattern with its own
+        exception type, scoped to this adapter).
+        """
+        try:
+            response = requests.get(
+                url,
+                headers={"User-Agent": _USER_AGENT},
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as exc:
+            raise EuStartupsFetchError(
+                f"EU-Startups page fetch failed: {type(exc).__name__}"
+            ) from None
+
+    def fetch(self) -> list[RawRecord]:
+        """Walk every listing sitemap the index lists, fetch every listing
+        newer than the current watermark, and save the new watermark once
+        (Global Constraint 4): the maximum `lastmod` seen across every
+        listing actually processed this run, not called per-listing, and
+        not called at all if nothing was newer than the current watermark.
+        """
+        watermark_value = self._watermark_port.read_watermark(self.source)
+        watermark = datetime.fromisoformat(watermark_value) if watermark_value else None
+
+        sitemap_urls = _parse_sitemap_index(self.fetch_page(_SITEMAP_INDEX_URL))
+
+        entries: list[tuple[str, datetime]] = []
+        for sitemap_url in sitemap_urls:
+            entries.extend(_parse_listing_sitemap(self.fetch_page(sitemap_url)))
+
+        pending = [
+            (loc, lastmod)
+            for loc, lastmod in entries
+            if watermark is None or lastmod > watermark
+        ]
+        if not pending:
+            return []
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            html_pages = list(
+                executor.map(lambda entry: self.fetch_page(entry[0]), pending)
+            )
+
+        records = [
+            RawRecord(
+                stable_id=_listing_slug(loc), payload={"url": loc, "html": html_text}
+            )
+            for (loc, _lastmod), html_text in zip(pending, html_pages, strict=True)
+        ]
+
+        max_lastmod = max(lastmod for _loc, lastmod in pending)
+        self._watermark_port.save_watermark(self.source, max_lastmod.isoformat())
+
+        return records

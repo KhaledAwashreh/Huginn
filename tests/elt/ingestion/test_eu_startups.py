@@ -4,12 +4,47 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from huginn.elt.ingestion.adapters.eu_startups import (
+    EuStartupsDiscoveryAdapter,
     _parse_listing_sitemap,
     _parse_sitemap_index,
     extract_listing_fields,
 )
 
 _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "eu_startups"
+
+# The real sitemap_index.xml fixture lists 165 wpbdp_listing-sitemap files;
+# routing every one of them to the real wpbdp_listing-sitemap165.xml fixture
+# (87 entries) would mean fetch() processes 165 * 87 detail pages per test.
+# The plan (Task 3, Step 1 note) explicitly allows trimming the index to a
+# small hand-written fixture instead, to keep these tests fast without
+# losing what they prove (watermark filtering, stable_id shape, save-once
+# behavior). Two entries, both routed to the same real per-sitemap fixture,
+# still exercises "walk every listing sitemap the index lists".
+_SMALL_SITEMAP_INDEX_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap164.xml</loc></sitemap>
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap165.xml</loc></sitemap>
+</sitemapindex>"""
+
+# The true maximum `lastmod` across every entry in wpbdp_listing-sitemap165.xml
+# (confirmed by inspecting the fixture directly), used to test "nothing newer
+# than the watermark" without guessing at a value.
+_MAX_FIXTURE_LASTMOD = "2026-09-09T15:04:35+00:00"
+
+
+def _fake_fetch_page(url: str, listing_sitemap_xml: str, detail_html: str) -> str:
+    """Route a monkeypatched `fetch_page` call by URL shape: the sitemap
+    index URL gets the small hand-written index above, any
+    `wpbdp_listing-sitemap*.xml` URL gets the preloaded real per-sitemap
+    fixture, everything else (a listing detail page) gets the preloaded
+    detail-page fixture. Fixtures are read once by the caller and passed
+    in, not re-read per call, so repeated routing stays cheap.
+    """
+    if "sitemap_index" in url:
+        return _SMALL_SITEMAP_INDEX_XML
+    if "wpbdp_listing-sitemap" in url:
+        return listing_sitemap_xml
+    return detail_html
 
 
 def _read_fixture(name: str) -> str:
@@ -98,3 +133,90 @@ def test_extract_listing_fields_never_raises_on_a_field_free_fragment():
         "website",
         "company_status",
     }
+
+
+class FakeWatermarkPort:
+    def __init__(self, watermark=None):
+        self._watermark = watermark
+        self.saved = []
+
+    def read_watermark(self, source):
+        return self._watermark
+
+    def save_watermark(self, source, value):
+        self.saved.append((source, value))
+
+
+def test_fetch_processes_every_listing_when_no_watermark_yet(monkeypatch):
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    adapter = EuStartupsDiscoveryAdapter(
+        watermark_port=FakeWatermarkPort(watermark=None)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "fetch_page",
+        lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
+    )
+
+    records = adapter.fetch()
+
+    assert len(records) > 0
+    assert all(record.stable_id for record in records)
+
+
+def test_fetch_skips_listings_at_or_before_the_watermark(monkeypatch):
+    """A watermark at or after the maximum lastmod in the fixture means
+    nothing new to process (comparison is `lastmod > watermark`, so a
+    watermark equal to the maximum still excludes it)."""
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    adapter = EuStartupsDiscoveryAdapter(
+        watermark_port=FakeWatermarkPort(watermark=_MAX_FIXTURE_LASTMOD)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "fetch_page",
+        lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
+    )
+
+    records = adapter.fetch()
+
+    assert records == []
+
+
+def test_fetch_saves_the_new_watermark_after_processing(monkeypatch):
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    watermark_port = FakeWatermarkPort(watermark=None)
+    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    monkeypatch.setattr(
+        adapter,
+        "fetch_page",
+        lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
+    )
+
+    adapter.fetch()
+
+    assert len(watermark_port.saved) == 1
+    saved_source, saved_value = watermark_port.saved[0]
+    assert saved_source == "eu_startups"
+    assert saved_value == _MAX_FIXTURE_LASTMOD
+
+
+def test_raw_record_stable_id_is_the_listing_slug_not_the_full_url(monkeypatch):
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    adapter = EuStartupsDiscoveryAdapter(
+        watermark_port=FakeWatermarkPort(watermark=None)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "fetch_page",
+        lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
+    )
+
+    records = adapter.fetch()
+
+    assert all("/" not in record.stable_id for record in records)
+    assert all(not record.stable_id.startswith("http") for record in records)
