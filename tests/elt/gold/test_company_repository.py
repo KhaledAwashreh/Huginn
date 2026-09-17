@@ -84,6 +84,23 @@ def test_build_read_unenriched_company_names_query_binds_limit_as_a_parameter():
     assert "LIMIT %s" in sql
 
 
+def test_build_read_company_names_pending_eu_startups_search_query_binds_limit_as_a_parameter():
+    """The candidate query binds its limit and selects companies pending
+    EU-Startups search.
+    """
+    from huginn.elt.gold.repositories.company_repository import (
+        build_read_company_names_pending_eu_startups_search_query,
+    )
+
+    sql, params = build_read_company_names_pending_eu_startups_search_query(50)
+
+    assert params == (50,)
+    assert "50" not in sql
+    assert "gold.company" in sql
+    assert "eu_startups_searched_at IS NULL" in sql
+    assert "LIMIT %s" in sql
+
+
 class _FakeConnectionThatFailsToOpenACursor:
     def __init__(self):
         self.closed = False

@@ -24,6 +24,7 @@ CREATE TABLE gold.company (
     email TEXT,
     team_composition_signal TEXT NOT NULL DEFAULT 'unknown' CHECK (team_composition_signal IN ('unknown', 'likely_no', 'likely_yes')),
     icp_filter_pass BOOLEAN NOT NULL DEFAULT false,
+    eu_startups_searched_at TIMESTAMPTZ,
     current_since TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
