@@ -28,11 +28,13 @@ it or whether the other source ever got a chance to try.
    crawl-level watermark), just recurring one layer up.
 2. EU-Startups' own substring-collision search behavior (ADR context: a
    name search can return zero, one, or several matches, not always
-   resolving to a clean single hit) means this source needs to record "I
-   already looked, whatever the outcome" independently of whether it
-   happened to also produce a `business_sector` value, so a company that
-   never resolves to a single EU-Startups match isn't searched again every
-   run forever.
+   resolving to a clean single hit) means "has this source already tried"
+   needs a place to eventually be recorded independently of whether the
+   attempt happened to also produce a `business_sector` value; whether
+   anything writes it yet is a separate question this ADR does not force
+   (see Decision Outcome), but conflating it with `business_sector` would
+   make it impossible to add that write later without reopening this
+   decision.
 3. OpenCorporates' existing candidate query and its callers
    (`ingestion/__main__.py`'s `load_opencorporates_companies`) must not
    need to change: this is an established, already-wired, already-working
@@ -42,8 +44,7 @@ it or whether the other source ever got a chance to try.
 
 1. A new, dedicated `gold.company.eu_startups_searched_at TIMESTAMPTZ`
    column (nullable, NULL = never searched via this source), a new port
-   method reading rows where it's NULL, set by this adapter's own writer on
-   every search attempt regardless of outcome, entirely decoupled from
+   method reading rows where it's NULL, entirely decoupled from
    `business_sector`. (chosen)
 2. Extend `read_unenriched_company_names` to also gate on a second,
    generic per-source tracking table (`company_id`, `source`,
@@ -61,12 +62,28 @@ blocker with the smallest change that doesn't touch OpenCorporates' already
 -working read path at all (Decision Driver 3), and doesn't build a generic
 multi-source tracking table (option 2) for a codebase with exactly two
 enrichment sources today, one of them (KAN-42/43) not even at build stage
-yet, CLAUDE.md code standard 6 (scope discipline). It is written outside
-`apply_company_update`'s Type 1/2 dimensional flow entirely: it is pipeline
-metadata (like `stable_id` in ADR-0007, or `ingested_at` at Bronze), not a
-company fact a downstream scoring read or `company_history` row needs, so
-it is set with a direct, single-column update rather than routed through
-`write_company`.
+yet, CLAUDE.md code standard 6 (scope discipline).
+
+Nothing sets this column yet, by design, matching KAN-65's own scope
+("New ingestion adapter, enrichment-only," mirroring
+`opencorporates.py`'s pattern). `OpenCorporatesAdapter` is Bronze-only,
+returns `list[RawRecord]`, and never touches Gold from inside the
+adapter; its candidate read happens at the composition root
+(`ingestion/__main__.py`'s `load_opencorporates_companies`), which the
+adapter receives as an injected `Callable[[], list[str]]` and cannot see
+past. KAN-65's adapter follows the identical shape: no Gold write inside
+the adapter, so no code path in this ticket's scope ever marks
+`eu_startups_searched_at`. This is not a new gap: `business_sector` itself
+is never actually set by any writer today either (`CompanyWriter.write_all`
+only ever writes `{"name": name}`, `gold/company.py`), so OpenCorporates'
+own candidate read already re-offers every unenriched company every run,
+forever, with no attempted-tracking of its own. `eu_startups_searched_at`
+inherits that exact same accepted limitation; a future Gold-enrichment
+writer (KAN-43-shaped, whichever ticket first calls `write_company` with
+real `business_sector` data) is also the natural place to decide whether
+and how to set it, once real requirements exist, same "decide with real
+requirements, not a guess" deferral ADR-0009 already made for its own
+watermark's persistence.
 
 ### Consequences
 
@@ -75,12 +92,11 @@ it is set with a direct, single-column update rather than routed through
 2. Good: EU-Startups' candidate selection and OpenCorporates' candidate
    selection are fully independent; either source can be added, removed, or
    re-run without affecting the other's view of what's left to enrich.
-3. Good: a company where EU-Startups' search never resolves to exactly one
-   match (the substring-collision case) still gets marked searched, so it
-   is not re-fetched and re-filtered every run forever, matching Decision
-   Driver 2.
+3. Good: matches CLAUDE.md design standard 6 (ports-and-adapters): the
+   adapter holds no Gold-writing policy of its own, exactly like
+   `OpenCorporatesAdapter`.
 4. Neutral: if both sources eventually write `business_sector` for the same
-   company (once KAN-65's and a future OpenCorporates writer both exist),
+   company (once a future Gold-enrichment writer exists for either or both),
    whichever runs later wins under `apply_company_update`'s existing
    compare-and-replace Type 2 logic, same last-write-wins semantics any
    Type 2 tracked field already has under concurrent sources; no new merge
@@ -90,7 +106,14 @@ it is set with a direct, single-column update rather than routed through
    consumer is this one adapter, the same "protocol/column before its
    second user exists" shape this codebase already treats as normal
    (ADR-0009 Decision Driver 3), not a new kind of gap.
-6. Neutral: any future third enrichment source (KAN-42/43's team-composition
+6. Bad: until a future writer sets it, `eu_startups_searched_at` stays NULL
+   for every company, so this candidate query returns every gold.company
+   name, oldest-first, every run, same as OpenCorporates' own query does
+   today; the substring-collision re-search cost (Decision Driver 2) is
+   therefore not actually bounded by this column alone yet, only by the
+   `limit` the caller passes, matching `OPENCORPORATES_MAX_CALLS`'s existing
+   per-run budget pattern in `ingestion/__main__.py`.
+7. Neutral: any future third enrichment source (KAN-42/43's team-composition
    signal, still at design stage) should follow this same pattern, its own
    dedicated candidate-tracking column, not a reuse of this one or of
    `business_sector IS NULL`; noted here so that decision doesn't need
@@ -121,8 +144,9 @@ it is set with a direct, single-column update rather than routed through
 2. Bad: makes each source's candidate set depend on the other's run order
    and outcome, a real coupling between two otherwise-independent adapters
    for no benefit this ticket's scope needs.
-3. Bad: does not solve Decision Driver 2 (EU-Startups needs to remember a
-   substring-collision search attempt regardless of what OpenCorporates did).
+3. Bad: still couples a per-source cursor concept to `business_sector`'s
+   own null-ness (Decision Driver 1), just with an ordering rule layered on
+   top instead of a straight shared gate.
 
 ### Option 4: do nothing, accept the silent exclusion
 
