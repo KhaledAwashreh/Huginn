@@ -36,6 +36,7 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 - CompanyId: GUID
 - SignalType: Enum (Funding, Hiring, ProgramMilestone, Expansion, Leadership, Other)
 - Source: String
+- SourceStableId: String (unique with Source, ADR-0007: reuses ResolvedSignal's own natural key so a re-run upserts instead of duplicating)
 - SourceUrl: String
 - Stage: String (nullable)
 - Description: String
