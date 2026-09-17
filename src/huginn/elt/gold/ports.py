@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from huginn.elt.gold.models import DomainNormalizedSignal
+from huginn.elt.gold.models import DomainNormalizedSignal, ResolvedSignalForFact
 
 
 class CompanyRepositoryPort(Protocol):
@@ -88,6 +88,33 @@ class CompanyRepositoryPort(Protocol):
         transaction, and Postgres's `now()` is transaction-stable, so
         reusing it here rather than a fresh Python-side timestamp is what
         keeps the two boundaries as one instant instead of two clocks.
+        """
+        ...
+
+
+class CompanySignalRepositoryPort(Protocol):
+    """Persistence contract for Gold company_signal fact writes. See
+    ADR-0007 for the idempotency-key design this port's upsert method
+    relies on.
+    """
+
+    def __enter__(self) -> CompanySignalRepositoryPort: ...
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None: ...
+
+    def read_signal_facts(self) -> list[ResolvedSignalForFact]:
+        """Every domain-normalized silver.resolved_signals row already
+        joined to its gold.company row. A row with no matching gold.company
+        yet (Company hasn't caught up this run) is not returned; it is
+        picked up automatically once Company does, no ordering dependency
+        needed between the two writers.
+        """
+        ...
+
+    def upsert_signal(self, fact: ResolvedSignalForFact) -> None:
+        """Insert one gold.company_signal row, or update it in place if
+        (source, source_stable_id) already exists (ADR-0007). ingested_at
+        is never touched by the update branch.
         """
         ...
 
