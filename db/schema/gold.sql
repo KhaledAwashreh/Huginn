@@ -43,14 +43,20 @@ CREATE TABLE gold.company_history (
     valid_to TIMESTAMPTZ NOT NULL
 );
 
+-- (source, source_stable_id) is silver.resolved_signals's own natural key,
+-- reused here so a re-run of Silver's every-run reprocessing (see that
+-- table's own comment) upserts the same fact row instead of duplicating it.
+-- See ADR-0007.
 CREATE TABLE gold.company_signal (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES gold.company (id),
-    signal_type TEXT NOT NULL CHECK (signal_type IN ('funding', 'hiring', 'program_milestone', 'expansion', 'leadership', 'other')),
     source TEXT NOT NULL,
+    source_stable_id TEXT NOT NULL,
+    signal_type TEXT NOT NULL CHECK (signal_type IN ('funding', 'hiring', 'program_milestone', 'expansion', 'leadership', 'other')),
     source_url TEXT,
     stage TEXT,
     description TEXT,
     occurred_at TIMESTAMPTZ NOT NULL,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (source, source_stable_id)
 );
