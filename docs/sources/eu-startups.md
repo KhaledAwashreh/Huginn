@@ -175,6 +175,15 @@ Confirmed with the decision-maker (2026-09-16): discovery and enrichment are
 both plain deterministic code, no new port and no agentic/LLM-assisted
 browsing step for this source. `WebScrapeSourcePort` covers both:
 
+**Superseded by later decisions:** this research predates ADR-0008 and
+ADR-0009. The discovery-mechanism question raised below (country-page
+pagination vs. the sitemap walk) is settled by ADR-0008: sitemap-only
+discovery, category-page pagination explicitly rejected. The watermark-
+mechanism question raised in "Open questions / risks" below is settled by
+ADR-0009: a dedicated `DiscoveryWatermarkPort`. Both are implemented in
+`EuStartupsDiscoveryAdapter`. Treat the framing below as historical context
+for how those decisions were reached, not as still-open.
+
 1. **Discovery**: paginate `/directory/` by country (or use the sitemap
    listing-URL walk as the watermark source), parse listing cards/pages with
    fixed selectors — a new Silver staging loader in the same shape as
@@ -234,7 +243,10 @@ escalates with request volume the way the prior session assumed.
 ## Open questions / risks
 
 - **No incremental-watermark mechanism exists yet for this shape of
-  adapter.** The `lastmod`-based discovery approach above assumes a
+  adapter.** *(Settled since this was written: ADR-0009 decided this,
+  adding `DiscoveryWatermarkPort`. Read the rest of this bullet as the
+  problem statement that motivated that ADR, not as a still-open
+  question.)* The `lastmod`-based discovery approach above assumes a
   persisted "highest sitemap file / max `lastmod` already processed" cursor,
   but Bronze's only existing watermark (`bronze/ports.py` `StatePort`,
   `bronze/watermark.py`) is a per-entity content-hash dedup keyed on

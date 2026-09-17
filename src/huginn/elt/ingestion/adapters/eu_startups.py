@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from xml.etree import ElementTree
 
 import requests
@@ -173,10 +173,18 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
     def fetch(self) -> list[RawRecord]:
         """Walk every listing sitemap the index lists, fetch every listing
         newer than the current watermark, and save the new watermark once
-        (Global Constraint 4): the maximum `lastmod` seen across only the
-        listings actually fetched successfully this run, not called
-        per-listing, and not called at all if nothing was newer than the
-        current watermark or if every pending fetch failed.
+        (Global Constraint 4), called at most once per run, never
+        per-listing, and not called at all if there was nothing pending.
+
+        The new watermark is not simply "the maximum `lastmod` among
+        successful fetches": a listing with an earlier `lastmod` that fails
+        while a later one succeeds must not be skipped forever (CodeRabbit
+        finding, KAN-64). If any pending listing failed this run, the new
+        watermark is pinned to just before the earliest failure
+        (`min(failed lastmods) - 1 second`), so that failure (and anything
+        with an equal `lastmod`) stays eligible for retry next run, since
+        the filter below is `lastmod > watermark`. Only when nothing failed
+        does the watermark advance to the maximum successful `lastmod`.
 
         A single listing's detail-page fetch failing (a permanently broken
         404/410 URL) is logged and skipped, not allowed to abort the whole
@@ -219,6 +227,7 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
             return []
 
         fetched: list[tuple[str, datetime, str]] = []
+        failed_lastmods: list[datetime] = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             future_to_entry = {
                 executor.submit(self.fetch_page, loc): (loc, lastmod)
@@ -234,11 +243,9 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
                         "failed: %s",
                         loc,
                     )
+                    failed_lastmods.append(lastmod)
                     continue
                 fetched.append((loc, lastmod, html_text))
-
-        if not fetched:
-            return []
 
         records = [
             RawRecord(
@@ -248,8 +255,19 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
             for loc, lastmod, html_text in fetched
         ]
 
-        max_lastmod = max(lastmod for _loc, lastmod, _html in fetched)
-        self._watermark_port.save_watermark(self.source, max_lastmod.isoformat())
-        logger.info("eu_startups fetch: watermark saved: %s", max_lastmod.isoformat())
+        # `pending` is non-empty here (checked above), so at least one of
+        # `fetched`/`failed_lastmods` is non-empty too: every pending entry
+        # either succeeded or failed. If anything failed, the new watermark
+        # must sit strictly before the earliest failure so it stays eligible
+        # for retry next run (filter above is `lastmod > watermark`); a
+        # later success must not be allowed to skip an earlier failure
+        # forever (CodeRabbit finding, KAN-64).
+        if failed_lastmods:
+            new_watermark = min(failed_lastmods) - timedelta(seconds=1)
+        else:
+            new_watermark = max(lastmod for _loc, lastmod, _html in fetched)
+
+        self._watermark_port.save_watermark(self.source, new_watermark.isoformat())
+        logger.info("eu_startups fetch: watermark saved: %s", new_watermark.isoformat())
 
         return records

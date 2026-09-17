@@ -39,11 +39,14 @@ a single scalar per source, not one value per entity.
 
 ## Considered Options
 
-1. A new, adapter-scoped `DiscoveryWatermarkPort` Protocol
-   (`read_watermark() -> str | None`, `save_watermark(value: str) -> None`),
-   injected at construction, no concrete implementation required by this
-   ticket (matching `EnrichmentCandidatePort`'s precedent: a small, focused
-   Protocol injected as a dependency, not yet backed by a Postgres
+1. A new `DiscoveryWatermarkPort` Protocol, keyed by `source` on both
+   methods (`read_watermark(source: str) -> str | None`,
+   `save_watermark(source: str, value: str) -> None`) since it lives in the
+   shared `huginn.elt.ingestion.ports` module rather than being scoped to
+   one adapter instance, so other future sitemap-style adapters can reuse
+   it, injected at construction, no concrete implementation required by
+   this ticket (matching `EnrichmentCandidatePort`'s precedent: a small,
+   focused Protocol injected as a dependency, not yet backed by a Postgres
    implementation when it was first added). (chosen)
 2. Extend `StatePort` with a second method for a per-source scalar.
 3. No watermark at all: re-walk and re-fetch every listing's detail page on
@@ -94,7 +97,7 @@ the start rather than shipping and revisiting under pressure later.
 
 ## Pros and Cons of the Options
 
-### Option 1: a new, adapter-scoped `DiscoveryWatermarkPort` Protocol (chosen)
+### Option 1: a new, source-keyed `DiscoveryWatermarkPort` Protocol (chosen)
 
 1. Good: `StatePort`'s contract stays untouched, no risk to any existing
    caller.

@@ -210,9 +210,12 @@ def test_fetch_saves_the_new_watermark_after_processing(monkeypatch):
 def test_fetch_skips_a_listing_whose_detail_page_fetch_fails(monkeypatch):
     """One permanently-broken listing (404/410) must not abort the whole
     run: the other, successfully-fetched listing's record is still
-    returned, and the saved watermark reflects only that successful
-    listing's lastmod, not the failed listing's, even though the failed
-    listing's lastmod is chronologically later."""
+    returned. The failed listing's lastmod is chronologically later than
+    the successful one's here, so the saved watermark must be pinned to
+    just before the failure (not the successful listing's own, earlier
+    lastmod, and not the failed listing's lastmod itself), so the failed
+    listing remains eligible for retry next run rather than being
+    coincidentally skipped."""
     sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
@@ -244,7 +247,53 @@ def test_fetch_skips_a_listing_whose_detail_page_fetch_fails(monkeypatch):
     assert len(watermark_port.saved) == 1
     saved_source, saved_value = watermark_port.saved[0]
     assert saved_source == "eu_startups"
-    assert saved_value == "2026-09-01T00:00:00+00:00"
+    assert saved_value == "2026-09-04T23:59:59+00:00"
+
+
+def test_fetch_keeps_an_earlier_failure_eligible_for_retry_past_a_later_success(
+    monkeypatch,
+):
+    """CodeRabbit finding (KAN-64): three pending listings, lastmods in
+    order A < B < C. B fails, A and C succeed. The naive fix (max lastmod
+    across successes only) would save C's lastmod as the new watermark,
+    which is already past B's lastmod, permanently excluding B from the
+    `lastmod > watermark` filter on every future run even though it was
+    never actually fetched. The saved watermark must instead be strictly
+    less than B's lastmod, so B remains eligible for retry next run."""
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    listing_sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://www.eu-startups.com/directory/listing-a/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/listing-b/</loc><lastmod>2026-09-03T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/listing-c/</loc><lastmod>2026-09-05T00:00:00+00:00</lastmod></url>
+</urlset>"""
+    detail_html = _read_fixture("listing_brightroom.html")
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        if "listing-b" in url:
+            raise EuStartupsFetchError("simulated 404")
+        return detail_html
+
+    watermark_port = FakeWatermarkPort(watermark=None)
+    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    records = adapter.fetch()
+
+    assert {record.stable_id for record in records} == {"listing-a", "listing-c"}
+    assert len(watermark_port.saved) == 1
+    saved_source, saved_value = watermark_port.saved[0]
+    assert saved_source == "eu_startups"
+    listing_b_lastmod = datetime(2026, 9, 3, 0, 0, 0, tzinfo=UTC)
+    saved_watermark = datetime.fromisoformat(saved_value)
+    assert saved_watermark < listing_b_lastmod
 
 
 def test_fetch_raises_when_sitemap_index_lists_zero_listing_sitemaps(monkeypatch):
