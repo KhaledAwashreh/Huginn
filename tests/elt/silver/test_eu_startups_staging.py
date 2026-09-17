@@ -101,6 +101,24 @@ def test_parse_eu_startups_listing_returns_none_when_lastmod_key_missing():
     assert row is None
 
 
+def test_parse_eu_startups_listing_returns_none_when_lastmod_is_unparseable():
+    """A payload whose `lastmod` key is present but not a valid ISO 8601
+    string (e.g. an empty string from a malformed sitemap entry) must be
+    skipped like a missing `lastmod`, not raise an uncaught `ValueError`
+    from `datetime.fromisoformat` that would abort the whole batch (same
+    KAN-50 bug class as the missing-key case above, triggered by a
+    malformed value instead of a missing one; CodeRabbit finding, KAN-64)."""
+    payload = _payload(
+        "listing_brightroom.html",
+        "https://www.eu-startups.com/directory/brightroom/",
+        lastmod="",
+    )
+
+    row = parse_eu_startups_listing(payload)
+
+    assert row is None
+
+
 class FakeEuStartupsStagingRepository:
     def __init__(self, bronze_rows):
         self._bronze_rows = bronze_rows

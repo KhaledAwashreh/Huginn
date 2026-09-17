@@ -65,8 +65,10 @@ def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
       genuine listing (docs/sources/eu-startups.md's field table), so its
       absence means a malformed fetch or an interstitial/challenge page,
       not a real listing, regardless of whether a `<title>` was found.
-    - `"lastmod"` missing: `occurred_on` is NOT NULL downstream in Gold, so
-      a listing with no recorded lastmod is not safely parseable.
+    - `"lastmod"` missing or not a parseable ISO 8601 string (e.g. an empty
+      string from a malformed sitemap entry): `occurred_on` is NOT NULL
+      downstream in Gold, so a listing with no usable lastmod is not safely
+      parseable.
     """
     html = payload.get("html")
     url = payload.get("url")
@@ -80,6 +82,10 @@ def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
     lastmod = payload.get("lastmod")
     if lastmod is None:
         return None
+    try:
+        occurred_on = datetime.fromisoformat(lastmod)
+    except ValueError:
+        return None
 
     title = _extract_title(html)
     company_name_raw = title.removesuffix(" | EU-Startups").strip() if title else ""
@@ -91,7 +97,7 @@ def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
         signal_type="other",
         stage=None,
         description=fields["business_description"] or "",
-        occurred_on=datetime.fromisoformat(lastmod),
+        occurred_on=occurred_on,
         url=url,
     )
 
