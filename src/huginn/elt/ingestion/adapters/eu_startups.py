@@ -201,9 +201,10 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
 
         records = [
             RawRecord(
-                stable_id=_listing_slug(loc), payload={"url": loc, "html": html_text}
+                stable_id=_listing_slug(loc),
+                payload={"url": loc, "html": html_text, "lastmod": lastmod.isoformat()},
             )
-            for (loc, _lastmod), html_text in zip(pending, html_pages, strict=True)
+            for (loc, lastmod), html_text in zip(pending, html_pages, strict=True)
         ]
 
         max_lastmod = max(lastmod for _loc, lastmod in pending)
