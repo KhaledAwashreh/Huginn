@@ -94,6 +94,24 @@ the start rather than shipping and revisiting under pressure later.
    adapter into an orchestrator must decide then: move the watermark
    commit into the same transaction as the Bronze write, or explicitly
    accept and document at-most-once semantics.
+6. Bad: `fetch()`'s failure-vs-success watermark rule (a CodeRabbit finding,
+   fixed post-implementation: the new watermark is pinned to just before
+   the earliest failed listing whenever any fetch fails, so that listing
+   stays eligible for retry) trades one correctness bug for a bounded-but-
+   real cost one. If a listing fails terminally (a permanent 404/410, not a
+   transient network error), the watermark can never advance past it, so
+   every later run re-fetches that dead listing and every already-succeeded
+   listing with a later `lastmod`, forever, not just once. `RawStorePort
+   .write()`'s hash-match skip keeps the repeated Bronze *write* cheap, but
+   the repeated network *fetch* cost recurs on every run regardless,
+   exactly the cost category this ADR's Decision Outcome named as the
+   watermark's whole purpose to avoid. Accepted for now, no code change:
+   distinguishing "terminal" from "transient" failure and giving a
+   permanently-broken URL a bounded retry count needs persisted per-URL
+   state a single scalar watermark can't naturally express, the same class
+   of "needs real requirements, not a guess" decision Consequence 3 already
+   defers to whoever wires this adapter into an orchestrator. Tracked
+   alongside Consequence 5 under KAN-83.
 
 ## Pros and Cons of the Options
 

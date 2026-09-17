@@ -137,3 +137,29 @@ def test_loader_upserts_one_row_per_parseable_bronze_payload():
 
     assert written == 2
     assert len(repository.upserted) == 2
+
+
+def test_loader_skips_an_unparseable_bronze_payload_without_upserting_it():
+    """A Bronze row `parse_eu_startups_listing` can't parse (an interstitial
+    page with no wpbdp fields, same shape the parser-level tests above
+    already cover) must be excluded from both the loader's returned count
+    and its upsert calls, not just from the parser's own return value."""
+    repository = FakeEuStartupsStagingRepository(
+        bronze_rows=[
+            _payload(
+                "listing_brightroom.html",
+                "https://www.eu-startups.com/directory/brightroom/",
+            ),
+            {
+                "url": "https://www.eu-startups.com/directory/broken/",
+                "html": "<html><head><title>Just a moment...</title></head></html>",
+                "lastmod": _BRIGHTROOM_LASTMOD,
+            },
+        ]
+    )
+    loader = EuStartupsStagingLoader(repository)
+
+    written = loader.load()
+
+    assert written == 1
+    assert len(repository.upserted) == 1
