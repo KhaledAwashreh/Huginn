@@ -5,6 +5,13 @@
 > Steps use checkbox syntax. This document authorizes no execution during the
 > planning session. Do not commit unless the user later authorizes commits.
 
+> **Execution amendment (2026-09-17):** The user subsequently authorized and
+> required per-task commits for the Subagent-Driven Development run. That
+> authorization supersedes every no-commit, uncommitted-work, and
+> working-tree-only review instruction below. Review packages use committed
+> ranges from `origin/master`; the controller alone owns push and PR actions,
+> and no agent may merge. Implementation requirements are unchanged.
+
 **Goal:** Deliver a Python 3.14 management API foundation and fresh operational
 bootstrap schema, with live Postgres evidence and no business endpoints.
 
@@ -18,18 +25,21 @@ Postgres 16, pytest, testcontainers, Ruff. No ORM or migration framework.
 
 **Spec:** The persisted KAN-71 contract in these two read-only inputs:
 
-1. `/home/kawashreh/Projects/Huginn/architecture-notes/account-user-and-client-discovery-domain.md`,
+1. `architecture-notes/account-user-and-client-discovery-domain.md`,
    especially Confirmed decisions and Management MVP implementation tasks.
-2. `/home/kawashreh/Projects/Huginn/architecture-notes/management-mvp-codex-session-log-2026-09-17.md`,
-   especially First action tomorrow and Verification process.
+2. Historical context only: the planning session referenced
+   `architecture-notes/management-mvp-codex-session-log-2026-09-17.md`,
+   especially First action tomorrow and Verification process. That session
+   log is absent from this branch and is not an implementation authority or
+   build dependency.
 
 ## Authority And Starting Point
 
 1. The user's scope is KAN-71, "Management API foundation and operational
    bootstrap schema". Jira OAuth is unavailable. Do not query Jira, infer
    additional acceptance criteria, or claim a Jira transition/comment occurred.
-2. Read `/home/kawashreh/Projects/Huginn/CLAUDE.md` and the worktree's
-   `CLAUDE.md`, `docs/architecture.md` sections 2, 3, 9 and 10,
+2. Read the repository-root `CLAUDE.md`, `docs/architecture.md` sections 2,
+   3, 9 and 10,
    `docs/entities.md`, `db/schema/operational.sql`, and `pyproject.toml`.
    For the management model, the newer persisted contract supersedes the old
    `User.icp_profile` placeholder and single-credential architecture sketch.
@@ -49,15 +59,14 @@ Postgres 16, pytest, testcontainers, Ruff. No ORM or migration framework.
 
 ## Global Constraints
 
-1. Work only in
-   `/home/kawashreh/Projects/Huginn/.worktrees/kan-71-management-foundation`.
-   Read the absolute authority paths above without editing the main checkout.
+1. Work only in the dedicated `management/kan-71-foundation` worktree. Read
+   repository-relative authority files there without editing another checkout.
 2. No commits, pushes, merges, PR creation, database resets, or Jira writes.
    Preserve user changes and existing untracked files. No subagents during
    planning. During separately authorized execution, the controller alone
    dispatches one fresh implementer at a time and independent reviewers.
 3. Python remains `>=3.14`; verify on Python 3.14 specifically. Use uv and
-   prefix shell commands with `rtk` per `/home/kawashreh/.codex/RTK.md`.
+   prefix shell commands with `rtk` per the session's shell instructions.
    Commands below run from the worktree root unless explicitly stated.
 4. TDD: write a failing behavioral test, observe its intended failure, make
    the smallest implementation, then rerun. Dependency setup failures and

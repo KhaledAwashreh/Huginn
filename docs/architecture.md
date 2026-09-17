@@ -41,7 +41,10 @@ Non-goals for this phase:
 4. No real-time alerts. Weekly batch by design.
 5. No graph-traversal or ML model predicting a company's current needs. Team-composition signal, where it exists at all, is a hand-authored heuristic drawn only from company-owned pages and press releases.
 6. No weighted composite score at launch. v0 ranks by recency alone (section 7).
-7. No auth beyond a single hashed username and password. No role-based access control. No billing.
+7. No public registration, role-based access control, or billing. KAN-71 only
+   establishes the Account/User/Profile storage and management runtime. KAN-72
+   adds owner-only atomic provisioning and password hashing; KAN-73 adds login,
+   server-side sessions, and ownership enforcement.
 
 ## 3. System overview
 
@@ -85,6 +88,13 @@ flowchart TB
 ```
 
 Collection is shared infrastructure, matching is personal. The pipeline and the gold pool serve every user and are expensive to re-run, since sources rate-limit and some content becomes unavailable over time. Everything from the domain layer up is specific to one user and re-runnable at no cost.
+
+Management is a separate application boundary, not a second production data
+domain. Production retains the shared Postgres model shown above. Local
+development uses `HUGINN_MANAGEMENT_DATABASE_URL` with a dedicated disposable
+database so management bootstrap work does not disturb concurrent ELT work;
+that database receives all six schemas because operational foreign keys still
+reference Gold.
 
 Scoring lives in the domain layer, not the agentic layer: it is batch work, it must stay explainable per feature because the digest renders its reasoning, and both the digest and any future chatbot read its output rather than each other's.
 
@@ -238,6 +248,8 @@ Out of scope for this phase and deliberately abstract pending a decision later. 
 
 ```mermaid
 erDiagram
+    Account ||--|| User : "owns identity for"
+    User ||--|| ProfessionalProfile : "has"
     User ||--o{ Match : "receives"
     Company ||--o{ Match : "shared pool, matched per user"
     Company ||--o{ CompanySignal : "emits"
@@ -252,9 +264,27 @@ erDiagram
     CommunicationVersion ||--o{ CommunicationRevision : "revised by"
     CommunicationRevision ||--o{ CommunicationTurn : "composed of"
 
+    Account {
+        GUID Id PK
+        String Username "case-insensitive unique index"
+        String PasswordHash
+        Enum Status "active or disabled"
+    }
     User {
         GUID Id PK
-        StructuredFilter icp_profile "from the section 2 ICP form"
+        GUID AccountId FK "unique"
+        String FirstName
+        String LastName
+        String Email
+        String PhoneNumber
+        String CountryOfResidence
+    }
+    ProfessionalProfile {
+        GUID Id PK
+        GUID UserId FK "unique"
+        JSON Skills "structured collection"
+        JSON Experience "structured collection"
+        JSON PreviousProjects "structured collection"
     }
     Company {
         GUID Id PK
@@ -326,6 +356,16 @@ erDiagram
         Enum Role "User, Assistant"
     }
 ```
+
+KAN-71 provides the fresh bootstrap tables, strict professional-collection
+schemas, configuration, read-only readiness adapter, and inert Flask factory.
+It exposes only `/health` and `/ready`; it adds no account, profile, session,
+or business CRUD behavior. Unique foreign keys enforce at most one User per
+Account and at most one ProfessionalProfile per User. KAN-72 must create all
+three atomically to enforce the intended exactly-one lifecycle, and KAN-73
+adds session storage and authentication. These management stages do not alter
+or run the ELT pipeline. `Match.UserId` remains a reference to User, not
+Account.
 
 `MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
 
