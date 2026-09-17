@@ -147,7 +147,7 @@ Confirmed live across three real listings (`brightroom`, `minut`, `varm`) —
 | Total Funding | **Sometimes** | Same pattern as Tags — present on newer listings, absent on `minut`. Free text, e.g. "Between €500K-€1 million", "No funding announced yet". |
 | Company Status | **Sometimes** | e.g. "Active". Absent on `minut`. |
 | Articles about `<company>` | **Sometimes** | A cross-linked list of EU-Startups news articles mentioning the company (seen on `minut`, `varm`; absent on `brightroom`). Not on the prior session's radar at all — this is effectively free related-content/funding-history signal for companies that have been covered editorially. |
-| **LinkedIn** | **Not observed on any of 3 samples** | The prior session claimed a LinkedIn field existed. Not found on `brightroom`, `minut`, or `varm`. Either rare, gated behind a different listing tier, or the prior claim was simply wrong. Do not build a field mapping assuming this exists without more samples. |
+| **LinkedIn** | **Confirmed present** | Corrected finding (re-checked during KAN-64): the field exists on `brightroom` (`tests/fixtures/eu_startups/listing_brightroom.html`, a real, live-captured fixture already committed to this repo), linking to a real LinkedIn company URL. It was missed by the original wpbdp-only sweep because it uses a different markup structure than the other fields: `<div class="social-field linkedin">` under `<div class="social-fields">`, not a `wpbdp-field-*` element the same selector reaches. Relevant for KAN-65 (enrichment) if it wants to capture this field; it needs its own selector, not `extract_listing_fields`'s existing `div.wpbdp-field-<slug> .value` pattern. |
 
 Markup itself (the WPBDP template structure) is consistent across all
 samples — this is what makes deterministic parsing viable — but *which
@@ -265,8 +265,11 @@ escalates with request volume the way the prior session assumed.
   KAN-7 for YC.
 - **Field sparsity**: Tags/Total Funding/Company Status/Articles are all
   conditionally present; a staging loader must not assume any of them exist.
-- **LinkedIn field unconfirmed**: don't build a field mapping for it without
-  more samples turning it up.
+- **LinkedIn field exists, under a different selector**: confirmed present
+  (see the field table above), structured as `div.social-field.linkedin`
+  under `div.social-fields`, not a `wpbdp-field-*` element. Not captured by
+  this ticket's field extraction (`extract_listing_fields`); a future
+  enrichment ticket (KAN-65) wanting it needs its own selector.
 - **Sitemap file count will keep growing**: 165 today; a discovery job
   should discover the sitemap index's own file list at runtime, not hardcode
   a max file number.

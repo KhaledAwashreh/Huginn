@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from huginn.elt.ingestion.adapters.eu_startups import (
     EuStartupsDiscoveryAdapter,
+    EuStartupsFetchError,
     _parse_listing_sitemap,
     _parse_sitemap_index,
     extract_listing_fields,
@@ -202,6 +205,64 @@ def test_fetch_saves_the_new_watermark_after_processing(monkeypatch):
     saved_source, saved_value = watermark_port.saved[0]
     assert saved_source == "eu_startups"
     assert saved_value == _MAX_FIXTURE_LASTMOD
+
+
+def test_fetch_skips_a_listing_whose_detail_page_fetch_fails(monkeypatch):
+    """One permanently-broken listing (404/410) must not abort the whole
+    run: the other, successfully-fetched listing's record is still
+    returned, and the saved watermark reflects only that successful
+    listing's lastmod, not the failed listing's, even though the failed
+    listing's lastmod is chronologically later."""
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    listing_sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://www.eu-startups.com/directory/good-listing/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/broken-listing/</loc><lastmod>2026-09-05T00:00:00+00:00</lastmod></url>
+</urlset>"""
+    detail_html = _read_fixture("listing_brightroom.html")
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        if "broken-listing" in url:
+            raise EuStartupsFetchError("simulated 404")
+        return detail_html
+
+    watermark_port = FakeWatermarkPort(watermark=None)
+    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    records = adapter.fetch()
+
+    assert len(records) == 1
+    assert records[0].stable_id == "good-listing"
+    assert len(watermark_port.saved) == 1
+    saved_source, saved_value = watermark_port.saved[0]
+    assert saved_source == "eu_startups"
+    assert saved_value == "2026-09-01T00:00:00+00:00"
+
+
+def test_fetch_raises_when_sitemap_index_lists_zero_listing_sitemaps(monkeypatch):
+    """An index that parses to zero `wpbdp_listing-sitemap` entries (e.g. a
+    namespace variant the hardcoded qualified tags don't match) is a
+    genuine discovery failure, not "nothing new since last run", and must
+    be loud rather than silently returning []."""
+    empty_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/post-sitemap.xml</loc></sitemap>
+</sitemapindex>"""
+    adapter = EuStartupsDiscoveryAdapter(
+        watermark_port=FakeWatermarkPort(watermark=None)
+    )
+    monkeypatch.setattr(adapter, "fetch_page", lambda url: empty_index_xml)
+
+    with pytest.raises(EuStartupsFetchError):
+        adapter.fetch()
 
 
 def test_raw_record_stable_id_is_the_listing_slug_not_the_full_url(monkeypatch):

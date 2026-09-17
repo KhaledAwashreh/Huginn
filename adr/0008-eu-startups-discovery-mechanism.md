@@ -80,6 +80,41 @@ is built.
    ticket that wants to search rather than crawl; this ADR only concerns
    which mechanism *this discovery adapter* uses.
 
+## Pros and Cons of the Options
+
+### Option 1: sitemap-only discovery (chosen)
+
+1. Good: a flat list of every listing URL plus a `lastmod` timestamp per
+   entry, discoverable at runtime from `sitemap_index.xml`, no hardcoded
+   file count.
+2. Good: 165 sitemap files finds every listing URL that exists today, far
+   fewer requests than paginating category pages for the same coverage.
+3. Good: `lastmod` is already there, so the incremental watermark falls out
+   of the discovery mechanism directly rather than needing to be bolted on.
+4. Bad: a real deviation from KAN-64's literal ticket text (scope item 2),
+   needs this ADR so a future reader understands it was resolved
+   deliberately, not missed.
+
+### Option 2: category-page-only discovery
+
+1. Good: matches the site's own "Startup Database" browse UI, the actual
+   product surface a human would use.
+2. Bad: hundreds of page fetches per country for URL discovery alone
+   (Germany alone is 4563 listings at 11/page), before a single detail page
+   is even fetched.
+3. Bad: no per-listing timestamp at all, so it cannot serve as the
+   incremental watermark the ticket itself asks for.
+
+### Option 3: both, category pages for discovery plus the sitemap for the watermark
+
+1. Good: reads as the most literal interpretation of KAN-64's own ticket
+   text.
+2. Bad: does no useful work beyond option 1, since the sitemap it would
+   still need for the watermark already supplies the URL list too, for
+   less cost.
+3. Bad: two discovery mechanisms to build, test, and maintain instead of
+   one, for zero net benefit over option 1.
+
 ## Related
 
 1. `docs/sources/eu-startups.md`: the research this ADR resolves an

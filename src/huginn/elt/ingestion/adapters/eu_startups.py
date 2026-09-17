@@ -17,7 +17,7 @@ Silver staging loader.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from xml.etree import ElementTree
 
@@ -173,14 +173,33 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
     def fetch(self) -> list[RawRecord]:
         """Walk every listing sitemap the index lists, fetch every listing
         newer than the current watermark, and save the new watermark once
-        (Global Constraint 4): the maximum `lastmod` seen across every
-        listing actually processed this run, not called per-listing, and
-        not called at all if nothing was newer than the current watermark.
+        (Global Constraint 4): the maximum `lastmod` seen across only the
+        listings actually fetched successfully this run, not called
+        per-listing, and not called at all if nothing was newer than the
+        current watermark or if every pending fetch failed.
+
+        A single listing's detail-page fetch failing (a permanently broken
+        404/410 URL) is logged and skipped, not allowed to abort the whole
+        run: the alternative is a run that discards every already-fetched
+        page and never advances the watermark, forever, over one bad URL.
+        An empty sitemap index, by contrast, is a genuine discovery failure
+        (see `_parse_sitemap_index` call below), not a per-listing issue.
         """
         watermark_value = self._watermark_port.read_watermark(self.source)
         watermark = datetime.fromisoformat(watermark_value) if watermark_value else None
 
         sitemap_urls = _parse_sitemap_index(self.fetch_page(_SITEMAP_INDEX_URL))
+        logger.info(
+            "eu_startups fetch: %d listing sitemap files found", len(sitemap_urls)
+        )
+        if not sitemap_urls:
+            logger.warning(
+                "eu_startups fetch: sitemap index listed zero listing sitemaps, "
+                'treating as a discovery failure, not "nothing new"'
+            )
+            raise EuStartupsFetchError(
+                "sitemap index listed zero wpbdp_listing-sitemap entries"
+            )
 
         entries: list[tuple[str, datetime]] = []
         for sitemap_url in sitemap_urls:
@@ -191,23 +210,46 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
             for loc, lastmod in entries
             if watermark is None or lastmod > watermark
         ]
+        logger.info(
+            "eu_startups fetch: %d of %d listings pending past the watermark",
+            len(pending),
+            len(entries),
+        )
         if not pending:
             return []
 
+        fetched: list[tuple[str, datetime, str]] = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-            html_pages = list(
-                executor.map(lambda entry: self.fetch_page(entry[0]), pending)
-            )
+            future_to_entry = {
+                executor.submit(self.fetch_page, loc): (loc, lastmod)
+                for loc, lastmod in pending
+            }
+            for future in as_completed(future_to_entry):
+                loc, lastmod = future_to_entry[future]
+                try:
+                    html_text = future.result()
+                except EuStartupsFetchError:
+                    logger.warning(
+                        "eu_startups fetch: skipping listing, detail-page fetch "
+                        "failed: %s",
+                        loc,
+                    )
+                    continue
+                fetched.append((loc, lastmod, html_text))
+
+        if not fetched:
+            return []
 
         records = [
             RawRecord(
                 stable_id=_listing_slug(loc),
                 payload={"url": loc, "html": html_text, "lastmod": lastmod.isoformat()},
             )
-            for (loc, lastmod), html_text in zip(pending, html_pages, strict=True)
+            for loc, lastmod, html_text in fetched
         ]
 
-        max_lastmod = max(lastmod for _loc, lastmod in pending)
+        max_lastmod = max(lastmod for _loc, lastmod, _html in fetched)
         self._watermark_port.save_watermark(self.source, max_lastmod.isoformat())
+        logger.info("eu_startups fetch: watermark saved: %s", max_lastmod.isoformat())
 
         return records

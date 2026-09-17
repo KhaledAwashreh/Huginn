@@ -76,6 +76,57 @@ the start rather than shipping and revisiting under pressure later.
 4. Bad: until that wiring ticket exists, the watermark is a real contract
    with no working persistence behind it, same shape of "protocol before
    implementation" gap this codebase already treats as normal, not new here.
+5. Bad: `EuStartupsDiscoveryAdapter.fetch()` calls `save_watermark(...)` and
+   returns its records to the caller, with nothing committing the
+   watermark and the Bronze write atomically. This is a direct consequence
+   of this ADR's own Decision Outcome: KAN-64's Global Constraint 4
+   mandated the watermark save happen inside `fetch()` itself, decoupled
+   from whatever transaction the caller uses for its later
+   `RawStorePort.write()` call. If that later Bronze write fails (a DB
+   outage, a constraint violation) after `fetch()` has already returned,
+   the watermark has already advanced past every listing in the batch, and
+   those listings are never fetched again, silently and permanently. No
+   architectural fix is attempted here (no orchestrator wiring exists yet);
+   resolving it is explicitly in scope for KAN-83, whoever wires this
+   adapter into an orchestrator must decide then: move the watermark
+   commit into the same transaction as the Bronze write, or explicitly
+   accept and document at-most-once semantics.
+
+## Pros and Cons of the Options
+
+### Option 1: a new, adapter-scoped `DiscoveryWatermarkPort` Protocol (chosen)
+
+1. Good: `StatePort`'s contract stays untouched, no risk to any existing
+   caller.
+2. Good: the adapter is fully testable with an in-memory fake watermark
+   port, no database dependency introduced by this ticket.
+3. Good: matches this codebase's own precedent (`EnrichmentCandidatePort`)
+   for deferring a concrete implementation until an orchestrator actually
+   needs one.
+4. Bad: until a wiring ticket exists, the watermark is a real contract with
+   no working persistence behind it.
+
+### Option 2: extend `StatePort` with a second method for a per-source scalar
+
+1. Good: no new Protocol to introduce, one port instead of two for callers
+   to depend on.
+2. Bad: overloads one Protocol with two unrelated concepts, per-entity
+   content identity (`last_hash`) and per-source crawl progress (the
+   watermark), that answer genuinely different questions.
+3. Bad: every existing `StatePort` caller now carries a method it has no
+   use for, coupling unrelated concerns for no benefit.
+
+### Option 3: no watermark at all, re-walk and re-fetch every listing every run
+
+1. Good: zero implementation cost, no new Protocol, no persisted cursor to
+   manage.
+2. Bad: at this source's real scale (on the order of tens of thousands of
+   listings, growing), re-fetching every detail page on every run forever
+   is exactly the kind of unbounded, avoidable network cost KAN-62/KAN-67
+   already had to reckon with elsewhere in this pipeline.
+3. Bad: `RawStorePort.write()`'s hash-match skip keeps the Bronze *write*
+   cheap even under this option, but does nothing for the network *fetch*
+   cost, which is what the watermark exists to avoid in the first place.
 
 ## Related
 

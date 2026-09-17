@@ -37,7 +37,7 @@ def test_parse_eu_startups_listing_maps_every_confirmed_field():
     )
 
     assert row is not None
-    assert row.company_name_raw  # Business Description text, see Step 2
+    assert row.company_name_raw == "Brightroom"
     assert row.website == "https://thebrightroom.de"
     assert row.url == "https://www.eu-startups.com/directory/brightroom/"
     assert row.occurred_on == datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC)
@@ -50,6 +50,7 @@ def test_parse_eu_startups_listing_handles_missing_optional_fields():
 
     assert row is not None
     assert row.website == "https://minut.com/"
+    assert row.company_name_raw == "Minut"
 
 
 def test_parse_eu_startups_listing_returns_none_when_no_website_field_at_all():
@@ -63,6 +64,39 @@ def test_parse_eu_startups_listing_returns_none_when_no_website_field_at_all():
             "html": "<html></html>",
         }
     )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_for_interstitial_page_with_title():
+    """A Cloudflare interstitial or soft-404 page has a `<title>` tag but
+    no wpbdp field markup at all (no Website, which is confirmed always
+    present on a genuine listing). It must not pass through as a
+    fabricated company with website=None just because a title was found."""
+    row = parse_eu_startups_listing(
+        {
+            "url": "https://www.eu-startups.com/directory/broken/",
+            "html": "<html><head><title>Just a moment...</title></head><body></body></html>",
+            "lastmod": _BRIGHTROOM_LASTMOD,
+        }
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_lastmod_key_missing():
+    """A payload missing the `lastmod` key entirely (not just a `None`
+    value), same bug class as KAN-50: must not raise a `KeyError` that
+    would abort every already-upserted row in the batch. A listing with no
+    recorded lastmod is not safely parseable into `occurred_on`, which is
+    NOT NULL downstream in Gold, so it is skipped rather than crashing."""
+    payload = _payload(
+        "listing_brightroom.html",
+        "https://www.eu-startups.com/directory/brightroom/",
+    )
+    del payload["lastmod"]
+
+    row = parse_eu_startups_listing(payload)
 
     assert row is None
 

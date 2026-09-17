@@ -54,29 +54,45 @@ def _slug_from_url(url: str) -> str:
 
 def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
     """Parse one eu_startups Bronze row (raw detail-page HTML plus its
-    sitemap `url`/`lastmod`), or None when the page has neither a
-    `website` field nor a `<title>` tag: a genuinely empty or malformed
-    fetch, not a real listing, so no row is produced rather than one full
-    of None/empty values that would fail `resolve_signal`'s own handling
-    downstream.
-    """
-    fields = extract_listing_fields(payload["html"])
-    title = _extract_title(payload["html"])
+    sitemap `url`/`lastmod`), or None when the row can't be safely turned
+    into a staging row, same "return None means skip this row" contract as
+    every check below, never a raised exception (KAN-50's bug class: a
+    missing key here must not abort every already-upserted row in the
+    batch):
 
-    if fields["website"] is None and title is None:
+    - `"html"` or `"url"` missing from the payload at all.
+    - `fields["website"]` is None: Website is confirmed always present on a
+      genuine listing (docs/sources/eu-startups.md's field table), so its
+      absence means a malformed fetch or an interstitial/challenge page,
+      not a real listing, regardless of whether a `<title>` was found.
+    - `"lastmod"` missing: `occurred_on` is NOT NULL downstream in Gold, so
+      a listing with no recorded lastmod is not safely parseable.
+    """
+    html = payload.get("html")
+    url = payload.get("url")
+    if html is None or url is None:
         return None
 
-    company_name_raw = title.split(" | ")[0].strip() if title else ""
+    fields = extract_listing_fields(html)
+    if fields["website"] is None:
+        return None
+
+    lastmod = payload.get("lastmod")
+    if lastmod is None:
+        return None
+
+    title = _extract_title(html)
+    company_name_raw = title.removesuffix(" | EU-Startups").strip() if title else ""
 
     return EuStartupsListingStaging(
-        stable_id=_slug_from_url(payload["url"]),
+        stable_id=_slug_from_url(url),
         company_name_raw=company_name_raw,
         website=fields["website"],
         signal_type="other",
         stage=None,
         description=fields["business_description"] or "",
-        occurred_on=datetime.fromisoformat(payload["lastmod"]),
-        url=payload["url"],
+        occurred_on=datetime.fromisoformat(lastmod),
+        url=url,
     )
 
 
