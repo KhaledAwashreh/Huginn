@@ -287,3 +287,20 @@ def test_resolve_signal_does_not_check_reachability_for_a_denylisted_host(
     )
 
     assert confidence == KeyDerivation.UNRESOLVED
+
+
+def test_resolve_signal_rejects_denylisted_host_with_trailing_dot(monkeypatch):
+    """Trailing dot (DNS root label) on a denylisted domain must not bypass
+    the denylist. See Jira KAN-69 for the false-merge bug this prevents."""
+
+    def fail_if_called(domain, timeout=5.0):
+        raise AssertionError("check_domain_reachable should not be called")
+
+    monkeypatch.setattr(signal_resolution, "check_domain_reachable", fail_if_called)
+
+    key, confidence = resolve_signal(
+        "hn", "1", "https://acme.bamboohr.com./jobs/view/42"
+    )
+
+    assert key == "unresolved:hn:1"
+    assert confidence == KeyDerivation.UNRESOLVED

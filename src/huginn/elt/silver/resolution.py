@@ -156,6 +156,8 @@ def normalize_domain(url_or_domain: str) -> str:
     host = host.split("/")[0]
     if host.startswith("www."):
         host = host[len("www.") :]
+    if host.endswith("."):
+        host = host[:-1]
     return host
 
 
