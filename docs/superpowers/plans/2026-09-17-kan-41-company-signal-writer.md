@@ -110,10 +110,10 @@ writer this plan pattern-matches throughout, read all four before starting).
 - Modify: `src/huginn/elt/gold/models.py` (add `ResolvedSignalForFact`)
 - Modify: `src/huginn/elt/gold/ports.py` (add `CompanySignalRepositoryPort`)
 - Create: `src/huginn/elt/gold/repositories/company_signal_repository.py`
-- Test: `tests/elt/gold/test_company_repository.py` — actually, create a
-  new file `tests/elt/gold/test_company_signal_repository.py` (do not add
-  to the existing `Company` repository's test file, this is a distinct
-  repository for a distinct table)
+- Test: create a new file `tests/elt/gold/test_company_signal_repository.py`,
+  not `tests/elt/gold/test_company_repository.py` (do not add to the
+  existing `Company` repository's test file, this is a distinct repository
+  for a distinct table)
 - Test: `tests/elt/gold/test_company_signal_repository_integration.py`
   (new file, skip-if-unreachable live-Postgres test, matching
   `test_company_repository_integration.py`'s pattern exactly, read that

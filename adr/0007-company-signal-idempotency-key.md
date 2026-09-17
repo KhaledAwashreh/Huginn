@@ -82,13 +82,26 @@ KAN-62 and KAN-67 cite).
    pattern `gold.company`'s `created_at` already uses), so it keeps meaning
    "first time this signal produced a fact," not "last time this row was
    touched."
+6. Bad, not yet live: `CompanySignalWriter.write_all()` holds one
+   transaction for its whole batch, and each insert takes a `FOR KEY SHARE`
+   lock on the `gold.company` row it references. `CompanyWriter`'s
+   `get_company()` (`company_repository.py`'s `_GET_COMPANY_SQL`) takes
+   `FOR UPDATE` on `gold.company` rows for its own whole-batch transaction,
+   and `FOR UPDATE` conflicts with `FOR KEY SHARE`. Neither writer is wired
+   into an orchestrator yet (confirmed: no call site outside their own
+   modules), so this cannot actually contend or deadlock today, but it will
+   the day both run concurrently against overlapping companies. Tracked
+   separately, not fixed here: this ADR's own scope is the idempotency key,
+   not lock ordering between two different writers.
 
 ## Pros and Cons of the Options
 
 ### Option 1: unique key + upsert (chosen)
 
-1. Good: idempotent, race-condition-free, consistent with every sibling
-   writer in this codebase.
+1. Good: race-free against the specific failure mode this decision is
+   about, a duplicate-insert race on two concurrent runs upserting the
+   same `(source, source_stable_id)`, consistent with every sibling writer
+   in this codebase.
 2. Good: minimal schema change, one column and one constraint.
 3. Bad: a schema change to a table this ticket didn't originally expect to
    touch, needs this ADR so a future reader understands it was deliberate.
@@ -96,9 +109,9 @@ KAN-62 and KAN-67 cite).
 ### Option 2: application-side existence check
 
 1. Good: no schema change.
-2. Bad: a check-then-act race between two concurrent runs (not impossible,
-   `resolve_all()`'s docstring already discusses future concurrent-write
-   races on the same table).
+2. Bad: a check-then-act race between two concurrent runs, exactly the
+   class of bug `ON CONFLICT` exists to close and an application-side
+   check would reopen.
 3. Bad: an extra read per row this writer doesn't otherwise need, when the
    database can enforce the same guarantee for free as part of the write.
 
