@@ -14,6 +14,7 @@ from huginn.elt.ingestion.adapters.eu_startups_enrichment import (
     _build_search_url,
     _extract_exact_matches,
     _extract_raw_matches,
+    _is_eu_startups_detail_url,
     _is_result_set_truncated,
     _parsed_result_count,
 )
@@ -157,6 +158,30 @@ def test_is_result_set_truncated_false_when_counts_match():
     assert _is_result_set_truncated(raw_match_count=2, parsed_count=2) is False
 
 
+def test_is_eu_startups_detail_url_true_for_the_real_host():
+    assert _is_eu_startups_detail_url(
+        "https://www.eu-startups.com/directory/brightroom/"
+    )
+
+
+def test_is_eu_startups_detail_url_false_for_a_different_host():
+    """CodeRabbit finding (KAN-65, CWE-918 SSRF): a `detail_url` pointing
+    anywhere other than eu-startups.com must be rejected before it's ever
+    passed to `requests.get`."""
+    assert not _is_eu_startups_detail_url("https://evil.example/directory/x/")
+
+
+def test_is_eu_startups_detail_url_false_for_non_https_scheme():
+    assert not _is_eu_startups_detail_url(
+        "http://www.eu-startups.com/directory/brightroom/"
+    )
+
+
+def test_is_eu_startups_detail_url_false_for_a_relative_or_empty_url():
+    assert not _is_eu_startups_detail_url("/directory/brightroom/")
+    assert not _is_eu_startups_detail_url("")
+
+
 def test_eu_startups_enrichment_adapter_explicitly_implements_web_scrape_source_port():
     assert WebScrapeSourcePort in EuStartupsEnrichmentAdapter.__mro__
 
@@ -169,7 +194,7 @@ def test_eu_startups_enrichment_adapter_source_and_mechanism():
 
 
 def test_fetch_page_raises_sanitized_error_on_request_failure(monkeypatch):
-    def fake_get(url, headers, timeout):
+    def fake_get(url, headers, timeout, allow_redirects):
         raise requests.ConnectionError("boom")
 
     monkeypatch.setattr(eu_startups_enrichment.requests, "get", fake_get)
@@ -307,6 +332,39 @@ def test_fetch_skips_a_company_when_search_results_page_may_be_truncated(
     assert any("TruncateCo" in r.getMessage() for r in warnings)
 
 
+def test_fetch_skips_an_exact_match_whose_detail_url_is_off_origin(caplog, monkeypatch):
+    """CodeRabbit finding (KAN-65, CWE-918 SSRF): an exact match whose
+    detail URL doesn't point at eu-startups.com over HTTPS must be skipped
+    before any second request is made to it, not fetched."""
+    off_origin_search_html = """
+<h3>Search Results (1)</h3>
+<div class="search-results">
+  <div class="listing-title"><a href="https://evil.example/steal-me/">EvilCo</a></div>
+</div>
+"""
+    adapter = EuStartupsEnrichmentAdapter(
+        company_loader=lambda: ["EvilCo"], max_calls=5
+    )
+
+    def fake_fetch_page(url: str) -> str:
+        if "dosrch=1" in url:
+            return off_origin_search_html
+        raise AssertionError(
+            f"fetch_page must never be called for an off-origin detail URL: {url}"
+        )
+
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    with caplog.at_level(
+        logging.WARNING, logger="huginn.elt.ingestion.adapters.eu_startups_enrichment"
+    ):
+        records = adapter.fetch()
+
+    assert records == []
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("evil.example" in r.getMessage() for r in warnings)
+
+
 def test_fetch_skips_a_failed_search_and_continues_with_other_names(
     caplog, monkeypatch
 ):
@@ -415,14 +473,16 @@ def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
 
     class FakeResponse:
         text = "<html>ok</html>"
+        is_redirect = False
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, headers, timeout):
+    def fake_get(url, headers, timeout, allow_redirects):
         captured["url"] = url
         captured["headers"] = headers
         captured["timeout"] = timeout
+        captured["allow_redirects"] = allow_redirects
         return FakeResponse()
 
     monkeypatch.setattr(eu_startups_enrichment.requests, "get", fake_get)
@@ -435,7 +495,33 @@ def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
     assert captured["url"] == "https://www.eu-startups.com/directory/brightroom/"
     assert captured["headers"] == {"User-Agent": eu_startups_enrichment._USER_AGENT}
     assert captured["timeout"] == 7.5
+    assert captured["allow_redirects"] is False
     assert result == "<html>ok</html>"
+
+
+def test_fetch_page_raises_sanitized_error_on_redirect(monkeypatch):
+    """CodeRabbit finding (KAN-65, CWE-918 SSRF): a redirect response must
+    not be followed (requests follows redirects by default) and must not be
+    treated as a successful fetch of the redirect stub's own short body."""
+
+    class FakeRedirectResponse:
+        text = "<html>redirecting...</html>"
+        is_redirect = True
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, headers, timeout, allow_redirects):
+        return FakeRedirectResponse()
+
+    monkeypatch.setattr(eu_startups_enrichment.requests, "get", fake_get)
+    adapter = EuStartupsEnrichmentAdapter(company_loader=lambda: [], max_calls=1)
+
+    try:
+        adapter.fetch_page("https://www.eu-startups.com/directory/brightroom/")
+        raise AssertionError("expected EuStartupsEnrichmentFetchError")
+    except EuStartupsEnrichmentFetchError as exc:
+        assert "redirect" in str(exc)
 
 
 def test_fetch_stops_after_max_calls(monkeypatch):

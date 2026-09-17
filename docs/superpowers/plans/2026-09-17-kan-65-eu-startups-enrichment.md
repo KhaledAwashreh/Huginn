@@ -40,16 +40,23 @@ Real, live-captured evidence this plan is built from (fixtures added
 
 ## Global Constraints
 
-1. **Reuse `extract_listing_fields` from KAN-64, don't duplicate it.**
-   `from huginn.elt.ingestion.adapters.eu_startups import extract_listing_fields`.
-   It is already built, tested, and reviewed (KAN-64); this ticket adds no
-   new field-extraction logic. The one-line slug-from-url helper
+1. **`extract_listing_fields` is reused by `EuStartupsStagingLoader` (Silver),
+   never imported or called by this ticket's Bronze adapter** (see Global
+   Constraint 10: Bronze stores raw HTML only). `extract_listing_fields` is
+   already built, tested, and reviewed (KAN-64); this ticket adds no new
+   field-extraction logic of its own, it only supplies more raw HTML for
+   that existing function to eventually run against, later, at the Silver
+   layer. The one-line slug-from-url helper
    (`url.rstrip("/").rsplit("/", 1)[-1]`) is small enough that this
    codebase's own precedent (`eu_startups.py`'s `_listing_slug` and
    `eu_startups_staging.py`'s `_slug_from_url` are two independent copies
    of the same one-liner) is to duplicate it locally instead of importing
    a private (`_`-prefixed) helper across modules. Do the same here: a
    third private local copy, not an import.
+   (Corrected after the GitHub CodeRabbit App independently flagged this
+   constraint's original wording as contradicting Constraint 10, matching
+   the same contradiction an earlier reviewer had already found and fixed
+   in the module docstring, commit 58e9be5.)
 
 2. **`source = "eu_startups"`, `mechanism = "web_scrape"`** (same as
    KAN-64's `EuStartupsDiscoveryAdapter`), so this adapter's Bronze rows

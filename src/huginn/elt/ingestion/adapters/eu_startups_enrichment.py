@@ -21,7 +21,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -32,6 +32,8 @@ from huginn.elt.ingestion.ports import WebScrapeSourcePort
 logger = logging.getLogger(__name__)
 
 _SEARCH_URL = "https://www.eu-startups.com/directory/"
+_EXPECTED_SCHEME = "https"
+_EXPECTED_HOST = "www.eu-startups.com"
 _REQUEST_TIMEOUT_SECONDS = 10.0
 
 # Confirmed live (docs/sources/eu-startups.md, same as eu_startups.py's
@@ -152,6 +154,19 @@ def _parsed_result_count(html: str) -> int | None:
     return None
 
 
+def _is_eu_startups_detail_url(url: str) -> bool:
+    """True only for an absolute `https://www.eu-startups.com/...` URL
+    (CodeRabbit finding, KAN-65, CWE-918 SSRF): `detail_url` comes from an
+    anchor `href` on a page this adapter fetched, not from a value this
+    adapter constructed itself (unlike `_build_search_url`'s output). WPBDP
+    always renders that anchor as its own internal listing link today, but
+    nothing enforces that at the HTTP layer, so this adapter must not trust
+    it blindly before making a second outbound request to it.
+    """
+    parsed = urlparse(url)
+    return parsed.scheme == _EXPECTED_SCHEME and parsed.hostname == _EXPECTED_HOST
+
+
 def _is_result_set_truncated(raw_match_count: int, parsed_count: int | None) -> bool:
     """True when a search results page's own reported total doesn't equal
     the number of raw anchors actually extracted, or when that total
@@ -202,13 +217,29 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         a request failure. Identical shape to
         `eu_startups.py`'s `EuStartupsDiscoveryAdapter.fetch_page`, its own
         exception type per this module's docstring.
+
+        `allow_redirects=False` (CodeRabbit finding, KAN-65, CWE-918 SSRF):
+        `requests.get` follows redirects by default, which would let a
+        same-origin URL that passed `_is_eu_startups_detail_url` still end
+        up fetching an off-origin destination via a redirect hop. Mirrors
+        `silver/resolution.py`'s `_request_with_retry`, this codebase's
+        existing precedent for the same defense. A redirect response
+        (3xx) is treated as a failure here, the same as a 4xx/5xx: unlike
+        `_request_with_retry`'s own reachability check (which only needs to
+        know a domain answers at all), this method needs the page's actual
+        content, and a redirect's own short response body is never that.
         """
         try:
             response = requests.get(
                 url,
                 headers={"User-Agent": _USER_AGENT},
                 timeout=self._timeout,
+                allow_redirects=False,
             )
+            if response.is_redirect:
+                raise EuStartupsEnrichmentFetchError(
+                    "EU-Startups page fetch failed: unexpected redirect"
+                )
             response.raise_for_status()
             return response.text
         except requests.RequestException as exc:
@@ -276,6 +307,15 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 continue
 
             _matched_name, detail_url = matches[0]
+            if not _is_eu_startups_detail_url(detail_url):
+                logger.warning(
+                    "eu_startups_enrichment fetch: skipping %r, detail URL is "
+                    "not an eu-startups.com HTTPS URL: %s",
+                    name,
+                    detail_url,
+                )
+                continue
+
             stable_id = _listing_slug(detail_url)
             if stable_id in seen_stable_ids:
                 logger.info(
