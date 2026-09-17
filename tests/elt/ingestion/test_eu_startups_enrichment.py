@@ -107,6 +107,25 @@ def test_extract_exact_matches_returns_every_exact_match_in_document_order():
     ]
 
 
+def test_extract_raw_matches_drops_an_anchor_with_no_href():
+    """A `.listing-title a` with no `href` attribute (CodeRabbit finding,
+    KAN-65) must be dropped, not returned as `(name, None)`: `_listing_slug`
+    requires a real URL string, and a `None` reaching it would raise an
+    uncaught `AttributeError` out of `fetch()` instead of being handled as
+    an ordinary skip."""
+    html = """
+<h3>Search Results (2)</h3>
+<div class="search-results">
+  <div class="listing-title"><a href="https://www.eu-startups.com/directory/hasurl/">HasUrl</a></div>
+  <div class="listing-title"><a>NoUrl</a></div>
+</div>
+"""
+
+    matches = _extract_raw_matches(html)
+
+    assert matches == [("HasUrl", "https://www.eu-startups.com/directory/hasurl/")]
+
+
 def test_parsed_result_count_reads_the_header_on_every_real_fixture():
     """Confirms the positive (non-truncated) case for all 4 real fixtures:
     each page's own "Search Results (N)" header matches its raw anchor

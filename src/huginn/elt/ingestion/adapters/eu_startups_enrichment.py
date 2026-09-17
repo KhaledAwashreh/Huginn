@@ -97,11 +97,18 @@ def _extract_raw_matches(html: str) -> list[tuple[str, str]]:
     both the exact-match filter and the truncation check
     (`_is_result_set_truncated`, final whole-branch review Fix 1) work
     from the same raw extraction and neither has to reparse the page.
+
+    An anchor with no `href` (CodeRabbit finding, KAN-65) is dropped here
+    rather than returned as a `(name, None)` pair: `_listing_slug` requires
+    a real URL, and letting `None` reach it would raise an uncaught
+    `AttributeError` out of `fetch()` instead of being handled as an
+    ordinary skip.
     """
     soup = BeautifulSoup(html, "html.parser")
     return [
-        (anchor.get_text(strip=True), anchor.get("href"))
+        (anchor.get_text(strip=True), href)
         for anchor in soup.select(".search-results .listing-title a")
+        if (href := anchor.get("href"))
     ]
 
 
