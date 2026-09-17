@@ -85,6 +85,25 @@ and how to set it, once real requirements exist, same "decide with real
 requirements, not a guess" deferral ADR-0009 already made for its own
 watermark's persistence.
 
+This still leaves a question Decision Driver 1 raises but does not itself
+answer: if `eu_startups_searched_at` is a per-source pipeline cursor and
+not a company fact, why does it live on `gold.company` at all, rather
+than in the `ops` schema, which `db/schema/ops.sql`'s own header comment
+reserves for exactly this kind of pipeline-run metadata ("those hold
+ingested or domain data, this holds metadata about the pipeline's own
+runs")? The answer is read cost, not schema purity: this column has to
+be read in the same query as the company name it gates
+(`gold.company.name`), and a cross-schema join on every candidate-
+selection read would cost more than the schema-purity gain, for a read
+that already has to run on every enrichment cycle. This mirrors, rather
+than invents, an existing precedent: `EnrichmentCandidatePort`'s
+OpenCorporates read already lives in
+`gold/repositories/company_repository.py` for exactly this reason
+(`read_unenriched_company_names` reads `business_sector`, itself nominally
+a domain fact, off `gold.company` for the identical pipeline-cursor
+purpose). `eu_startups_searched_at` follows that established, working
+precedent rather than opening a second, differently-shaped one.
+
 ### Consequences
 
 1. Good: OpenCorporates' `read_unenriched_company_names` and its caller are
@@ -118,6 +137,29 @@ watermark's persistence.
    dedicated candidate-tracking column, not a reuse of this one or of
    `business_sector IS NULL`; noted here so that decision doesn't need
    re-litigating from scratch.
+8. Bad: this decision interacts with two of this ticket's own plan
+   constraints (KAN-65 plan, Global Constraints 2 and 3) in a way neither
+   addresses on its own. KAN-64's discovery adapter and this ticket's
+   enrichment adapter share `source = "eu_startups"` (Constraint 2), and
+   this adapter's Bronze payload uses a synthetic `datetime.now(UTC)`
+   `lastmod` since there is no genuine source-reported timestamp for a
+   search-discovered listing (Constraint 3). Once both adapters are wired
+   into an orchestrator, they will share one `stable_fields_by_source`
+   entry (`huginn.elt.bronze.api_ingest_store`), and any `stable_fields`
+   choice that includes `lastmod`, the only choice that also works for
+   discovery's genuine sitemap `lastmod`, makes every enrichment-sourced
+   fetch look changed on every run, defeating the skip-on-hash-match
+   design Bronze relies on for cheap re-fetches. Nothing breaks today: no
+   `web_scrape` Bronze store implementation exists yet
+   (`PostgresApiIngestStore` only wires the `api` mechanism), and the
+   KAN-65 plan already defers "which `lastmod` wins between a discovery
+   row and an enrichment row for the same listing" to KAN-83. This
+   specific `stable_fields`/hash-churn consequence is recorded here,
+   tracked alongside that same KAN-83 deferral (the same ticket ADR-0009
+   already named for eu-startups' own cross-adapter orchestration
+   questions), so whoever eventually builds the `web_scrape` Bronze store
+   and wires both adapters in inherits this constraint explicitly instead
+   of rediscovering it.
 
 ## Pros and Cons of the Options
 

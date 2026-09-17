@@ -1,10 +1,13 @@
 # KAN-65: EU-Startups enrichment adapter (Advanced Search by business name)
 
 Jira KAN-65. Branch `ingestion/kan-65-eu-startups-enrichment`, based on
-`ingestion/kan-64-eu-startups-discovery` (a real code dependency: this
-adapter reuses KAN-64's `extract_listing_fields`, see Global Constraint 1).
-Spec authority: the KAN-65 Jira ticket text, ADR-0010 (the blocking design
-decision the ticket itself flagged, resolved before this plan was written).
+`ingestion/kan-64-eu-startups-discovery` (a real dependency, but not a
+code one: this adapter does not call KAN-64's `extract_listing_fields`,
+see Global Constraint 10; the real dependency is that this ticket's tests
+read fixture files KAN-64 added, `listing_brightroom.html` and
+`listing_minut.html`). Spec authority: the KAN-65 Jira ticket text,
+ADR-0010 (the blocking design decision the ticket itself flagged, resolved
+before this plan was written).
 
 ## Context
 
