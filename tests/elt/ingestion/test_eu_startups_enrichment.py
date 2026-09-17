@@ -237,19 +237,43 @@ def test_fetch_skips_a_failed_search_and_continues_with_other_names(
     assert any("Broken Co" in r.getMessage() for r in warnings)
 
 
-def test_fetch_deduplicates_matching_stable_ids_across_company_names(monkeypatch):
-    search_html = _read_fixture("search_brightroom.html")
+def test_fetch_deduplicates_matching_stable_ids_across_company_names(
+    caplog, monkeypatch
+):
+    """Two different query names, each resolving to exactly one exact
+    match, whose detail URLs happen to be the same listing (a plausible
+    near-duplicate Gold name for one real company, plan Global
+    Constraint 9). The real fixtures have no such pair, so the second
+    query's search-results page is a small synthetic snippet (same
+    pattern as `_TWO_EXACT_MATCHES_HTML`) whose one exact match points at
+    Brightroom's own detail URL.
+    """
+    brightroom_search_html = _read_fixture("search_brightroom.html")
+    brightroom_inc_search_html = """
+<div class="search-results">
+  <div class="listing-title"><a href="https://www.eu-startups.com/directory/brightroom/">Brightroom Inc</a></div>
+</div>
+"""
     detail_html = _read_fixture("listing_brightroom.html")
     adapter = EuStartupsEnrichmentAdapter(
         company_loader=lambda: ["Brightroom", "Brightroom Inc"], max_calls=5
     )
-    monkeypatch.setattr(
-        adapter,
-        "fetch_page",
-        lambda url: _fake_fetch_page(url, search_html, detail_html),
-    )
 
-    records = adapter.fetch()
+    def fake_fetch_page(url: str) -> str:
+        if "dosrch=1" in url:
+            return (
+                brightroom_inc_search_html if "Inc" in url else brightroom_search_html
+            )
+        return detail_html
+
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    with caplog.at_level(
+        logging.INFO, logger="huginn.elt.ingestion.adapters.eu_startups_enrichment"
+    ):
+        records = adapter.fetch()
 
     assert len(records) == 1
     assert records[0].stable_id == "brightroom"
+    infos = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert any("Brightroom Inc" in r.getMessage() for r in infos)
