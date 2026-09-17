@@ -146,7 +146,8 @@ def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
 
 def normalize_domain(url_or_domain: str) -> str:
     """Registrable domain, normalized: lowercase, no `www.`, no protocol,
-    no trailing slash or path. See architecture document section 6.
+    no trailing slash or path, no trailing DNS root-label dot. See
+    architecture document section 6 and Jira KAN-69.
     """
     value = url_or_domain.strip().lower()
     if "//" not in value:
