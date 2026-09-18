@@ -2,7 +2,7 @@
 
 Client-discovery tool for independent service providers. Ingests public startup signals (hiring, funding) and scores them against a user's ICP to produce a weekly lead digest.
 
-Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing the design: `architecture-notes/`. Domain schema: `docs/entities.md` and `db/schema/`. Tracked tech debt and research debt, plus the ELT build epic: Jira project KAN (epics KAN-16 and KAN-21).
+Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing the design: `architecture-notes/`. Domain schema: `docs/entities.md` and `db/schema/`. See the [management foundation runbook](docs/management-foundation.md) for local bootstrap. Tracked tech debt and research debt, plus the ELT build epic: Jira project KAN (epics KAN-16 and KAN-21).
 
 ## Status
 
@@ -33,6 +33,15 @@ No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade p
 0 9 * * * cd /path/to/Huginn && /path/to/uv run python -m huginn.ingestion >> /var/log/huginn-ingestion.log 2>&1
 ```
 
+## Running the management foundation
+
+The management module currently exposes only health and database-readiness
+probes. Bootstrap a dedicated development database and run the local server
+through the [module entrypoint](src/huginn/management/__main__.py) with
+`python -m huginn.management`. The management foundation runbook has the
+complete schema order, environment, probe commands, implemented contract, and
+KAN-72 handoff.
+
 ## Layout
 
 ```
@@ -43,6 +52,8 @@ src/huginn/
     silver/           entity resolution
     gold/             Company/CompanyHistory current-plus-history update logic
     ops/              job_runs domain model, Postgres-backed JobRunWriterPort
+    management/       config, professional collection schemas, readiness, Flask app,
+                      __main__.py (local development server entrypoint)
     config.py         environment-based configuration
 db/schema/            hand-written DDL, one file per layer
 tests/                mirrors src/huginn/
