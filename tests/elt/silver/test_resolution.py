@@ -32,6 +32,17 @@ def test_normalize_domain_strips_userinfo_and_port_together():
     )
 
 
+def test_normalize_domain_strips_trailing_dot_from_fqdn():
+    """DNS root label (trailing dot) in an absolute FQDN must be stripped.
+    See Jira KAN-69."""
+    assert normalize_domain("https://acme.bamboohr.com./jobs") == "acme.bamboohr.com"
+
+
+def test_normalize_domain_strips_trailing_dot_from_bare_domain():
+    """Bare domain with trailing dot must be normalized to remove it."""
+    assert normalize_domain("acme.com.") == "acme.com"
+
+
 class _FakeResponse:
     def __init__(self, status_code):
         self.status_code = status_code
