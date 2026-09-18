@@ -4,12 +4,17 @@ Date: 2026-09-16
 Last updated: 2026-09-17
 Status: In progress
 
+## Confirmed decisions
+
+The confirmed model separates authentication and account lifecycle into
+`Account`, personal information and business ownership into `User`, and
+professional evidence into `ProfessionalProfile`. The client-discovery
+entities remain separate concepts owned by User.
+
 This note records decisions from the account, user, and client-discovery
 domain design session. It is not a complete implementation specification.
 Confirmed decisions and unresolved questions are kept separate so that open
 ideas are not treated as settled architecture.
-
-## Confirmed decisions
 
 ### Account
 

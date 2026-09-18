@@ -93,8 +93,8 @@ Management is a separate application boundary, not a second production data
 domain. Production retains the shared Postgres model shown above. Local
 development uses `HUGINN_MANAGEMENT_DATABASE_URL` with a dedicated disposable
 database so management bootstrap work does not disturb concurrent ELT work;
-that database receives all six schemas because operational foreign keys still
-reference Gold.
+that database receives all six bootstrap files because operational foreign
+keys still reference Gold.
 
 Scoring lives in the domain layer, not the agentic layer: it is batch work, it must stay explainable per feature because the digest renders its reasoning, and both the digest and any future chatbot read its output rather than each other's.
 

@@ -54,20 +54,20 @@ password-hashing package, session package, or authentication middleware.
 | ProfessionalProfile | Professional summary and collections | UUID primary key; unique, required `user_id` foreign key |
 
 Account status is `active` or `disabled` and defaults to `active`. Usernames
-retain trimmed spelling; PostgreSQL's `lower(username)` index supplies
+must be nonblank and have no leading or trailing whitespace; storage preserves
+their spelling, and PostgreSQL's `lower(username)` index supplies
 case-insensitive uniqueness under the database collation. The database does
 not normalize usernames or promise Unicode casefold equivalence. Password
-hashes must be nonblank, but the database imposes no algorithm-specific
-format.
+hashes must be nonblank, but the database imposes no algorithm-specific format.
 
 First name, last name, email, phone number, and country of residence are
-required trimmed nonblank text. Country is a residence label, not an ISO-code
-contract. Timezone is nullable but trimmed and nonblank when present. Headline
-and professional summary are also nullable but trimmed and nonblank when
-present. Email, phone, country, and timezone semantic validation is deferred
-to input-owning tickets. All three entities use UUID primary keys and
-timezone-aware `created_at` and `updated_at` values. Later writers, not a
-database trigger, maintain `updated_at`.
+required text values that must be nonblank and have no leading or trailing
+whitespace. Country is a residence label, not an ISO-code contract. Timezone,
+headline, and professional summary are nullable text values that must satisfy
+the same constraints when present. Email, phone, country, and timezone
+semantic validation is deferred to input-owning tickets. All three entities
+use UUID primary keys and timezone-aware `created_at` and `updated_at` values.
+Later writers, not a database trigger, maintain `updated_at`.
 
 Foreign keys use the default `NO ACTION` behavior. The unique foreign keys
 enforce no orphan child and at most one child, but they cannot require a parent

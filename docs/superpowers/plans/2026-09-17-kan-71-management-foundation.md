@@ -124,17 +124,19 @@ Postgres 16, pytest, testcontainers, Ruff. No ORM or migration framework.
 5. Selected implementation decision: Account status is `active` or `disabled`,
    default `active`. This is a storage vocabulary, not lifecycle transition
    behavior. KAN-73 implements disabled-account enforcement.
-6. Selected implementation decision: preserve trimmed username spelling and
-   enforce uniqueness on PostgreSQL `lower(username)`. Require nonblank text
-   with no surrounding whitespace. Case-insensitivity follows the database's
-   collation; no claim of Unicode casefold equivalence. KAN-72 and KAN-73
-   must use the same expression for conflict checks and lookup. No `citext`.
+6. Selected implementation decision: preserve username spelling and enforce
+   uniqueness on PostgreSQL `lower(username)`. Require nonblank text with no
+   surrounding whitespace. Case-insensitivity follows the database's
+   collation; no claim of Unicode casefold equivalence. KAN-72 and KAN-73 must
+   use the same expression for conflict checks and lookup. No `citext`.
 7. Selected implementation decision: names, email, phone and country are
-   trimmed nonblank text. Country is a residence label in this foundation,
-   not a newly invented ISO catalog. Email/phone have no uniqueness or
-   normalization rule beyond that storage boundary. Optional timezone is
-   nullable trimmed nonblank text. Semantic email/phone/country/timezone
-   validation belongs to KAN-72/KAN-74 before accepting user input.
+   required nonblank text with no surrounding whitespace. Country is a
+   residence label in this foundation, not a newly invented ISO catalog.
+   Email/phone have no uniqueness or normalization rule beyond that storage
+   boundary. Optional timezone is nullable text that must be nonblank and have
+   no surrounding whitespace when present. Semantic
+   email/phone/country/timezone validation belongs to KAN-72/KAN-74 before
+   accepting user input.
 8. Authentication handoff, documentation only: Account supplies username,
    password_hash and status; User is the ownership root. Use the persisted
    proposed opaque, revocable, server-side session direction for KAN-73.
@@ -153,19 +155,22 @@ replaced in the fresh DDL. No other KAN-71 foundation tables are needed.
    `created_at`/`updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
    `updated_at` is maintained by later writers, not by a new trigger.
 2. `accounts`: username and password_hash are required TEXT; username has
-   the trim/nonblank CHECK and a named unique index on `lower(username)`.
-   password_hash must be nonblank, with no algorithm-specific CHECK.
-   Status is required TEXT with the vocabulary and default above.
+   a CHECK requiring a nonblank value with no leading or trailing whitespace
+   and a named unique index on `lower(username)`. password_hash must be
+   nonblank, with no algorithm-specific CHECK. Status is required TEXT with
+   the vocabulary and default above.
 3. `users`: `account_id UUID NOT NULL UNIQUE REFERENCES operational.accounts
    (id)`; first_name, last_name, email, phone_number and country_of_residence
-   are required trimmed nonblank TEXT; timezone is optional TEXT with the
-   same CHECK when non-null. Remove `icp_profile`; do not relocate it into
-   generic preferences JSON.
+   are required TEXT values that must be nonblank and have no leading or
+   trailing whitespace; timezone is optional TEXT and must satisfy the same
+   CHECK when present. Remove `icp_profile`; do not relocate it into generic
+   preferences JSON.
 4. `professional_profiles`: `user_id UUID NOT NULL UNIQUE REFERENCES
    operational.users (id)`; headline and professional_summary are nullable
-   TEXT, nonblank after trimming when present. skills, experience and
-   previous_projects each use `JSONB NOT NULL DEFAULT '[]'::jsonb` and a
-   CHECK requiring a top-level array containing only objects.
+   TEXT values that must be nonblank and have no leading or trailing whitespace
+   when present. skills, experience and previous_projects each use
+   `JSONB NOT NULL DEFAULT '[]'::jsonb` and a CHECK requiring a top-level array
+   containing only objects.
 5. Foreign keys retain default `NO ACTION` delete/update behavior. No
    cascading deletion or delete endpoint. Unique FKs enforce at most one
    child and no orphan child. They do not enforce a mandatory child on

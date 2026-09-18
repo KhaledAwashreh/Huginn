@@ -4,37 +4,6 @@ Status: Proposed
 Date: 2026-09-17
 Deciders: Khaled Awashreh
 
-## Context and Problem Statement
-
-KAN-71 establishes the boundary and runtime architecture for a management API
-beside Huginn's existing synchronous ELT code. Later tickets need a stable
-choice of web framework, validation boundary, identity ownership, and initial
-storage representations without introducing authentication or CRUD behavior
-in this foundation.
-
-The account, user, and professional profile requirements are persisted in
-`architecture-notes/account-user-and-client-discovery-domain.md`. Several
-representations needed for implementation remain provisional engineering
-decisions rather than new product requirements.
-
-## Decision Drivers
-
-1. Huginn already uses synchronous Python and psycopg 3 with explicit
-   composition roots.
-2. The initial API needs a small application factory and two operational
-   probes, not an ORM, admin site, or asynchronous serving model.
-3. Professional collections are transitional JSONB storage, but their object
-   shape must be validated before persistence and after loading.
-4. KAN-72 through KAN-74 need explicit ownership and authentication handoffs
-   without KAN-71 implementing those behaviors early.
-5. The stack must install and execute on Python 3.14.
-
-## Considered Options
-
-1. Synchronous Flask 3 with Pydantic 2 boundaries and psycopg 3. (chosen)
-2. Django with its ORM and authentication stack.
-3. FastAPI with an ASGI application model.
-
 ## Decision Outcome
 
 Chosen option: 1, synchronous Flask 3 with Pydantic 2 boundaries and psycopg
@@ -62,11 +31,14 @@ authentication middleware.
 
 1. Account status is `active` or `disabled`, defaulting to `active`. Lifecycle
    transitions are deferred.
-2. Usernames retain trimmed spelling and use a named unique index on
-   `lower(username)`. This does not claim Unicode casefold equivalence.
+2. Usernames are nonblank and have no leading or trailing whitespace. Storage
+   preserves their spelling, and a named unique index on `lower(username)`
+   enforces case-insensitive uniqueness. This does not claim Unicode casefold
+   equivalence.
 3. First name, last name, email, phone number, and country of residence are
-   trimmed nonblank text. Country is a residence label. Timezone is nullable
-   trimmed nonblank text.
+   nonblank text with no leading or trailing whitespace. Country is a
+   residence label. Timezone is nullable text that must satisfy the same
+   constraints when present.
 4. Semantic validation and normalization for email, phone, country, and
    timezone are deferred to KAN-72 and KAN-74 before owner input is accepted.
 5. Account, User, and ProfessionalProfile use UUID primary keys and
@@ -104,6 +76,37 @@ authentication middleware.
    provenance, or independent updates without a future migration.
 5. Neutral: frozen Pydantic models prevent field assignment but do not make
    nested lists immutable; callers treat them as short-lived boundary values.
+
+## Context and Problem Statement
+
+KAN-71 establishes the boundary and runtime architecture for a management API
+beside Huginn's existing synchronous ELT code. Later tickets need a stable
+choice of web framework, validation boundary, identity ownership, and initial
+storage representations without introducing authentication or CRUD behavior
+in this foundation.
+
+The account, user, and professional profile requirements are persisted in
+`architecture-notes/account-user-and-client-discovery-domain.md`. Several
+representations needed for implementation remain provisional engineering
+decisions rather than new product requirements.
+
+## Decision Drivers
+
+1. Huginn already uses synchronous Python and psycopg 3 with explicit
+   composition roots.
+2. The initial API needs a small application factory and two operational
+   probes, not an ORM, admin site, or asynchronous serving model.
+3. Professional collections are transitional JSONB storage, but their object
+   shape must be validated before persistence and after loading.
+4. KAN-72 through KAN-74 need explicit ownership and authentication handoffs
+   without KAN-71 implementing those behaviors early.
+5. The stack must install and execute on Python 3.14.
+
+## Considered Options
+
+1. Synchronous Flask 3 with Pydantic 2 boundaries and psycopg 3. (chosen)
+2. Django with its ORM and authentication stack.
+3. FastAPI with an ASGI application model.
 
 ## Pros and Cons of the Options
 
