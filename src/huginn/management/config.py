@@ -16,7 +16,7 @@ class ManagementConfig:
 def load_config() -> ManagementConfig:
     """Load the isolated management configuration defined by ADR-0011."""
     load_dotenv()
-    value = os.environ.get("HUGINN_MANAGEMENT_DATABASE_URL")
-    if not value or not value.strip():
+    database_url = os.environ.get("HUGINN_MANAGEMENT_DATABASE_URL", "").strip()
+    if not database_url:
         raise RuntimeError("HUGINN_MANAGEMENT_DATABASE_URL is not set")
-    return ManagementConfig(database_url=value)
+    return ManagementConfig(database_url=database_url)

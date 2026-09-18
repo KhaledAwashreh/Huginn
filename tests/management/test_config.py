@@ -21,6 +21,18 @@ def test_load_config_reads_management_database_url_only(monkeypatch):
     assert loaded.database_url == management_url
 
 
+def test_load_config_strips_management_database_url(monkeypatch):
+    database_url = "postgresql://manager:secret@management.test/huginn"
+    monkeypatch.setenv(
+        "HUGINN_MANAGEMENT_DATABASE_URL",
+        f" \t{database_url}\n",
+    )
+
+    loaded = config.load_config()
+
+    assert loaded.database_url == database_url
+
+
 @pytest.mark.parametrize("value", (None, "", " ", "\t", "\n"))
 def test_load_config_rejects_missing_or_blank_management_url(monkeypatch, value):
     if value is None:

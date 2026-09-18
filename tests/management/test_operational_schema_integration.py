@@ -82,6 +82,12 @@ def _insert_profile(conn: psycopg.Connection, user_id: UUID) -> UUID:
     ).fetchone()[0]
 
 
+def _assert_uuid_and_aware_timestamps(row) -> None:
+    assert isinstance(row[0], UUID)
+    assert row[1].utcoffset() is not None
+    assert row[2].utcoffset() is not None
+
+
 def test_fresh_bootstrap_has_management_and_existing_tables(
     management_database_url,
 ):
@@ -132,6 +138,38 @@ def test_account_bootstrap_has_uuid_and_aware_timestamps(management_database_url
         assert row[1] == "active"
         assert row[2].utcoffset() is not None
         assert row[3].utcoffset() is not None
+
+
+def test_user_and_profile_bootstrap_have_uuid_and_aware_timestamps(
+    management_database_url,
+):
+    with _connection(management_database_url) as conn:
+        account_id = _insert_account(conn)
+        user_row = conn.execute(
+            """
+            INSERT INTO operational.users (
+                account_id, first_name, last_name, email, phone_number,
+                country_of_residence
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at, updated_at
+            """,
+            (
+                account_id,
+                "Ada",
+                "Lovelace",
+                f"ada-{uuid4()}@example.test",
+                "+970599000000",
+                "Palestine",
+            ),
+        ).fetchone()
+        profile_row = conn.execute(
+            "INSERT INTO operational.professional_profiles (user_id) "
+            "VALUES (%s) RETURNING id, created_at, updated_at",
+            (user_row[0],),
+        ).fetchone()
+
+        _assert_uuid_and_aware_timestamps(user_row)
+        _assert_uuid_and_aware_timestamps(profile_row)
 
 
 @pytest.mark.parametrize("username", ("", " ", "\t", "\n", " Alice", "Alice "))
