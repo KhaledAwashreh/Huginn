@@ -314,13 +314,17 @@ be omitted or null; when supplied as strings they must remain nonempty.
    index and working tree, preserve unrelated user changes and untracked files,
    and stage only files owned by that task.
 5. Every task gets independent spec-compliance and code-quality verdicts
-   before proceeding. Return findings to the implementer, rerun affected
-   checks, and review fixes. Controller coordinates, not implements. Follow
-   the installed skill's bounded review loop and record rulings explicitly.
+   before proceeding. Return findings to the implementer and rerun affected
+   checks. Commit every post-review fix, or amend the task commit where
+   appropriate, and report the resulting SHA. Rerun the independent review
+   over the updated exact committed range before moving to the next task.
+   Controller coordinates, not implements. Follow the installed skill's
+   bounded review loop and record rulings explicitly.
 6. Each implementer reports files, intended RED failure, GREEN evidence,
-   exact commands, test counts/skips, concerns, and the task commit SHA.
-   Preserve the ignored ledger and review artifacts; do not run the skill's
-   post-merge cleanup or branch-finishing mutations.
+   exact commands, test counts/skips, concerns, the task commit SHA, and every
+   resulting post-review fix or amended SHA. Preserve the ignored ledger and
+   review artifacts; do not run the skill's post-merge cleanup or
+   branch-finishing mutations.
 7. Final independent review covers committed `origin/master...HEAD`.
    At execution, read `.claude/skills/pre-mr-review/SKILL.md` if present;
    if missing, report that limitation and still perform the local gates and
