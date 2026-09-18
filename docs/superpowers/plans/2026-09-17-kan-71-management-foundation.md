@@ -317,7 +317,10 @@ be omitted or null; when supplied as strings they must remain nonempty.
    before proceeding. Return findings to the implementer and rerun affected
    checks. Commit every post-review fix, or amend the task commit where
    appropriate, and report the resulting SHA. Rerun the independent review
-   over the updated exact committed range before moving to the next task.
+   over the updated exact committed range. Repeat this review loop over each
+   updated committed range until both the spec-compliance and code-quality
+   verdicts pass, unless an explicit recorded ruling resolves or accepts every
+   finding. Do not progress to the next task before that condition is met.
    Controller coordinates, not implements. Follow the installed skill's
    bounded review loop and record rulings explicitly.
 6. Each implementer reports files, intended RED failure, GREEN evidence,
