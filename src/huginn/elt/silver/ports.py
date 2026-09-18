@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from huginn.elt.silver.models import (
+    EuStartupsListingStaging,
     HnPostingStaging,
     ResolvedSignalRecord,
     StagedSignal,
@@ -87,6 +88,16 @@ class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
     """Reads bronze.api_ingest and upserts silver.yc_listings."""
 
     def upsert(self, row: YcListingStaging) -> None: ...
+
+
+class EuStartupsStagingRepositoryPort(BronzeReaderPort, Protocol):
+    """Reads Bronze rows for source="eu_startups" and upserts
+    silver.eu_startups_listings. Jira KAN-64. No concrete implementation
+    yet (KAN-64 plan Global Constraint 11): follow-up debt is tracked
+    under Jira epic KAN-16.
+    """
+
+    def upsert(self, row: EuStartupsListingStaging) -> None: ...
 
 
 class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
