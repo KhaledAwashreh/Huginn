@@ -248,8 +248,8 @@ Out of scope for this phase and deliberately abstract pending a decision later. 
 
 ```mermaid
 erDiagram
-    Account ||--|| User : "owns identity for"
-    User ||--|| ProfessionalProfile : "has"
+    Account ||--o| User : "owns identity for"
+    User ||--o| ProfessionalProfile : "has"
     User ||--o{ Match : "receives"
     Company ||--o{ Match : "shared pool, matched per user"
     Company ||--o{ CompanySignal : "emits"

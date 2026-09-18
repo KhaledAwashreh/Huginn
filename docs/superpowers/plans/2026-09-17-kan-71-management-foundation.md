@@ -1,16 +1,16 @@
 # KAN-71 Management Foundation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> **Superseded planning-session instruction:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` to implement this plan task by task.
-> Steps use checkbox syntax. This document authorizes no execution during the
-> planning session. Do not commit unless the user later authorizes commits.
+> Steps use checkbox syntax. The planning session did not authorize execution
+> or commits. The execution amendment below now governs implementation.
 
 > **Execution amendment (2026-09-17):** The user subsequently authorized and
 > required per-task commits for the Subagent-Driven Development run. That
-> authorization supersedes every no-commit, uncommitted-work, and
-> working-tree-only review instruction below. Review packages use committed
-> ranges from `origin/master`; the controller alone owns push and PR actions,
-> and no agent may merge. Implementation requirements are unchanged.
+> authorization supersedes the historical planning restriction above. Review
+> packages use committed ranges from `origin/master`; implementers report each
+> commit SHA. The controller alone may push and create the PR after local gates,
+> and nobody may merge. Implementation requirements are unchanged.
 
 **Goal:** Deliver a Python 3.14 management API foundation and fresh operational
 bootstrap schema, with live Postgres evidence and no business endpoints.
@@ -61,10 +61,13 @@ Postgres 16, pytest, testcontainers, Ruff. No ORM or migration framework.
 
 1. Work only in the dedicated `management/kan-71-foundation` worktree. Read
    repository-relative authority files there without editing another checkout.
-2. No commits, pushes, merges, PR creation, database resets, or Jira writes.
-   Preserve user changes and existing untracked files. No subagents during
-   planning. During separately authorized execution, the controller alone
-   dispatches one fresh implementer at a time and independent reviewers.
+2. During planning, no commits, pushes, merges, PR creation, database resets,
+   or Jira writes were authorized. For execution, per-task commits are required
+   for review packages. The controller alone may push and create the PR after
+   local gates; nobody may merge. Preserve unrelated user changes and existing
+   untracked files. No subagents during planning. During execution, the
+   controller alone dispatches one fresh implementer at a time and independent
+   reviewers.
 3. Python remains `>=3.14`; verify on Python 3.14 specifically. Use uv and
    prefix shell commands with `rtk` per the session's shell instructions.
    Commands below run from the worktree root unless explicitly stated.
@@ -100,9 +103,8 @@ Postgres 16, pytest, testcontainers, Ruff. No ORM or migration framework.
 
 1. Add runtime requirements `flask>=3.1.2,<4` and `pydantic>=2.12,<3`.
    Retain psycopg, python-dotenv, requests, and the existing dev group.
-   Resolve with Python 3.14 and commit no files during this session; `uv.lock`
-   is part of the eventual reviewable change. No new test client dependency:
-   Flask supplies one.
+   Resolve with Python 3.14; `uv.lock` is part of the Task 1 commit and its
+   reviewable change. No new test client dependency: Flask supplies one.
 2. Flask is selected because the repository already uses synchronous I/O,
    explicit composition roots and small modules. Django would introduce an
    unused ORM/auth stack; FastAPI would introduce an ASGI serving model without
@@ -306,28 +308,26 @@ be omitted or null; when supplied as strings they must remain nonempty.
    Record a preflight table for Tasks 1-5 and shared interfaces: 1->2
    (schemas/JSON), 2->3 (DDL/fixtures), 3->4 (config/readiness), 1-4->5
    (documented behavior). No implementation file is jointly owned.
-4. Preserve the no-commit restriction. The installed SDD review-package
-   helper uses committed ranges and would miss this work. Instead supply
-   saved working-tree diffs including untracked files, plus before/after
-   file snapshots per task. `git diff` alone omits newly created files.
-   Use `git diff --no-index /dev/null <new-file>` for new files (exit 1
-   means a diff), and `git diff --no-index <before> <after>` for changed
-   files. Assemble review artifacts in this plan's workspace using the
-   available file-edit tool, not by committing to manufacture a diff.
+4. Commit each completed task before assembling its SDD review package. Use
+   the exact committed range from the previous task SHA, or `origin/master`
+   for Task 1, through the task's reported SHA. Before each commit, inspect the
+   index and working tree, preserve unrelated user changes and untracked files,
+   and stage only files owned by that task.
 5. Every task gets independent spec-compliance and code-quality verdicts
    before proceeding. Return findings to the implementer, rerun affected
    checks, and review fixes. Controller coordinates, not implements. Follow
    the installed skill's bounded review loop and record rulings explicitly.
 6. Each implementer reports files, intended RED failure, GREEN evidence,
-   exact commands, test counts/skips and concerns. Report commits as "none,
-   prohibited". Preserve the ledger and review artifacts while uncommitted;
-   do not run the skill's post-merge cleanup or branch-finishing mutations.
-7. Final independent review covers the entire uncommitted KAN-71 diff.
+   exact commands, test counts/skips, concerns, and the task commit SHA.
+   Preserve the ignored ledger and review artifacts; do not run the skill's
+   post-merge cleanup or branch-finishing mutations.
+7. Final independent review covers committed `origin/master...HEAD`.
    At execution, read `.claude/skills/pre-mr-review/SKILL.md` if present;
    if missing, report that limitation and still perform the local gates and
    independent review. No external CodeRabbit invocation without existing
-   authorization. The file was present during planning. Its step 9 requests
-   a local commit; the user's no-commit instruction overrides that step.
+   authorization. The file was present during planning. After all local gates
+   and reviews pass, only the controller may push and create the PR. Nobody
+   merges.
    Reuse the SDD final independent review as the pre-MR independent review
    when it covers the same complete diff. Planning performs self-review only.
 
@@ -464,7 +464,8 @@ rtk uv run ruff format --check src/huginn/management tests/management
 ```
 
 Expected: all schema tests pass. Record dependency versions and schema
-decisions in the report. Independent task review, then Task 2. No commit.
+decisions in the report. Commit Task 1, report its SHA, complete independent
+task review, then proceed to Task 2.
 
 ## Task 2: Prove The Fresh Operational Schema In Postgres
 
@@ -639,8 +640,9 @@ rtk uv run ruff format --check tests/management
 rtk proxy git diff --check
 ```
 
-Report live test counts and constraint evidence. Independent task review,
-then Task 3. No provisioning function, owner CLI or commit.
+Report live test counts and constraint evidence. No provisioning function or
+owner CLI. Commit Task 2, report its SHA, complete independent task review,
+then proceed to Task 3.
 
 ## Task 3: Add Isolated Configuration And Read-Only Readiness
 
@@ -764,7 +766,8 @@ rtk uv run ruff format --check src/huginn/management tests/management
 ```
 
 Expected: unit and live tests pass, no live skips, connections closed.
-Independent task review, then Task 4. No commit.
+Commit Task 3, report its SHA, complete independent task review, then proceed
+to Task 4.
 
 ## Task 4: Expose Only Health And Readiness
 
@@ -889,8 +892,8 @@ rtk uv run ruff check src/huginn/management tests/management
 rtk uv run ruff format --check src/huginn/management tests/management
 ```
 
-Expected: no unit or integration failures/skips. Independent task review,
-then Task 5. No commit.
+Expected: no unit or integration failures/skips. Commit Task 4, report its SHA,
+complete independent task review, then proceed to Task 5.
 
 ## Task 5: Document Bootstrap, Verify The Foundation And Hand Off
 
@@ -974,7 +977,7 @@ rtk uv run --python 3.14 python -m compileall -q src tests
 rtk uv run ruff check .
 rtk uv run ruff format --check .
 rtk proxy env -u HUGINN_DATABASE_URL PYTHON_DOTENV_DISABLED=1 uv run --python 3.14 pytest -ra
-rtk proxy git diff --check master...HEAD
+rtk proxy git diff --check origin/master...HEAD
 rtk proxy git diff --cached --check
 rtk proxy git diff --check
 rtk proxy git status --short
@@ -989,9 +992,10 @@ created files through the saved review diffs as well as tracked git diff.
 
 - [ ] **Step 4: Review and provide the KAN-72 handoff.**
 
-1. Run independent final spec/code review and the available local pre-MR
-   process as described in Execution And Review Protocol. Include all new
-   files in the review package. State missing review tooling explicitly.
+1. Commit Task 5 and report its SHA, then run independent final spec/code review
+   of committed `origin/master...HEAD` and the available local pre-MR process
+   as described in Execution And Review Protocol. Include all branch files in
+   the review package. State missing review tooling explicitly.
 2. KAN-72 consumes `operational.accounts`, `operational.users`,
    `operational.professional_profiles`, ManagementConfig and the collection
    schemas. It must implement one transaction creating Account, User and an
@@ -1002,7 +1006,9 @@ created files through the saved review diffs as well as tracked git diff.
    database itself enforces mandatory children or normalizes usernames.
    KAN-73 subsequently implements session storage and ownership enforcement.
 4. Report the implemented task list, exact gate results, unresolved concerns,
-   no Jira sync, and no commits. Preserve all uncommitted work for user review.
+   no Jira sync, and every task commit SHA. Preserve unrelated user changes.
+   After all local gates and reviews, the controller owns any push and PR
+   creation; nobody merges.
 
 **Explicitly out of scope:** provisioning implementation/CLI (KAN-72),
 password hashing implementation and login/session/auth behavior (KAN-73,
