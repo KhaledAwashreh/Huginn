@@ -123,3 +123,21 @@ class NewsletterSourcePort(SourcePort, Protocol):
         here; no ingestion policy beyond that, same as the other two ports.
         """
         ...
+
+
+class DiscoveryWatermarkPort(Protocol):
+    """A single per-source "highest lastmod already processed" scalar, for
+    a source whose discovery mechanism (a sitemap, an index feed) exposes
+    a per-item timestamp usable as an incremental cursor. See ADR-0009 for
+    why this is not folded into huginn.elt.bronze.ports.StatePort.
+    """
+
+    def read_watermark(self, source: str) -> str | None:
+        """The stored watermark for `source`, or None if never set (a
+        first run, process everything discovery finds).
+        """
+        ...
+
+    def save_watermark(self, source: str, value: str) -> None:
+        """Persist `value` as the new watermark for `source`."""
+        ...

@@ -65,6 +65,7 @@ Current state only. One row per company, always. Overwritten in place when any f
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
 - IcpFilterPass: Boolean (Type 2 tracked, see CompanyHistory)
+- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset

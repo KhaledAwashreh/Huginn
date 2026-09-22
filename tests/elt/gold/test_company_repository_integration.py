@@ -45,15 +45,20 @@ pytestmark = pytest.mark.skipif(
 
 
 def _insert_company(
-    cur, domain: str, name: str, business_sector: str | None, created_at: datetime
+    cur,
+    domain: str,
+    name: str,
+    business_sector: str | None,
+    created_at: datetime,
+    eu_startups_searched_at: datetime | None = None,
 ) -> None:
     """Insert one isolated company fixture through the supplied cursor."""
     cur.execute(
         """
-        INSERT INTO gold.company (domain, name, business_sector, created_at)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO gold.company (domain, name, business_sector, created_at, eu_startups_searched_at)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (domain, name, business_sector, created_at),
+        (domain, name, business_sector, created_at, eu_startups_searched_at),
     )
 
 
@@ -131,4 +136,45 @@ def test_read_unenriched_company_names_respects_the_limit():
             cur.execute(
                 "DELETE FROM gold.company WHERE domain = ANY(%s)",
                 (domains,),
+            )
+
+
+def test_read_company_names_pending_eu_startups_search_returns_only_rows_with_null_column():
+    """Candidate reads exclude companies that already have eu_startups_searched_at
+    set.
+    """
+    suffix = str(uuid.uuid4().int)[:10]
+    pending_domain = f"eustartuptest-pending-{suffix}.example"
+    searched_domain = f"eustartuptest-searched-{suffix}.example"
+    now = datetime.now(UTC)
+
+    try:
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            _insert_company(
+                cur,
+                pending_domain,
+                "PendingCo",
+                "software",
+                now,
+                eu_startups_searched_at=None,
+            )
+            _insert_company(
+                cur,
+                searched_domain,
+                "SearchedCo",
+                "software",
+                now,
+                eu_startups_searched_at=now,
+            )
+
+        with PostgresCompanyRepository(DATABASE_URL) as repository:
+            names = repository.read_company_names_pending_eu_startups_search(limit=1000)
+
+        assert "PendingCo" in names
+        assert "SearchedCo" not in names
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM gold.company WHERE domain IN (%s, %s)",
+                (pending_domain, searched_domain),
             )
