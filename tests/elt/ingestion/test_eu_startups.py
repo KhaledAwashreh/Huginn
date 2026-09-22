@@ -131,6 +131,22 @@ def test_parse_listing_sitemap_every_entry_has_a_timezone_aware_lastmod():
     assert all(lastmod.tzinfo is not None for _, lastmod in entries)
 
 
+def test_parse_listing_sitemap_skips_invalid_or_timezone_naive_lastmod():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://www.eu-startups.com/directory/malformed/</loc><lastmod>not-a-date</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/naive/</loc><lastmod>2026-09-01T00:00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/valid/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+</urlset>"""
+
+    assert _parse_listing_sitemap(xml) == [
+        (
+            "https://www.eu-startups.com/directory/valid/",
+            datetime(2026, 9, 1, tzinfo=UTC),
+        )
+    ]
+
+
 def test_extract_listing_fields_gets_every_field_when_all_present():
     fields = extract_listing_fields(_read_fixture("listing_brightroom.html"))
 

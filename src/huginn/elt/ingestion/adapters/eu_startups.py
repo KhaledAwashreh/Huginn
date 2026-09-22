@@ -148,7 +148,13 @@ def _parse_listing_sitemap(xml_text: str) -> list[tuple[str, datetime]]:
             continue
         if not _is_listing_detail_url(loc_element.text):
             continue
-        entries.append((loc_element.text, datetime.fromisoformat(lastmod_element.text)))
+        try:
+            lastmod = datetime.fromisoformat(lastmod_element.text)
+        except ValueError:
+            continue
+        if lastmod.utcoffset() is None:
+            continue
+        entries.append((loc_element.text, lastmod))
     return entries
 
 
