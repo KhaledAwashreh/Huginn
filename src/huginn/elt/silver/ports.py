@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from huginn.elt.silver.models import (
+    EuStartupsListingStaging,
     HnPostingStaging,
     ResolvedSignalRecord,
     StagedSignal,
@@ -65,14 +66,20 @@ class RepositoryScopePort(Protocol):
 
 
 class BronzeReaderPort(RepositoryScopePort, Protocol):
-    """Reads raw bronze.api_ingest payloads for one source. Both staging
-    ports below extend this Protocol into their own contract; their
+    """Reads raw bronze.api_ingest payloads for one source. The HN and YC
+    staging ports extend this Protocol into their own contracts; their
     concrete implementations share the read via a plain function
     (`huginn.elt.silver.repositories.postgres_repository.read_bronze_payloads`),
     since the read side is identical regardless of source (architecture
     document section 4.1: one shared api_ingest table, `source` column
     distinguishes rows).
     """
+
+    def read(self, source: str) -> list[dict]: ...
+
+
+class WebScrapeBronzeReaderPort(RepositoryScopePort, Protocol):
+    """Reads raw bronze.web_scrape_ingest payloads for one source."""
 
     def read(self, source: str) -> list[dict]: ...
 
@@ -87,6 +94,16 @@ class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
     """Reads bronze.api_ingest and upserts silver.yc_listings."""
 
     def upsert(self, row: YcListingStaging) -> None: ...
+
+
+class EuStartupsStagingRepositoryPort(WebScrapeBronzeReaderPort, Protocol):
+    """Reads Bronze rows for source="eu_startups" and upserts
+    silver.eu_startups_listings. Jira KAN-64. No concrete implementation
+    yet (KAN-64 plan Global Constraint 11): follow-up debt is tracked
+    under Jira epic KAN-16.
+    """
+
+    def upsert(self, row: EuStartupsListingStaging) -> None: ...
 
 
 class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
