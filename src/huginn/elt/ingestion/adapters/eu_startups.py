@@ -352,6 +352,9 @@ class EuStartupsDiscoveryAdapter:
         else:
             new_watermark = max(lastmod for _loc, lastmod, _html in fetched)
 
+        if parsed_watermark is not None:
+            new_watermark = max(new_watermark, parsed_watermark)
+
         return DiscoveryBatch(
             records=tuple(records),
             proposed_watermark=new_watermark.isoformat(),
