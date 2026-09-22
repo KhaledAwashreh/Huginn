@@ -14,6 +14,7 @@ from huginn.elt.ingestion.adapters.eu_startups import (
     _parse_sitemap_index,
     extract_listing_fields,
 )
+from huginn.elt.ingestion.models import DiscoveryBatch, FailedListingOutcome, RawRecord
 
 _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "eu_startups"
 
@@ -201,18 +202,6 @@ def test_extract_listing_fields_never_raises_on_a_field_free_fragment():
     }
 
 
-class FakeWatermarkPort:
-    def __init__(self, watermark=None):
-        self._watermark = watermark
-        self.saved = []
-
-    def read_watermark(self, source):
-        return self._watermark
-
-    def save_watermark(self, source, value):
-        self.saved.append((source, value))
-
-
 def test_fetch_page_rejects_redirects(monkeypatch):
     captured = {}
 
@@ -227,7 +216,7 @@ def test_fetch_page_rejects_redirects(monkeypatch):
         return FakeRedirectResponse()
 
     monkeypatch.setattr(eu_startups.requests, "get", fake_get)
-    adapter = EuStartupsDiscoveryAdapter(watermark_port=FakeWatermarkPort())
+    adapter = EuStartupsDiscoveryAdapter()
 
     with pytest.raises(EuStartupsFetchError, match="redirect"):
         adapter.fetch_page("https://www.eu-startups.com/directory/brightroom/")
@@ -235,22 +224,45 @@ def test_fetch_page_rejects_redirects(monkeypatch):
     assert captured["allow_redirects"] is False
 
 
+def test_fetch_page_preserves_confirmed_http_status_for_retry_policy(monkeypatch):
+    class FakeNotFoundResponse:
+        status_code = 404
+
+        def __bool__(self):
+            return False
+
+        def raise_for_status(self):
+            raise eu_startups.requests.HTTPError(response=self)
+
+    monkeypatch.setattr(
+        eu_startups.requests,
+        "get",
+        lambda _url, **_kwargs: FakeNotFoundResponse(),
+    )
+    adapter = EuStartupsDiscoveryAdapter()
+
+    with pytest.raises(EuStartupsFetchError) as exc_info:
+        adapter.fetch_page("https://www.eu-startups.com/directory/missing/")
+
+    assert exc_info.value.status_code == 404
+
+
 def test_fetch_processes_every_listing_when_no_watermark_yet(monkeypatch):
     listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
     detail_html = _read_fixture("listing_brightroom.html")
-    adapter = EuStartupsDiscoveryAdapter(
-        watermark_port=FakeWatermarkPort(watermark=None)
-    )
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(
         adapter,
         "fetch_page",
         lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
     )
 
-    records = adapter.fetch()
+    batch = adapter.fetch(watermark=None)
 
-    assert len(records) > 0
-    assert all(record.stable_id for record in records)
+    assert len(batch.records) > 0
+    assert all(record.stable_id for record in batch.records)
+    assert batch.proposed_watermark == _MAX_FIXTURE_LASTMOD
+    assert batch.failed_listings == ()
 
 
 def test_fetch_skips_listings_at_or_before_the_watermark(monkeypatch):
@@ -259,37 +271,50 @@ def test_fetch_skips_listings_at_or_before_the_watermark(monkeypatch):
     watermark equal to the maximum still excludes it)."""
     listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
     detail_html = _read_fixture("listing_brightroom.html")
-    adapter = EuStartupsDiscoveryAdapter(
-        watermark_port=FakeWatermarkPort(watermark=_MAX_FIXTURE_LASTMOD)
-    )
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(
         adapter,
         "fetch_page",
         lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
     )
 
-    records = adapter.fetch()
+    batch = adapter.fetch(watermark=_MAX_FIXTURE_LASTMOD)
 
-    assert records == []
+    assert batch == DiscoveryBatch((), None, ())
 
 
-def test_fetch_saves_the_new_watermark_after_processing(monkeypatch):
+def test_discovery_batch_models_are_immutable():
+    record = RawRecord(stable_id="brightroom", payload={"html": "<html>"})
+    failure = FailedListingOutcome(
+        url="https://www.eu-startups.com/directory/broken-listing/",
+        lastmod="2026-09-05T00:00:00+00:00",
+        status_code=404,
+    )
+    batch = DiscoveryBatch((record,), "2026-09-05T00:00:00+00:00", (failure,))
+
+    with pytest.raises(AttributeError):
+        batch.proposed_watermark = None
+
+    with pytest.raises(AttributeError):
+        failure.status_code = None
+
+    assert batch.records == (record,)
+    assert batch.failed_listings == (failure,)
+
+
+def test_fetch_proposes_the_new_watermark_without_persisting_it(monkeypatch):
     listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
     detail_html = _read_fixture("listing_brightroom.html")
-    watermark_port = FakeWatermarkPort(watermark=None)
-    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(
         adapter,
         "fetch_page",
         lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
     )
 
-    adapter.fetch()
+    batch = adapter.fetch(watermark=None)
 
-    assert len(watermark_port.saved) == 1
-    saved_source, saved_value = watermark_port.saved[0]
-    assert saved_source == "eu_startups"
-    assert saved_value == _MAX_FIXTURE_LASTMOD
+    assert batch.proposed_watermark == _MAX_FIXTURE_LASTMOD
 
 
 def test_fetch_skips_a_listing_whose_detail_page_fetch_fails(monkeypatch):
@@ -318,21 +343,24 @@ def test_fetch_skips_a_listing_whose_detail_page_fetch_fails(monkeypatch):
         if "wpbdp_listing-sitemap" in url:
             return listing_sitemap_xml
         if "broken-listing" in url:
-            raise EuStartupsFetchError("simulated 404")
+            raise EuStartupsFetchError("simulated 404", status_code=404)
         return detail_html
 
-    watermark_port = FakeWatermarkPort(watermark=None)
-    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
 
-    records = adapter.fetch()
+    batch = adapter.fetch(watermark=None)
 
-    assert len(records) == 1
-    assert records[0].stable_id == "good-listing"
-    assert len(watermark_port.saved) == 1
-    saved_source, saved_value = watermark_port.saved[0]
-    assert saved_source == "eu_startups"
-    assert saved_value == "2026-09-04T23:59:59+00:00"
+    assert len(batch.records) == 1
+    assert batch.records[0].stable_id == "good-listing"
+    assert batch.proposed_watermark == "2026-09-04T23:59:59+00:00"
+    assert batch.failed_listings == (
+        FailedListingOutcome(
+            url="https://www.eu-startups.com/directory/broken-listing/",
+            lastmod="2026-09-05T00:00:00+00:00",
+            status_code=404,
+        ),
+    )
 
 
 def test_fetch_keeps_an_earlier_failure_eligible_for_retry_past_a_later_success(
@@ -366,19 +394,21 @@ def test_fetch_keeps_an_earlier_failure_eligible_for_retry_past_a_later_success(
             raise EuStartupsFetchError("simulated 404")
         return detail_html
 
-    watermark_port = FakeWatermarkPort(watermark=None)
-    adapter = EuStartupsDiscoveryAdapter(watermark_port=watermark_port)
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
 
-    records = adapter.fetch()
+    batch = adapter.fetch(watermark=None)
 
-    assert {record.stable_id for record in records} == {"listing-a", "listing-c"}
-    assert len(watermark_port.saved) == 1
-    saved_source, saved_value = watermark_port.saved[0]
-    assert saved_source == "eu_startups"
+    assert {record.stable_id for record in batch.records} == {"listing-a", "listing-c"}
     listing_b_lastmod = datetime(2026, 9, 3, 0, 0, 0, tzinfo=UTC)
-    saved_watermark = datetime.fromisoformat(saved_value)
-    assert saved_watermark < listing_b_lastmod
+    assert datetime.fromisoformat(batch.proposed_watermark) < listing_b_lastmod
+    assert batch.failed_listings == (
+        FailedListingOutcome(
+            url="https://www.eu-startups.com/directory/listing-b/",
+            lastmod="2026-09-03T00:00:00+00:00",
+            status_code=None,
+        ),
+    )
 
 
 def test_fetch_raises_when_sitemap_index_lists_zero_listing_sitemaps(monkeypatch):
@@ -390,28 +420,24 @@ def test_fetch_raises_when_sitemap_index_lists_zero_listing_sitemaps(monkeypatch
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <sitemap><loc>https://www.eu-startups.com/post-sitemap.xml</loc></sitemap>
 </sitemapindex>"""
-    adapter = EuStartupsDiscoveryAdapter(
-        watermark_port=FakeWatermarkPort(watermark=None)
-    )
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(adapter, "fetch_page", lambda url: empty_index_xml)
 
     with pytest.raises(EuStartupsFetchError):
-        adapter.fetch()
+        adapter.fetch(watermark=None)
 
 
 def test_raw_record_stable_id_is_the_listing_slug_not_the_full_url(monkeypatch):
     listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
     detail_html = _read_fixture("listing_brightroom.html")
-    adapter = EuStartupsDiscoveryAdapter(
-        watermark_port=FakeWatermarkPort(watermark=None)
-    )
+    adapter = EuStartupsDiscoveryAdapter()
     monkeypatch.setattr(
         adapter,
         "fetch_page",
         lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
     )
 
-    records = adapter.fetch()
+    batch = adapter.fetch(watermark=None)
 
-    assert all("/" not in record.stable_id for record in records)
-    assert all(not record.stable_id.startswith("http") for record in records)
+    assert all("/" not in record.stable_id for record in batch.records)
+    assert all(not record.stable_id.startswith("http") for record in batch.records)

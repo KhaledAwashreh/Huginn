@@ -23,3 +23,25 @@ class RawRecord:
 
     stable_id: str
     payload: dict
+
+
+@dataclass(frozen=True)
+class FailedListingOutcome:
+    """One EU discovery detail-page fetch that did not produce a raw record.
+
+    `status_code` distinguishes a confirmed HTTP failure (notably 404/410)
+    from a transport or otherwise unclassified failure for retry policy.
+    """
+
+    url: str
+    lastmod: str
+    status_code: int | None
+
+
+@dataclass(frozen=True)
+class DiscoveryBatch:
+    """The complete, not-yet-persisted outcome of one EU discovery pass."""
+
+    records: tuple[RawRecord, ...]
+    proposed_watermark: str | None
+    failed_listings: tuple[FailedListingOutcome, ...]
