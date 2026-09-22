@@ -411,6 +411,38 @@ def test_fetch_keeps_an_earlier_failure_eligible_for_retry_past_a_later_success(
     )
 
 
+def test_fetch_does_not_regress_a_fractional_second_watermark_on_failure(
+    monkeypatch,
+):
+    incoming_watermark = "2026-09-03T00:00:00.900000+00:00"
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    listing_sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://www.eu-startups.com/directory/failed-listing/</loc><lastmod>2026-09-03T00:00:01+00:00</lastmod></url>
+</urlset>"""
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        raise EuStartupsFetchError("simulated network failure")
+
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    batch = adapter.fetch(watermark=incoming_watermark)
+
+    assert batch.records == ()
+    assert batch.proposed_watermark == incoming_watermark
+    assert datetime.fromisoformat(
+        batch.failed_listings[0].lastmod
+    ) > datetime.fromisoformat(batch.proposed_watermark)
+
+
 def test_fetch_raises_when_sitemap_index_lists_zero_listing_sitemaps(monkeypatch):
     """An index that parses to zero `wpbdp_listing-sitemap` entries (e.g. a
     namespace variant the hardcoded qualified tags don't match) is a
