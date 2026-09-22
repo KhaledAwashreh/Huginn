@@ -24,11 +24,11 @@ EU-Startups discovery.
 
 - Every failed listing increments `attempt_count`.
 - Only confirmed HTTP 404 or 410 outcomes increment
-  `terminal_attempt_count`.
-- A listing remains `retryable` after the first and second confirmed terminal
-  response and becomes `terminal` on the third.
-- Network failures and 5xx responses remain retryable regardless of total
-  attempt count.
+  `terminal_attempt_count`, which is retained as failure telemetry.
+- A listing becomes `terminal` when the current outcome is a confirmed 404 or
+  410 and the resulting total `attempt_count` is at least three.
+- A current network failure or 5xx response remains retryable regardless of
+  total attempt count, including after an earlier terminal outcome.
 - Terminal failures stop pinning the committed watermark. Any remaining
   retryable failure pins it to one second before that listing's `lastmod`.
 
@@ -40,10 +40,6 @@ run failed collection with `ModuleNotFoundError` for the missing
 
 Unit coverage verifies:
 
-- exact third-attempt terminalization for both 404 and 410;
-- indefinite retryability for network and 5xx failures;
-- mixed failure types count only confirmed 404/410 outcomes toward terminal
-  status;
 - watermark movement past terminal failures while remaining pinned by
   retryable failures;
 - explicit rollback and resource cleanup when a transaction statement fails.
@@ -54,7 +50,8 @@ Testcontainers bootstrap and verifies:
 - atomic successful Bronze-row and watermark commit;
 - rollback leaves the prior Bronze rows and watermark unchanged;
 - retry count and status persist across transactions;
-- 404 and 410 terminalize exactly on their third persisted attempt.
+- 404 and 410 terminalize exactly on their third persisted attempt;
+- mixed outcomes use total attempt count and current response type for status.
 
 The integration tests actually executed against PostgreSQL; none skipped.
 
@@ -84,3 +81,41 @@ through a single `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` statement.
 `db/schema/bronze.sql` is the project's fresh-database bootstrap. The project
 does not yet have a migration framework, so applying these tables to an
 existing database remains an operational follow-up outside Task 2.
+
+## Fix Round 1/5: Retry Terminalization Policy
+
+### Findings Addressed
+
+1. Changed production terminalization to require both a current confirmed
+   404/410 and a resulting total `attempt_count >= 3`. The mixed sequence
+   `503 -> 404 -> 410` now terminalizes on its third failed attempt, while a
+   subsequent 503 is retryable.
+2. Removed the unused `ListingRetryState` and `advance_retry_state()` Python
+   policy duplicate. Retry-policy assertions now execute `commit_batch()`
+   against PostgreSQL.
+
+### Red Evidence
+
+The new mixed-status Testcontainers regression failed before the production
+change at attempt 3:
+
+- expected `(3, 2, 410, "terminal")`;
+- observed `(3, 2, 410, "retryable")`;
+- run result: `1 failed, 5 passed`.
+
+### Verification
+
+- Focused repository unit and PostgreSQL integration suite: `9 passed`,
+  `0 skipped`.
+- Both all-404 and all-410 third-attempt integration cases still pass.
+- Mixed `503 -> 404 -> 410 -> 503` integration case proves statuses
+  `retryable -> retryable -> terminal -> retryable`.
+- Focused `ruff check`: passed.
+- Focused `ruff format --check`: passed (`3 files already formatted`).
+- `git diff --check`: passed.
+
+### Scope
+
+Only the source-specific repository, its focused unit/integration tests, and
+this report changed. The adapter, runner, shared ingestion service, other
+sources, and pre-existing uncommitted web-scrape work remain untouched.
