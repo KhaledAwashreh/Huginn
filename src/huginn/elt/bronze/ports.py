@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from huginn.elt.ingestion.models import RawRecord
+from huginn.elt.ingestion.models import DiscoveryBatch, RawRecord
 
 
 class RawStorePort(Protocol):
@@ -51,6 +51,18 @@ class StatePort(Protocol):
 
     def last_hash(self, source: str, stable_id: str) -> str | None:
         """The last stored content hash for this entity, or None if never seen."""
+        ...
+
+
+class EuStartupsDiscoveryRepositoryPort(Protocol):
+    """Atomic persistence boundary for EU-Startups discovery (KAN-83)."""
+
+    def read_watermark(self) -> str | None:
+        """Return the durable sitemap watermark, or None before the first run."""
+        ...
+
+    def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
+        """Atomically persist a discovery batch and return rows written."""
         ...
 
 
