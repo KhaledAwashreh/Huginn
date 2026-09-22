@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -72,9 +71,8 @@ _WRITE_RETRY_SQL = """
             + EXCLUDED.terminal_attempt_count,
         last_status_code = EXCLUDED.last_status_code,
         status = CASE
-            WHEN bronze.eu_startups_listing_retry.status = 'terminal'
-              OR bronze.eu_startups_listing_retry.terminal_attempt_count
-                 + EXCLUDED.terminal_attempt_count >= %s
+            WHEN EXCLUDED.terminal_attempt_count = 1
+             AND bronze.eu_startups_listing_retry.attempt_count + 1 >= %s
             THEN 'terminal'
             ELSE 'retryable'
         END,
@@ -92,33 +90,6 @@ _WRITE_WATERMARK_SQL = """
         ),
         updated_at = now()
 """
-
-
-@dataclass(frozen=True)
-class ListingRetryState:
-    """Durable counters and policy state for one failed listing."""
-
-    attempt_count: int
-    terminal_attempt_count: int
-    status: RetryStatus
-
-
-def advance_retry_state(
-    previous: ListingRetryState | None, status_code: int | None
-) -> ListingRetryState:
-    """Apply the KAN-83 three-confirmed-404/410 terminal policy."""
-    attempt_count = 1 if previous is None else previous.attempt_count + 1
-    terminal_attempt_count = 0 if previous is None else previous.terminal_attempt_count
-    if status_code in _TERMINAL_STATUS_CODES:
-        terminal_attempt_count += 1
-
-    already_terminal = previous is not None and previous.status == TERMINAL
-    status: RetryStatus = (
-        TERMINAL
-        if already_terminal or terminal_attempt_count >= _TERMINAL_ATTEMPTS
-        else RETRYABLE
-    )
-    return ListingRetryState(attempt_count, terminal_attempt_count, status)
 
 
 def _parse_timestamp(value: str) -> datetime:

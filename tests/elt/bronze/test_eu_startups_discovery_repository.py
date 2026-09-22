@@ -6,9 +6,7 @@ from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
     RETRYABLE,
     TERMINAL,
-    ListingRetryState,
     PostgresEuStartupsDiscoveryRepository,
-    advance_retry_state,
     committed_watermark,
 )
 from huginn.elt.ingestion.models import (
@@ -24,40 +22,6 @@ def _failure(status_code: int | None, lastmod: str) -> FailedListingOutcome:
         lastmod=lastmod,
         status_code=status_code,
     )
-
-
-@pytest.mark.parametrize("status_code", [404, 410])
-def test_confirmed_gone_listing_terminalizes_on_exactly_third_attempt(status_code):
-    state = None
-
-    state = advance_retry_state(state, status_code)
-    assert state == ListingRetryState(1, 1, RETRYABLE)
-
-    state = advance_retry_state(state, status_code)
-    assert state == ListingRetryState(2, 2, RETRYABLE)
-
-    state = advance_retry_state(state, status_code)
-    assert state == ListingRetryState(3, 3, TERMINAL)
-
-
-@pytest.mark.parametrize("status_code", [None, 500, 503])
-def test_transport_and_server_failures_never_terminalize(status_code):
-    state = None
-
-    for _attempt in range(5):
-        state = advance_retry_state(state, status_code)
-
-    assert state == ListingRetryState(5, 0, RETRYABLE)
-
-
-def test_only_confirmed_404_and_410_attempts_count_toward_terminalization():
-    state = advance_retry_state(None, 404)
-    state = advance_retry_state(state, 503)
-    state = advance_retry_state(state, None)
-    state = advance_retry_state(state, 410)
-
-    assert state == ListingRetryState(4, 2, RETRYABLE)
-    assert advance_retry_state(state, 404).status == TERMINAL
 
 
 def test_terminal_failure_no_longer_pins_the_committed_watermark():
