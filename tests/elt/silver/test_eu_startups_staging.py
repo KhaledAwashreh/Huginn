@@ -7,6 +7,10 @@ from huginn.elt.silver.eu_startups_staging import (
     EuStartupsStagingLoader,
     parse_eu_startups_listing,
 )
+from huginn.elt.silver.ports import (
+    EuStartupsStagingRepositoryPort,
+    WebScrapeBronzeReaderPort,
+)
 
 _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "eu_startups"
 
@@ -16,7 +20,7 @@ _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "eu_startups"
 _BRIGHTROOM_LASTMOD = "2026-09-01T07:37:16+00:00"
 
 
-def _payload(html_name: str, url: str, lastmod: str = _BRIGHTROOM_LASTMOD) -> dict:
+def _payload(html_name: str, url: str, lastmod: object = _BRIGHTROOM_LASTMOD) -> dict:
     """Bronze payload shape, per Global Constraint 4 of the KAN-64 plan:
     `{"url", "html", "lastmod"}`, `lastmod` an ISO 8601 string (the
     ingestion adapter's `RawRecord.payload` now carries all three, see
@@ -41,6 +45,53 @@ def test_parse_eu_startups_listing_maps_every_confirmed_field():
     assert row.website == "https://thebrightroom.de"
     assert row.url == "https://www.eu-startups.com/directory/brightroom/"
     assert row.occurred_on == datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC)
+
+
+def test_parse_eu_startups_listing_stable_id_excludes_query_and_fragment():
+    row = parse_eu_startups_listing(
+        _payload(
+            "listing_brightroom.html",
+            "https://www.eu-startups.com/directory/brightroom%2Dlabs/?ref=search#profile",
+        )
+    )
+
+    assert row is not None
+    assert row.stable_id == "brightroom-labs"
+
+
+def test_parse_eu_startups_listing_returns_none_for_malformed_url():
+    row = parse_eu_startups_listing(
+        _payload("listing_brightroom.html", "https://[invalid")
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_for_slugless_url():
+    row = parse_eu_startups_listing(
+        _payload(
+            "listing_brightroom.html",
+            "https://www.eu-startups.com/directory/",
+        )
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_for_unsafe_encoded_slug():
+    for url in (
+        "https://www.eu-startups.com/directory/../",
+        "https://www.eu-startups.com/directory/%2E%2E/",
+        "https://www.eu-startups.com/directory/%2Fadmin/",
+        "https://www.eu-startups.com/directory/%5Cadmin/",
+        "https://www.eu-startups.com/directory/%FF/",
+        "https://www.eu-startups.com/directory/%/",
+        "https://www.eu-startups.com/directory/%G0/",
+        "https://www.eu-startups.com/directory/%0/",
+    ):
+        assert (
+            parse_eu_startups_listing(_payload("listing_brightroom.html", url)) is None
+        )
 
 
 def test_parse_eu_startups_listing_handles_missing_optional_fields():
@@ -117,6 +168,88 @@ def test_parse_eu_startups_listing_returns_none_when_lastmod_is_unparseable():
     row = parse_eu_startups_listing(payload)
 
     assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_lastmod_is_not_a_string():
+    row = parse_eu_startups_listing(
+        _payload(
+            "listing_brightroom.html",
+            "https://www.eu-startups.com/directory/brightroom/",
+            lastmod=0,
+        )
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_lastmod_has_no_timezone():
+    row = parse_eu_startups_listing(
+        _payload(
+            "listing_brightroom.html",
+            "https://www.eu-startups.com/directory/brightroom/",
+            lastmod="2026-09-01T07:37:16",
+        )
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_title_is_missing():
+    html = (
+        (_FIXTURES / "listing_brightroom.html")
+        .read_text()
+        .replace("<title>Brightroom | EU-Startups</title>", "")
+    )
+
+    row = parse_eu_startups_listing(
+        {
+            "url": "https://www.eu-startups.com/directory/brightroom/",
+            "html": html,
+            "lastmod": _BRIGHTROOM_LASTMOD,
+        }
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_url_is_empty():
+    row = parse_eu_startups_listing(_payload("listing_brightroom.html", ""))
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_website_is_empty():
+    row = parse_eu_startups_listing(
+        {
+            "url": "https://www.eu-startups.com/directory/empty-website/",
+            "html": """
+                <html><head><title>Empty Website | EU-Startups</title></head>
+                <body><div class="wpbdp-field-website"><div class="value"> </div></div></body></html>
+            """,
+            "lastmod": _BRIGHTROOM_LASTMOD,
+        }
+    )
+
+    assert row is None
+
+
+def test_parse_eu_startups_listing_returns_none_when_title_is_only_site_suffix():
+    row = parse_eu_startups_listing(
+        {
+            "url": "https://www.eu-startups.com/directory/missing-name/",
+            "html": """
+                <html><head><title> | EU-Startups</title></head>
+                <body><div class="wpbdp-field-website"><div class="value">https://example.com</div></div></body></html>
+            """,
+            "lastmod": _BRIGHTROOM_LASTMOD,
+        }
+    )
+
+    assert row is None
+
+
+def test_eu_startups_repository_port_reads_web_scrape_bronze():
+    assert WebScrapeBronzeReaderPort in EuStartupsStagingRepositoryPort.__mro__
 
 
 class FakeEuStartupsStagingRepository:

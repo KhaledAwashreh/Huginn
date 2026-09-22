@@ -17,8 +17,10 @@ Silver staging loader.
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
 import requests
@@ -36,6 +38,8 @@ _SITEMAP_LASTMOD_TAG = f"{{{_SITEMAP_NAMESPACE}}}lastmod"
 _LISTING_SITEMAP_MARKER = "wpbdp_listing-sitemap"
 
 _SITEMAP_INDEX_URL = "https://www.eu-startups.com/sitemap_index.xml"
+_EXPECTED_SCHEME = "https"
+_EXPECTED_HOST = "www.eu-startups.com"
 
 # Confirmed live (docs/sources/eu-startups.md): a plain browser User-Agent
 # clears the Cloudflare check for this source. Independent of, and not
@@ -65,17 +69,64 @@ _LISTING_FIELD_SLUGS = (
 )
 
 
+def _is_trusted_source_url(url: str, path_pattern: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == _EXPECTED_SCHEME
+        and parsed.hostname == _EXPECTED_HOST
+        and port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and re.fullmatch(path_pattern, parsed.path) is not None
+    )
+
+
+def _is_listing_sitemap_url(url: str) -> bool:
+    return _is_trusted_source_url(url, r"/wpbdp_listing-sitemap[^/]*\.xml")
+
+
+def _decoded_listing_slug(path: str) -> str | None:
+    match = re.fullmatch(r"/directory/([^/]+)/?", path)
+    if match is None:
+        return None
+    encoded_slug = match.group(1)
+    if re.search(r"%(?![0-9A-Fa-f]{2})", encoded_slug):
+        return None
+    try:
+        slug = unquote(encoded_slug, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if slug in {".", ".."} or any(
+        not (character.isalnum() or character in "-._~") for character in slug
+    ):
+        return None
+    return slug
+
+
+def _is_listing_detail_url(url: str) -> bool:
+    return (
+        _is_trusted_source_url(url, r"/directory/[^/]+/?")
+        and _decoded_listing_slug(urlparse(url).path) is not None
+    )
+
+
 def _parse_sitemap_index(xml_text: str) -> list[str]:
-    """Every `<loc>` in a sitemap index whose URL is a listing sitemap
-    (contains `wpbdp_listing-sitemap`), in document order. See ADR-0008:
-    the index also lists post- and job-sitemaps, neither in this
-    adapter's scope.
+    """Every trusted eu-startups.com listing-sitemap `<loc>` in document
+    order. See ADR-0008: the index also lists post- and job-sitemaps,
+    neither in this adapter's scope. Origin and path validation prevents
+    sitemap-controlled URLs from turning later fetches into SSRF.
     """
     root = ElementTree.fromstring(xml_text)
     return [
         loc_element.text
         for loc_element in root.iter(_SITEMAP_LOC_TAG)
-        if loc_element.text and _LISTING_SITEMAP_MARKER in loc_element.text
+        if loc_element.text
+        and _LISTING_SITEMAP_MARKER in loc_element.text
+        and _is_listing_sitemap_url(loc_element.text)
     ]
 
 
@@ -94,6 +145,8 @@ def _parse_listing_sitemap(xml_text: str) -> list[tuple[str, datetime]]:
         if loc_element is None or lastmod_element is None:
             continue
         if not loc_element.text or not lastmod_element.text:
+            continue
+        if not _is_listing_detail_url(loc_element.text):
             continue
         entries.append((loc_element.text, datetime.fromisoformat(lastmod_element.text)))
     return entries
@@ -125,7 +178,10 @@ def _listing_slug(url: str) -> str:
     Used as `RawRecord.stable_id` (Global Constraint 6): a short identifier,
     not a URL.
     """
-    return url.rstrip("/").rsplit("/", 1)[-1]
+    slug = _decoded_listing_slug(urlparse(url).path)
+    if slug is None:
+        raise ValueError("invalid EU-Startups listing URL")
+    return slug
 
 
 class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
@@ -155,14 +211,21 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
         sanitized `EuStartupsFetchError` on a non-2xx response or a request
         failure (Global Constraint 5, mirrors `opencorporates.py`'s
         `try`/`except requests.RequestException` pattern with its own
-        exception type, scoped to this adapter).
+        exception type, scoped to this adapter). Redirect following is
+        disabled and every 3xx response is rejected so a trusted sitemap
+        URL cannot redirect the request to another origin.
         """
         try:
             response = requests.get(
                 url,
                 headers={"User-Agent": _USER_AGENT},
                 timeout=self._timeout,
+                allow_redirects=False,
             )
+            if 300 <= response.status_code <= 399:
+                raise EuStartupsFetchError(
+                    "EU-Startups page fetch failed: unexpected redirect"
+                )
             response.raise_for_status()
             return response.text
         except requests.RequestException as exc:

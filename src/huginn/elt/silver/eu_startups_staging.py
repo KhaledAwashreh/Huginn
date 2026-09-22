@@ -23,7 +23,9 @@ docs/sources/eu-startups.md's field table:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -42,14 +44,42 @@ def _extract_title(html_text: str) -> str | None:
     return soup.title.get_text(strip=True) if soup.title else None
 
 
-def _slug_from_url(url: str) -> str:
+def _slug_from_url(url: str) -> str | None:
     """The listing's directory slug from its detail-page URL, mirroring
     huginn.elt.ingestion.adapters.eu_startups's `_listing_slug` (used
     there as `RawRecord.stable_id`). Reused here as this staging row's
     `stable_id` since the Bronze payload itself carries only
-    `{"url", "html", "lastmod"}`, no separately-captured id.
+    `{"url", "html", "lastmod"}`, no separately-captured id. Returns None
+    unless the URL is a valid HTTPS EU-Startups listing URL.
     """
-    return url.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "www.eu-startups.com"
+        or port not in (None, 443)
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    match = re.fullmatch(r"/directory/([^/]+)/?", parsed.path)
+    if match is None:
+        return None
+    encoded_slug = match.group(1)
+    if re.search(r"%(?![0-9A-Fa-f]{2})", encoded_slug):
+        return None
+    try:
+        slug = unquote(encoded_slug, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if slug in {".", ".."} or any(
+        not (character.isalnum() or character in "-._~") for character in slug
+    ):
+        return None
+    return slug
 
 
 def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
@@ -60,38 +90,54 @@ def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
     missing key here must not abort every already-upserted row in the
     batch):
 
-    - `"html"` or `"url"` missing from the payload at all.
-    - `fields["website"]` is None: Website is confirmed always present on a
-      genuine listing (docs/sources/eu-startups.md's field table), so its
-      absence means a malformed fetch or an interstitial/challenge page,
-      not a real listing, regardless of whether a `<title>` was found.
-    - `"lastmod"` missing or not a parseable ISO 8601 string (e.g. an empty
-      string from a malformed sitemap entry): `occurred_on` is NOT NULL
-      downstream in Gold, so a listing with no usable lastmod is not safely
-      parseable.
+    - `"html"`, `"url"`, or `"lastmod"` missing, blank, or not a string.
+    - `fields["website"]` is missing or blank: Website is confirmed always
+      present on a genuine listing (docs/sources/eu-startups.md's field
+      table), so its absence means a malformed fetch or an
+      interstitial/challenge page, not a real listing, regardless of whether
+      a `<title>` was found.
+    - `"lastmod"` not a timezone-aware ISO 8601 timestamp (e.g. an empty
+      string or date-only value): `occurred_on` is NOT NULL downstream in
+      Gold, so a listing with no usable timestamp is not safely parseable.
+    - The listing title is absent or blank after removing the site suffix.
     """
     html = payload.get("html")
     url = payload.get("url")
-    if html is None or url is None:
+    lastmod = payload.get("lastmod")
+    if not all(isinstance(value, str) for value in (html, url, lastmod)) or not all(
+        value.strip() for value in (html, url, lastmod)
+    ):
+        return None
+
+    stable_id = _slug_from_url(url)
+    if stable_id is None:
         return None
 
     fields = extract_listing_fields(html)
-    if fields["website"] is None:
+    if not fields["website"]:
         return None
 
-    lastmod = payload.get("lastmod")
-    if lastmod is None:
-        return None
     try:
         occurred_on = datetime.fromisoformat(lastmod)
     except ValueError:
         return None
+    if occurred_on.utcoffset() is None:
+        return None
 
     title = _extract_title(html)
-    company_name_raw = title.removesuffix(" | EU-Startups").strip() if title else ""
+    if not title:
+        return None
+    site_suffix = "| EU-Startups"
+    company_name_raw = (
+        title[: -len(site_suffix)].strip()
+        if title.endswith(site_suffix)
+        else title.strip()
+    )
+    if not company_name_raw:
+        return None
 
     return EuStartupsListingStaging(
-        stable_id=_slug_from_url(url),
+        stable_id=stable_id,
         company_name_raw=company_name_raw,
         website=fields["website"],
         signal_type="other",

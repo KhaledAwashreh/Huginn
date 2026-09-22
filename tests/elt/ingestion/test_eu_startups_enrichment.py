@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 import requests
 
 from huginn.elt.ingestion.adapters import eu_startups_enrichment
@@ -16,6 +17,7 @@ from huginn.elt.ingestion.adapters.eu_startups_enrichment import (
     _extract_raw_matches,
     _is_eu_startups_detail_url,
     _is_result_set_truncated,
+    _listing_slug,
     _parsed_result_count,
 )
 from huginn.elt.ingestion.ports import WebScrapeSourcePort
@@ -182,6 +184,48 @@ def test_is_eu_startups_detail_url_false_for_a_relative_or_empty_url():
     assert not _is_eu_startups_detail_url("")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.eu-startups.com/",
+        "https://www.eu-startups.com/about/",
+        "https://www.eu-startups.com/directory/",
+        "https://www.eu-startups.com/directory/brightroom/team/",
+        "https://www.eu-startups.com:444/directory/brightroom/",
+        "https://www.eu-startups.com/directory/../",
+        "https://www.eu-startups.com/directory/%2E%2E/",
+        "https://www.eu-startups.com/directory/%2Fadmin/",
+        "https://www.eu-startups.com/directory/%5Cadmin/",
+        "https://www.eu-startups.com/directory/%FF/",
+        "https://www.eu-startups.com/directory/%/",
+        "https://www.eu-startups.com/directory/%G0/",
+        "https://www.eu-startups.com/directory/%0/",
+    ],
+)
+def test_is_eu_startups_detail_url_false_for_non_listing_paths(url):
+    assert not _is_eu_startups_detail_url(url)
+
+
+def test_is_eu_startups_detail_url_false_for_a_malformed_url():
+    assert not _is_eu_startups_detail_url("https://[invalid")
+
+
+def test_listing_slug_uses_only_the_parsed_path():
+    assert (
+        _listing_slug(
+            "https://www.eu-startups.com/directory/brightroom/?ref=search#profile"
+        )
+        == "brightroom"
+    )
+
+
+def test_listing_slug_decodes_a_valid_percent_escape():
+    assert (
+        _listing_slug("https://www.eu-startups.com/directory/brightroom%2Dlabs/")
+        == "brightroom-labs"
+    )
+
+
 def test_eu_startups_enrichment_adapter_explicitly_implements_web_scrape_source_port():
     assert WebScrapeSourcePort in EuStartupsEnrichmentAdapter.__mro__
 
@@ -191,6 +235,11 @@ def test_eu_startups_enrichment_adapter_source_and_mechanism():
 
     assert adapter.source == "eu_startups"
     assert adapter.mechanism == "web_scrape"
+
+
+def test_eu_startups_enrichment_adapter_rejects_negative_max_calls():
+    with pytest.raises(ValueError, match="max_calls must be non-negative"):
+        EuStartupsEnrichmentAdapter(company_loader=lambda: [], max_calls=-1)
 
 
 def test_fetch_page_raises_sanitized_error_on_request_failure(monkeypatch):
@@ -473,7 +522,7 @@ def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
 
     class FakeResponse:
         text = "<html>ok</html>"
-        is_redirect = False
+        status_code = 200
 
         def raise_for_status(self):
             return None
@@ -506,7 +555,7 @@ def test_fetch_page_raises_sanitized_error_on_redirect(monkeypatch):
 
     class FakeRedirectResponse:
         text = "<html>redirecting...</html>"
-        is_redirect = True
+        status_code = 304
 
         def raise_for_status(self):
             return None

@@ -21,7 +21,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from urllib.parse import urlencode, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -65,7 +65,21 @@ def _listing_slug(url: str) -> str:
     `_slug_from_url` already duplicate independently (plan Global
     Constraint 1: too small to be worth importing a private helper for).
     """
-    return url.rstrip("/").rsplit("/", 1)[-1]
+    match = re.fullmatch(r"/directory/([^/]+)/?", urlparse(url).path)
+    if match is None:
+        raise ValueError("invalid EU-Startups listing URL")
+    encoded_slug = match.group(1)
+    if re.search(r"%(?![0-9A-Fa-f]{2})", encoded_slug):
+        raise ValueError("invalid EU-Startups listing slug")
+    try:
+        slug = unquote(encoded_slug, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid EU-Startups listing slug") from exc
+    if slug in {".", ".."} or any(
+        not (character.isalnum() or character in "-._~") for character in slug
+    ):
+        raise ValueError("invalid EU-Startups listing slug")
+    return slug
 
 
 def _build_search_url(name: str) -> str:
@@ -155,7 +169,7 @@ def _parsed_result_count(html: str) -> int | None:
 
 
 def _is_eu_startups_detail_url(url: str) -> bool:
-    """True only for an absolute `https://www.eu-startups.com/...` URL
+    """True only for an absolute EU-Startups `/directory/<slug>/` URL
     (CodeRabbit finding, KAN-65, CWE-918 SSRF): `detail_url` comes from an
     anchor `href` on a page this adapter fetched, not from a value this
     adapter constructed itself (unlike `_build_search_url`'s output). WPBDP
@@ -163,8 +177,20 @@ def _is_eu_startups_detail_url(url: str) -> bool:
     nothing enforces that at the HTTP layer, so this adapter must not trust
     it blindly before making a second outbound request to it.
     """
-    parsed = urlparse(url)
-    return parsed.scheme == _EXPECTED_SCHEME and parsed.hostname == _EXPECTED_HOST
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+        _listing_slug(url)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == _EXPECTED_SCHEME
+        and parsed.hostname == _EXPECTED_HOST
+        and port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and re.fullmatch(r"/directory/[^/]+/?", parsed.path) is not None
+    )
 
 
 def _is_result_set_truncated(raw_match_count: int, parsed_count: int | None) -> bool:
@@ -207,6 +233,8 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         searches this fetch makes, the same simple per-run budget
         `OpenCorporatesAdapter` uses.
         """
+        if max_calls < 0:
+            raise ValueError("max_calls must be non-negative")
         self._company_loader = company_loader
         self._max_calls = max_calls
         self._timeout = timeout
@@ -223,8 +251,8 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         same-origin URL that passed `_is_eu_startups_detail_url` still end
         up fetching an off-origin destination via a redirect hop. Mirrors
         `silver/resolution.py`'s `_request_with_retry`, this codebase's
-        existing precedent for the same defense. A redirect response
-        (3xx) is treated as a failure here, the same as a 4xx/5xx: unlike
+        existing precedent for the same defense. Every 3xx response is
+        treated as a failure here, the same as a 4xx/5xx: unlike
         `_request_with_retry`'s own reachability check (which only needs to
         know a domain answers at all), this method needs the page's actual
         content, and a redirect's own short response body is never that.
@@ -236,7 +264,7 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 timeout=self._timeout,
                 allow_redirects=False,
             )
-            if response.is_redirect:
+            if 300 <= response.status_code <= 399:
                 raise EuStartupsEnrichmentFetchError(
                     "EU-Startups page fetch failed: unexpected redirect"
                 )

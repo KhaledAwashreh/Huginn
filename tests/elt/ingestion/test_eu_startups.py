@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from huginn.elt.ingestion.adapters import eu_startups
 from huginn.elt.ingestion.adapters.eu_startups import (
     EuStartupsDiscoveryAdapter,
     EuStartupsFetchError,
+    _listing_slug,
     _parse_listing_sitemap,
     _parse_sitemap_index,
     extract_listing_fields,
@@ -69,6 +71,19 @@ def test_parse_sitemap_index_does_not_include_post_or_job_sitemaps():
     assert not any("job-sitemap" in url for url in urls)
 
 
+def test_parse_sitemap_index_rejects_untrusted_listing_sitemap_urls():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>http://169.254.169.254/wpbdp_listing-sitemap.xml</loc></sitemap>
+<sitemap><loc>https://www.eu-startups.com.evil.example/wpbdp_listing-sitemap.xml</loc></sitemap>
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap165.xml</loc></sitemap>
+</sitemapindex>"""
+
+    assert _parse_sitemap_index(xml) == [
+        "https://www.eu-startups.com/wpbdp_listing-sitemap165.xml"
+    ]
+
+
 def test_parse_listing_sitemap_returns_loc_and_lastmod_pairs():
     entries = _parse_listing_sitemap(_read_fixture("wpbdp_listing-sitemap165.xml"))
 
@@ -76,6 +91,38 @@ def test_parse_listing_sitemap_returns_loc_and_lastmod_pairs():
     first_url, first_lastmod = entries[0]
     assert first_url == "https://www.eu-startups.com/directory/brightroom/"
     assert first_lastmod == datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC)
+
+
+def test_parse_listing_sitemap_rejects_untrusted_detail_urls():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>http://127.0.0.1/admin</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/about/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/../</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%2E%2E/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%2Fadmin/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%FF/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%G0/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/%0/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/brightroom/</loc><lastmod>2026-09-01T00:00:00+00:00</lastmod></url>
+</urlset>"""
+
+    entries = _parse_listing_sitemap(xml)
+
+    assert entries == [
+        (
+            "https://www.eu-startups.com/directory/brightroom/",
+            datetime(2026, 9, 1, tzinfo=UTC),
+        )
+    ]
+
+
+def test_listing_slug_decodes_a_valid_percent_escape():
+    assert (
+        _listing_slug("https://www.eu-startups.com/directory/brightroom%2Dlabs/")
+        == "brightroom-labs"
+    )
 
 
 def test_parse_listing_sitemap_every_entry_has_a_timezone_aware_lastmod():
@@ -148,6 +195,28 @@ class FakeWatermarkPort:
 
     def save_watermark(self, source, value):
         self.saved.append((source, value))
+
+
+def test_fetch_page_rejects_redirects(monkeypatch):
+    captured = {}
+
+    class FakeRedirectResponse:
+        status_code = 304
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, headers, timeout, allow_redirects):
+        captured["allow_redirects"] = allow_redirects
+        return FakeRedirectResponse()
+
+    monkeypatch.setattr(eu_startups.requests, "get", fake_get)
+    adapter = EuStartupsDiscoveryAdapter(watermark_port=FakeWatermarkPort())
+
+    with pytest.raises(EuStartupsFetchError, match="redirect"):
+        adapter.fetch_page("https://www.eu-startups.com/directory/brightroom/")
+
+    assert captured["allow_redirects"] is False
 
 
 def test_fetch_processes_every_listing_when_no_watermark_yet(monkeypatch):

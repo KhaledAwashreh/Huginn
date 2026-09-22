@@ -671,18 +671,14 @@ field shape as `HnPostingStaging`. Field mapping from
   going back to amend Task 3's implementation if it already landed without
   this. Parse it here via `datetime.fromisoformat`.
 - `url`: `payload["url"]`, as-is.
-- `stable_id`: not part of `EuStartupsListingStaging` itself (matching
-  `HnPostingStaging`, which also excludes it, the staging table's own
-  Postgres schema would carry it as a separate column exactly like
-  `hn_postings.stable_id` does, out of this plan's scope per Global
-  Constraint 11, no schema/repository built here).
+- `stable_id`: the listing slug derived from `payload["url"]`, matching
+  `HnPostingStaging`'s own `stable_id` field. A concrete Postgres table and
+  repository remain out of scope per Global Constraint 11.
 
-Return `None` if `fields["website"]` is `None` after extraction AND no
-`title` tag was found (Global Constraint on "no fields at all" case), your
-call on the exact guard condition as long as the third test above
-(`test_parse_eu_startups_listing_returns_none_when_no_website_field_at_all`)
-passes for the right reason (a genuinely empty/malformed page yields no
-row) without also making the first two tests fail.
+Return `None` if `fields["website"]` is missing or blank after extraction, or
+the listing title is absent or blank. A genuine listing needs both a
+resolvable website and a company name; an empty, malformed, interstitial, or
+soft-404 page must not produce a staging row.
 
 `src/huginn/elt/silver/eu_startups_staging.py`: mirror `hn_staging.py`'s
 `EuStartupsStagingLoader` class shape exactly (`__init__(repository)`,
