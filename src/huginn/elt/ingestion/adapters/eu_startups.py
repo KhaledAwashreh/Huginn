@@ -1,17 +1,16 @@
 """EU-Startups discovery adapter. See architecture document section 5.
 
 Discovery mechanism (sitemap-only, not category-page pagination): ADR-0008.
-Incremental watermark (`DiscoveryWatermarkPort`, not `StatePort`): ADR-0009.
+Incremental watermark proposal: ADR-0009.
 Research this adapter is built from: `docs/sources/eu-startups.md`. Ticket:
 Jira KAN-64.
 
 This module holds the sitemap-parsing functions (`_parse_sitemap_index`,
 `_parse_listing_sitemap`), detail-page field extraction
-(`extract_listing_fields`), and `EuStartupsDiscoveryAdapter`, the
-`WebScrapeSourcePort` implementation. Per Global Constraint 6 of the KAN-64
-plan, `EuStartupsDiscoveryAdapter.fetch()` stores only raw HTML in Bronze;
-it does not call `extract_listing_fields` itself, that belongs to the
-Silver staging loader.
+(`extract_listing_fields`), and `EuStartupsDiscoveryAdapter`. Per Global
+Constraint 6 of the KAN-64 plan, the adapter returns only raw HTML for
+Bronze; it does not call `extract_listing_fields` itself, that belongs to
+the Silver staging loader.
 """
 
 from __future__ import annotations
@@ -26,8 +25,11 @@ from xml.etree import ElementTree
 import requests
 from bs4 import BeautifulSoup
 
-from huginn.elt.ingestion.models import RawRecord
-from huginn.elt.ingestion.ports import DiscoveryWatermarkPort, WebScrapeSourcePort
+from huginn.elt.ingestion.models import (
+    DiscoveryBatch,
+    FailedListingOutcome,
+    RawRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +179,10 @@ def extract_listing_fields(html_text: str) -> dict[str, str | None]:
 class EuStartupsFetchError(RuntimeError):
     """A sanitized EU-Startups page-fetch failure safe to log."""
 
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 def _listing_slug(url: str) -> str:
     """The listing's directory slug from its detail-page URL, e.g.
@@ -190,13 +196,13 @@ def _listing_slug(url: str) -> str:
     return slug
 
 
-class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
-    """`WebScrapeSourcePort` for eu-startups.com. Discovery is sitemap-only
+class EuStartupsDiscoveryAdapter:
+    """EU-Startups sitemap discovery. Discovery is sitemap-only
     (ADR-0008): walk `sitemap_index.xml`, every `wpbdp_listing-sitemap*.xml`
-    it lists, every `(loc, lastmod)` pair in each, fetch and store the raw
-    detail-page HTML for every listing newer than the current watermark
-    (ADR-0009, `DiscoveryWatermarkPort`). See Jira KAN-64 and
-    `docs/sources/eu-startups.md`.
+    it lists, every `(loc, lastmod)` pair in each, and fetch the raw
+    detail-page HTML for every listing newer than the supplied watermark.
+    It returns a batch for a transactional persistence boundary rather than
+    implementing `WebScrapeSourcePort` or writing state itself.
     """
 
     source = "eu_startups"
@@ -204,11 +210,9 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
 
     def __init__(
         self,
-        watermark_port: DiscoveryWatermarkPort,
         timeout: float = _REQUEST_TIMEOUT_SECONDS,
         max_workers: int = _MAX_CONCURRENT_FETCHES,
     ) -> None:
-        self._watermark_port = watermark_port
         self._timeout = timeout
         self._max_workers = max_workers
 
@@ -234,16 +238,21 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
                 )
             response.raise_for_status()
             return response.text
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            raise EuStartupsFetchError(
+                f"EU-Startups page fetch failed: {type(exc).__name__}", status_code
+            ) from None
         except requests.RequestException as exc:
             raise EuStartupsFetchError(
                 f"EU-Startups page fetch failed: {type(exc).__name__}"
             ) from None
 
-    def fetch(self) -> list[RawRecord]:
+    def fetch(self, watermark: str | None) -> DiscoveryBatch:
         """Walk every listing sitemap the index lists, fetch every listing
-        newer than the current watermark, and save the new watermark once
-        (Global Constraint 4), called at most once per run, never
-        per-listing, and not called at all if there was nothing pending.
+        newer than the supplied watermark, and return a proposed watermark
+        with successful records and failed listing outcomes. Persisting that
+        batch is intentionally owned by the later transactional boundary.
 
         The new watermark is not simply "the maximum `lastmod` among
         successful fetches": a listing with an earlier `lastmod` that fails
@@ -262,8 +271,7 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
         An empty sitemap index, by contrast, is a genuine discovery failure
         (see `_parse_sitemap_index` call below), not a per-listing issue.
         """
-        watermark_value = self._watermark_port.read_watermark(self.source)
-        watermark = datetime.fromisoformat(watermark_value) if watermark_value else None
+        parsed_watermark = datetime.fromisoformat(watermark) if watermark else None
 
         sitemap_urls = _parse_sitemap_index(self.fetch_page(_SITEMAP_INDEX_URL))
         logger.info(
@@ -285,7 +293,7 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
         pending = [
             (loc, lastmod)
             for loc, lastmod in entries
-            if watermark is None or lastmod > watermark
+            if parsed_watermark is None or lastmod > parsed_watermark
         ]
         logger.info(
             "eu_startups fetch: %d of %d listings pending past the watermark",
@@ -293,10 +301,10 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
             len(entries),
         )
         if not pending:
-            return []
+            return DiscoveryBatch((), None, ())
 
         fetched: list[tuple[str, datetime, str]] = []
-        failed_lastmods: list[datetime] = []
+        failed_listings: list[FailedListingOutcome] = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             future_to_entry = {
                 executor.submit(self.fetch_page, loc): (loc, lastmod)
@@ -306,13 +314,19 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
                 loc, lastmod = future_to_entry[future]
                 try:
                     html_text = future.result()
-                except EuStartupsFetchError:
+                except EuStartupsFetchError as exc:
                     logger.warning(
                         "eu_startups fetch: skipping listing, detail-page fetch "
                         "failed: %s",
                         loc,
                     )
-                    failed_lastmods.append(lastmod)
+                    failed_listings.append(
+                        FailedListingOutcome(
+                            url=loc,
+                            lastmod=lastmod.isoformat(),
+                            status_code=exc.status_code,
+                        )
+                    )
                     continue
                 fetched.append((loc, lastmod, html_text))
 
@@ -325,18 +339,21 @@ class EuStartupsDiscoveryAdapter(WebScrapeSourcePort):
         ]
 
         # `pending` is non-empty here (checked above), so at least one of
-        # `fetched`/`failed_lastmods` is non-empty too: every pending entry
+        # `fetched`/`failed_listings` is non-empty too: every pending entry
         # either succeeded or failed. If anything failed, the new watermark
         # must sit strictly before the earliest failure so it stays eligible
         # for retry next run (filter above is `lastmod > watermark`); a
         # later success must not be allowed to skip an earlier failure
         # forever (CodeRabbit finding, KAN-64).
-        if failed_lastmods:
-            new_watermark = min(failed_lastmods) - timedelta(seconds=1)
+        if failed_listings:
+            new_watermark = min(
+                datetime.fromisoformat(failure.lastmod) for failure in failed_listings
+            ) - timedelta(seconds=1)
         else:
             new_watermark = max(lastmod for _loc, lastmod, _html in fetched)
 
-        self._watermark_port.save_watermark(self.source, new_watermark.isoformat())
-        logger.info("eu_startups fetch: watermark saved: %s", new_watermark.isoformat())
-
-        return records
+        return DiscoveryBatch(
+            records=tuple(records),
+            proposed_watermark=new_watermark.isoformat(),
+            failed_listings=tuple(failed_listings),
+        )
