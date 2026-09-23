@@ -334,3 +334,105 @@ Only the repository implementation, its integration test, and this report are
 included in the fix. Pre-existing work remains unstaged. The full project suite
 was not rerun; verification covers the complete focused repository suite.
 The previously documented schema-bootstrap operational prerequisite remains.
+
+## Fix Round 5/5: Serialize EU Discovery Commits
+
+### Finding Addressed
+
+`commit_batch()` now acquires `pg_advisory_xact_lock` as its first SQL
+statement, before any Bronze, retry, or watermark statement. Every EU
+discovery commit uses the fixed application key `(0x48554749, 0x45555354)`
+("HUGI", "EUST"), passed as SQL parameters without dynamic SQL or user input.
+Competing discovery transactions wait until the prior commit or rollback,
+so their READ COMMITTED retry query sees the prior transaction's durable
+failure state. The existing commit/rollback paths release the transaction
+lock naturally.
+
+### Regression Coverage
+
+1. Added a PostgreSQL Testcontainers regression with two independent
+   repository instances, worker threads, and connections, verified by
+   distinct backend PIDs. A real psycopg cursor executes the retry insert
+   and then waits on an event, holding that row uncommitted while the
+   second repository attempts a later success-only batch.
+2. An independent observer confirms the pending retry is invisible, then
+   polls `pg_locks` and `pg_blocking_pids` until the competing transaction
+   waits on the first transaction's advisory lock. Before the fix, the
+   competing commit finishes instead, allowing the regression to expose
+   the unsafe final checkpoint. Synchronization uses events and observed
+   database state, with bounded waits and statement timeouts and no sleeps.
+3. After releasing the first transaction and joining both calls, the test
+   verifies the retry row and successful Bronze row are durable, the retry
+   remains listable, and the final watermark is at or before the retryable
+   `lastmod` minus one second.
+4. Added a rollback regression that keeps the real connection open after
+   a JSON serialization failure and checks `pg_locks`. No advisory lock remains,
+   proving rollback releases it without relying on connection close.
+
+All 16 existing focused tests remain intact. No subagents were dispatched.
+
+### RED Command And Result
+
+Working directory for every command below:
+`/home/kawashreh/Projects/Huginn/.worktrees/kan-83-eu-persistence`.
+Both pytest runs used escalated Docker access and the existing
+`tests/conftest.py` PostgreSQL Testcontainers bootstrap.
+
+The new tests were formatted before the RED run:
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff format tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+1 file reformatted
+```
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+......F...........                                                       [100%]
+1 failed, 17 passed in 1.32s
+```
+
+Exit code 1, zero skips. The concurrency regression confirmed the retry
+and Bronze rows were durable, then failed the checkpoint assertion:
+`2026-09-06T00:00:00+00:00 <= 2026-09-02T23:59:59+00:00` was false.
+The retryable listing's `lastmod` was `2026-09-03T00:00:00+00:00`.
+Production code was unchanged until this RED result was observed.
+
+### GREEN Commands And Results
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+..................                                                       [100%]
+18 passed in 1.30s
+```
+
+Exit code 0, zero skips: 3 unit tests and 15 PostgreSQL integration cases.
+The concurrency regression observed the advisory lock wait and passed the
+durability and checkpoint assertions. The rollback lock-release regression
+also passed.
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff check .
+All checks passed!
+
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff format --check .
+168 files already formatted
+
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run python -m compileall -q src/huginn/elt/bronze/repositories/eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+
+$ rtk git diff --check
+```
+
+All checks exited 0. Compilation and the diff check reported no errors.
+
+### Review, Scope, And Concerns
+
+Reviewed the complete fix locally and rescanned the repository's connection,
+SQL, commit, and rollback paths. The lock is unconditional and precedes every
+data statement in `commit_batch()`. No additional finding was identified.
+EU discovery commits now serialize intentionally; other source repositories
+are unaffected. The full project test suite was not rerun, while Ruff and
+format checks covered the whole worktree. The schema-bootstrap operational
+prerequisite documented above remains.
+
+Only the EU discovery repository implementation, its integration tests, and
+this report belong to the fix. Pre-existing work remains unstaged.
