@@ -206,6 +206,48 @@ def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():
         _restore_eu_discovery_state([], [failure_url], previous_state)
 
 
+def test_persisted_retryable_failure_pins_a_later_success_and_is_listable():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    failure_key = f"task2-persisted-retry-{uuid.uuid4()}"
+    failure_url = f"https://www.eu-startups.com/directory/{failure_key}/"
+    success_id = f"task2-newer-success-{uuid.uuid4()}"
+    failure_lastmod = "2026-09-03T00:00:00+00:00"
+    pinned_watermark = "2026-09-02T23:59:59+00:00"
+    success_lastmod = "2026-09-06T00:00:00+00:00"
+    previous_state = _isolate_eu_discovery_state([success_id], [failure_url])
+
+    try:
+        repository.commit_batch(
+            DiscoveryBatch(
+                (),
+                pinned_watermark,
+                (_failure(failure_key, failure_lastmod, 503),),
+            ),
+            str(uuid.uuid4()),
+        )
+
+        expected_retry = FailedListingOutcome(
+            url=failure_url,
+            lastmod=failure_lastmod,
+            status_code=503,
+        )
+        assert repository.list_retryable_listings() == (expected_retry,)
+
+        repository.commit_batch(
+            DiscoveryBatch(
+                (_record(success_id, success_lastmod),),
+                success_lastmod,
+                (),
+            ),
+            str(uuid.uuid4()),
+        )
+
+        assert repository.read_watermark() == pinned_watermark
+        assert repository.list_retryable_listings() == (expected_retry,)
+    finally:
+        _restore_eu_discovery_state([success_id], [failure_url], previous_state)
+
+
 def test_mixed_failures_use_total_attempt_count_and_current_status():
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     url_key = f"task2-mixed-terminal-{uuid.uuid4()}"
@@ -216,7 +258,7 @@ def test_mixed_failures_use_total_attempt_count_and_current_status():
     previous_state = _isolate_eu_discovery_state([], [failure_url])
 
     try:
-        for status_code in (503, 404, 410, 503):
+        for status_code in (503, 404, 410):
             repository.commit_batch(
                 DiscoveryBatch(
                     (), proposed, (_failure(url_key, lastmod, status_code),)
@@ -237,10 +279,50 @@ def test_mixed_failures_use_total_attempt_count_and_current_status():
             (1, 0, 503, RETRYABLE),
             (2, 1, 404, RETRYABLE),
             (3, 2, 410, TERMINAL),
-            (4, 2, 503, RETRYABLE),
         ]
     finally:
         _restore_eu_discovery_state([], [failure_url], previous_state)
+
+
+def test_terminal_retry_state_is_sticky_until_a_success_clears_it():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    url_key = f"task2-sticky-terminal-{uuid.uuid4()}"
+    failure_url = f"https://www.eu-startups.com/directory/{url_key}/"
+    lastmod = "2026-09-05T00:00:00+00:00"
+    proposed = "2026-09-04T23:59:59+00:00"
+    previous_state = _isolate_eu_discovery_state([url_key], [failure_url])
+
+    try:
+        for status_code in (404, 404, 404, 503):
+            repository.commit_batch(
+                DiscoveryBatch(
+                    (), proposed, (_failure(url_key, lastmod, status_code),)
+                ),
+                str(uuid.uuid4()),
+            )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            retry = conn.execute(
+                "SELECT attempt_count, last_status_code, status "
+                "FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (failure_url,),
+            ).fetchone()
+
+        assert retry == (4, 503, TERMINAL)
+
+        repository.commit_batch(
+            DiscoveryBatch((_record(url_key, lastmod),), lastmod, ()),
+            str(uuid.uuid4()),
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            retry = conn.execute(
+                "SELECT status FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (failure_url,),
+            ).fetchone()
+        assert retry is None
+    finally:
+        _restore_eu_discovery_state([url_key], [failure_url], previous_state)
 
 
 @pytest.mark.parametrize("status_code", [404, 410])
