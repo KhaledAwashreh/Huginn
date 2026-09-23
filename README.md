@@ -15,7 +15,7 @@ Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).
 ```
 uv sync
 cp .env.example .env  # set HUGINN_DATABASE_URL and HUGINN_YC_ALGOLIA_API_KEY
-psql "$HUGINN_DATABASE_URL" -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+psql "$HUGINN_DATABASE_URL" -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
 uv run pytest
 ```
 

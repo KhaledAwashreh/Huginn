@@ -54,6 +54,12 @@ _TOUCH_RECORD_SQL = """
     WHERE source = %s AND stable_id = %s
 """
 
+_READ_SUCCESSFUL_LISTING_LASTMOD_SQL = """
+    SELECT MAX((payload ->> 'lastmod')::timestamptz)
+    FROM bronze.web_scrape_ingest
+    WHERE source = %s AND payload ->> 'url' = %s
+"""
+
 _CLEAR_RETRY_SQL = """
     DELETE FROM bronze.eu_startups_listing_retry
     WHERE url = %s AND lastmod <= %s::timestamptz
@@ -228,7 +234,26 @@ class PostgresEuStartupsDiscoveryRepository:
                     )
                 cursor.execute(_CLEAR_RETRY_SQL, (listing_url, record_lastmod))
 
+            applied_failures = []
             for failure in batch.failed_listings:
+                failure_lastmod = _parse_timestamp(failure.lastmod)
+                cursor.execute(
+                    _READ_SUCCESSFUL_LISTING_LASTMOD_SQL, (_SOURCE, failure.url)
+                )
+                successful_lastmod = cursor.fetchone()[0]
+                if (
+                    successful_lastmod is not None
+                    and failure_lastmod < successful_lastmod
+                ):
+                    logger.info(
+                        "Ignoring stale EU-Startups failure for %s at %s; "
+                        "Bronze already has %s",
+                        failure.url,
+                        failure.lastmod,
+                        successful_lastmod.isoformat(),
+                    )
+                    continue
+
                 terminal_increment = int(failure.status_code in _TERMINAL_STATUS_CODES)
                 cursor.execute(
                     _WRITE_RETRY_SQL,
@@ -240,11 +265,20 @@ class PostgresEuStartupsDiscoveryRepository:
                         _TERMINAL_ATTEMPTS,
                     ),
                 )
+                applied_failures.append(failure)
 
             retryable_listings = _read_retryable_listings(cursor)
-            watermark = committed_watermark(
-                batch, tuple(listing.lastmod for listing in retryable_listings)
+            effective_batch = DiscoveryBatch(
+                records=batch.records,
+                proposed_watermark=batch.proposed_watermark,
+                failed_listings=tuple(applied_failures),
             )
+            watermark = None
+            if batch.records or applied_failures or not batch.failed_listings:
+                watermark = committed_watermark(
+                    effective_batch,
+                    tuple(listing.lastmod for listing in retryable_listings),
+                )
             if watermark is not None:
                 cursor.execute(_WRITE_WATERMARK_SQL, (watermark,))
             connection.commit()

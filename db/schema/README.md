@@ -1,27 +1,42 @@
 # Database schema
 
-These files are a fresh-database bootstrap, not migrations and not an
-existing-data upgrade path. No migration framework has been chosen. Apply all
-six files to a new database in this order:
+These files are a fresh-database bootstrap, not migrations. No migration
+framework has been chosen. Apply all seven files to a new database in this
+order:
 
 1. `00_extensions.sql`
 2. `ops.sql` (pipeline-run metadata; no foreign keys in or out, so it can apply anywhere after the extension, listed here early)
 3. `bronze.sql`
-4. `silver.sql`
-5. `gold.sql`
-6. `operational.sql` (references `gold.company`)
+4. `kan-83-eu-startups-discovery.sql`
+5. `silver.sql`
+6. `gold.sql`
+7. `operational.sql` (references `gold.company`)
 
 ```bash
-rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
 ```
 
 `ON_ERROR_STOP` and the single transaction make any SQL error fail the bootstrap without committing a partial schema. The management development database still receives every ELT schema because retained operational tables reference `gold.company`. Use a new, dedicated, disposable database; this bootstrap does not authorize dropping or resetting an existing database.
+
+## Existing Pre-KAN-83 Databases
+
+KAN-83 has one idempotent additive upgrade for a database with the prior
+Bronze schema. It creates only the EU-Startups discovery state/retry tables
+and their supporting indexes; it does not alter or remove existing data:
+
+```bash
+rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql
+```
+
+Run it once before invoking `python -m huginn.elt.ingestion eu-startups-discovery`
+against a pre-KAN-83 database. The SQL is safe to rerun and preserves existing
+data.
 
 These match `docs/entities.md`, the [management foundation](../../docs/management-foundation.md), and the architecture document as of ADR-0002 and ADR-0011. Column-by-column Type 1/Type 2 classification beyond the two fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/elt/gold/dimensional.py` together when that lands.
 
 ## Upgrading a database that already exists
 
-The six files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, once each. Order among them does not matter: each is idempotent and guards on the state it finds. The superseded pair is the one case worth knowing about, because it is why that holds: `gold-company-yc-batch.sql` can add `yc_batch` and `gold-company-notes.sql` is what removes it, so whichever of the two runs last decides the outcome unless the successor creates `notes` unconditionally, which it does. The pair converges on `notes` in either order:
+The seven files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, once each. Order among them does not matter: each is idempotent and guards on the state it finds. The superseded pair is the one case worth knowing about, because it is why that holds: `gold-company-yc-batch.sql` can add `yc_batch` and `gold-company-notes.sql` is what removes it, so whichever of the two runs last decides the outcome unless the successor creates `notes` unconditionally, which it does. The pair converges on `notes` in either order:
 
 ```
 psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
@@ -49,7 +64,7 @@ All fifteen are idempotent: re-running one on a database it has already been app
 
 1. Three of the fifteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
 2. The other eleven have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them, and `ops-job-runs-skipped-status.sql` (fifteenth, added after this count) has none either.
-3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/postgres_harness.py` applies the six base files listed above and none of the fourteen `ALTER` files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
+3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/postgres_harness.py` applies the seven base files listed above and none of the fourteen `ALTER` files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:
