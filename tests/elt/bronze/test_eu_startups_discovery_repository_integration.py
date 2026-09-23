@@ -368,6 +368,81 @@ def test_newer_listing_version_resets_terminal_retry_cycle():
         _restore_eu_discovery_state([], [failure_url], previous_state)
 
 
+@pytest.mark.parametrize("stale_status_code", [None, 404, 410, 503])
+def test_stale_listing_failure_preserves_newer_retry_cycle(stale_status_code):
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    url_key = f"task2-stale-version-{uuid.uuid4()}"
+    failure_url = f"https://www.eu-startups.com/directory/{url_key}/"
+    old_lastmod = "2026-09-05T00:00:00+00:00"
+    new_lastmod = "2026-09-10T00:00:00+00:00"
+    new_proposed = "2026-09-09T23:59:59+00:00"
+    previous_state = _isolate_eu_discovery_state([], [failure_url])
+
+    def read_retry():
+        with psycopg.connect(DATABASE_URL) as conn:
+            return conn.execute(
+                "SELECT lastmod, attempt_count, terminal_attempt_count, "
+                "last_status_code, status, updated_at "
+                "FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (failure_url,),
+            ).fetchone()
+
+    try:
+        for _attempt in range(3):
+            repository.commit_batch(
+                DiscoveryBatch((), old_lastmod, (_failure(url_key, old_lastmod, 404),)),
+                str(uuid.uuid4()),
+            )
+        assert read_retry()[:-1] == (
+            datetime.fromisoformat(old_lastmod),
+            3,
+            3,
+            404,
+            TERMINAL,
+        )
+
+        repository.commit_batch(
+            DiscoveryBatch((), new_proposed, (_failure(url_key, new_lastmod, 503),)),
+            str(uuid.uuid4()),
+        )
+        newer_retry = read_retry()
+        assert newer_retry[:-1] == (
+            datetime.fromisoformat(new_lastmod),
+            1,
+            0,
+            503,
+            RETRYABLE,
+        )
+        assert repository.read_watermark() == new_proposed
+
+        repository.commit_batch(
+            DiscoveryBatch(
+                (), old_lastmod, (_failure(url_key, old_lastmod, stale_status_code),)
+            ),
+            str(uuid.uuid4()),
+        )
+        assert read_retry() == newer_retry
+        assert repository.read_watermark() == new_proposed
+        assert repository.list_retryable_listings() == (
+            FailedListingOutcome(failure_url, new_lastmod, 503),
+        )
+
+        repository.commit_batch(
+            DiscoveryBatch((), new_proposed, (_failure(url_key, new_lastmod, 410),)),
+            str(uuid.uuid4()),
+        )
+        assert read_retry()[:-1] == (
+            datetime.fromisoformat(new_lastmod),
+            2,
+            1,
+            410,
+            RETRYABLE,
+        )
+        assert repository.read_watermark() == new_proposed
+    finally:
+        _restore_eu_discovery_state([], [failure_url], previous_state)
+
+
 @pytest.mark.parametrize("status_code", [404, 410])
 def test_confirmed_missing_listing_terminalizes_on_third_persisted_attempt(
     status_code,

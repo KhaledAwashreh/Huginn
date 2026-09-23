@@ -91,6 +91,7 @@ _WRITE_RETRY_SQL = """
             ELSE 'retryable'
         END,
         updated_at = now()
+    WHERE EXCLUDED.lastmod >= bronze.eu_startups_listing_retry.lastmod
 """
 
 _WRITE_WATERMARK_SQL = """

@@ -247,3 +247,90 @@ Only the EU discovery retry upsert, its PostgreSQL regression, and this report
 changed. Schema DDL, ports, adapters, the shared ingestion service, other
 sources, and Task 3 remain unchanged. Pre-existing uncommitted web-scrape work
 remains preserved and unstaged.
+
+## Fix Round 4/5: Ignore Stale Listing Failures Atomically
+
+### Finding Addressed
+
+Added a `WHERE EXCLUDED.lastmod >= bronze.eu_startups_listing_retry.lastmod`
+condition to the production `ON CONFLICT DO UPDATE`. PostgreSQL evaluates the
+condition against the conflicting row within the atomic upsert:
+
+- A newer version replaces `lastmod` and starts a fresh retry cycle using only
+  the current failure outcome.
+- An equal version increments counters and preserves terminal stickiness.
+- An older version leaves `lastmod`, both counters, `last_status_code`,
+  `status`, and the retry row's `updated_at` unchanged.
+
+This supersedes round 3's older-version accumulation behavior and the earlier
+blanket statement that every failure increments attempts. Successful writes
+still clear retry state for the URL.
+
+### Regression Coverage
+
+Added a real PostgreSQL Testcontainers regression parameterized over stale
+network, 404, 410, and 503 failures. Each case first verifies an old version
+terminalizes after three 404s, then a newer 503 resets it to `(1, 0, 503,
+retryable)`. The stale failure must preserve the entire newer retry row,
+retryable listing output, and checkpoint value. A subsequent 410 for the same
+newer version must produce `(2, 1, 410, retryable)` rather than reset to attempt
+1. All existing tests remain intact, including sticky-terminal and successful
+recovery coverage.
+
+### RED Command And Result
+
+Working directory for all commands below:
+`/home/kawashreh/Projects/Huginn/.worktrees/kan-83-eu-persistence`.
+
+The initial sandboxed attempt could not access Docker and reported `3 passed,
+13 skipped in 0.02s`; that run was not accepted as RED or verification. The
+same command was then run with escalated Docker access, using the existing
+`tests/conftest.py` PostgreSQL Testcontainers bootstrap:
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+..........FFFF..                                                         [100%]
+4 failed, 12 passed in 1.01s
+```
+
+Exit code 1, zero skips. All four new cases failed at
+`assert read_retry() == newer_retry`: stored `lastmod` regressed from
+`2026-09-10T00:00:00+00:00` to `2026-09-05T00:00:00+00:00`.
+Production SQL was unchanged until this RED result was observed.
+
+### GREEN Commands And Results
+
+The PostgreSQL suite again ran with escalated Docker access:
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+................                                                         [100%]
+16 passed in 1.21s
+```
+
+Exit code 0, zero skips: 3 unit tests and 13 PostgreSQL integration cases.
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff check src/huginn/elt/bronze/repositories/eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+All checks passed!
+
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff format --check src/huginn/elt/bronze/repositories/eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+3 files already formatted
+
+$ rtk git diff --check
+```
+
+All checks exited 0; the diff check reported no whitespace errors.
+
+### Review, Scope, And Concerns
+
+Reviewed the SQL and regression diff locally without subagents and scanned the
+repository implementation for other retry `lastmod` assignments. The guarded
+upsert is the sole failure-state write. No remaining finding identified in this
+fix. Checkpoint timestamps may still be refreshed by the existing watermark
+upsert; the checkpoint value stays unchanged in the stale-event regression.
+
+Only the repository implementation, its integration test, and this report are
+included in the fix. Pre-existing work remains unstaged. The full project suite
+was not rerun; verification covers the complete focused repository suite.
+The previously documented schema-bootstrap operational prerequisite remains.
