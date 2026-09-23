@@ -44,20 +44,3 @@ CREATE TABLE bronze.newsletter_ingest (
     last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (source, stable_id)
 );
-
-CREATE TABLE bronze.eu_startups_discovery_state (
-    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
-    watermark TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE bronze.eu_startups_listing_retry (
-    url TEXT PRIMARY KEY,
-    lastmod TIMESTAMPTZ NOT NULL,
-    attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
-    terminal_attempt_count INTEGER NOT NULL
-        CHECK (terminal_attempt_count >= 0),
-    last_status_code INTEGER,
-    status TEXT NOT NULL CHECK (status IN ('retryable', 'terminal')),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);

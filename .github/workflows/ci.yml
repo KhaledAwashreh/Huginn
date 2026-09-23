@@ -80,6 +80,7 @@ jobs:
           psql -h localhost -U postgres -d huginn -f db/schema/00_extensions.sql
           psql -h localhost -U postgres -d huginn -f db/schema/ops.sql
           psql -h localhost -U postgres -d huginn -f db/schema/bronze.sql
+          psql -h localhost -U postgres -d huginn -f db/schema/kan-83-eu-startups-discovery.sql
           psql -h localhost -U postgres -d huginn -f db/schema/silver.sql
           psql -h localhost -U postgres -d huginn -f db/schema/gold.sql
           psql -h localhost -U postgres -d huginn -f db/schema/operational.sql

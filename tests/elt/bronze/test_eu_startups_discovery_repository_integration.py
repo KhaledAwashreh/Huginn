@@ -4,6 +4,7 @@ import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from pathlib import Path
 from queue import Queue
 from threading import Event
 from time import monotonic
@@ -24,6 +25,8 @@ from huginn.elt.ingestion.models import (
 )
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
+_SCHEMA_DIR = Path(__file__).resolve().parents[3] / "db" / "schema"
+_KAN_83_UPGRADE = _SCHEMA_DIR / "kan-83-eu-startups-discovery.sql"
 
 
 def _database_reachable() -> bool:
@@ -230,6 +233,145 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
         assert repository.read_watermark() == pinned_watermark
     finally:
         _restore_eu_discovery_state([stable_id], [url], previous_state)
+
+
+@pytest.mark.parametrize("status_code", [None, 503])
+def test_stale_failure_after_newer_success_leaves_durable_state_unchanged(
+    status_code,
+):
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    stable_id = f"final-review-stale-failure-{uuid.uuid4()}"
+    url = f"https://www.eu-startups.com/directory/{stable_id}/"
+    stale_lastmod = "2026-09-05T00:00:00+00:00"
+    successful_lastmod = "2026-09-10T00:00:00+00:00"
+    record = _record(stable_id, successful_lastmod, html="<main>new</main>")
+    previous_state = _isolate_eu_discovery_state([stable_id], [url])
+
+    try:
+        assert (
+            repository.commit_batch(
+                DiscoveryBatch((record,), successful_lastmod, ()), str(uuid.uuid4())
+            )
+            == 1
+        )
+        with psycopg.connect(DATABASE_URL) as conn:
+            checkpoint_before = conn.execute(
+                "SELECT watermark, updated_at, xmin "
+                "FROM bronze.eu_startups_discovery_state WHERE singleton = TRUE"
+            ).fetchone()
+
+        assert checkpoint_before is not None
+
+        assert (
+            repository.commit_batch(
+                DiscoveryBatch(
+                    (),
+                    stale_lastmod,
+                    (_failure(stable_id, stale_lastmod, status_code),),
+                ),
+                str(uuid.uuid4()),
+            )
+            == 0
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            stored = conn.execute(
+                "SELECT payload FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (stable_id,),
+            ).fetchone()
+            retry = conn.execute(
+                "SELECT attempt_count, last_status_code, status "
+                "FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (url,),
+            ).fetchone()
+            checkpoint_after = conn.execute(
+                "SELECT watermark, updated_at, xmin "
+                "FROM bronze.eu_startups_discovery_state WHERE singleton = TRUE"
+            ).fetchone()
+
+        assert stored == (record.payload,)
+        assert retry is None
+        assert checkpoint_after == checkpoint_before
+        assert repository.list_retryable_listings() == ()
+        assert repository.read_watermark() == successful_lastmod
+    finally:
+        _restore_eu_discovery_state([stable_id], [url], previous_state)
+
+
+def test_kan_83_additive_upgrade_preserves_preexisting_bronze_data_and_enables_repository():
+    historical_id = f"pre-kan-83-{uuid.uuid4()}"
+    discovery_id = f"final-review-upgrade-{uuid.uuid4()}"
+    retry_url = f"https://www.eu-startups.com/directory/{discovery_id}/"
+    historical_run_id = str(uuid.uuid4())
+    successful_lastmod = "2026-09-10T00:00:00+00:00"
+    retry_lastmod = "2026-09-12T00:00:00+00:00"
+    previous_state = None
+
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            previous_state = conn.execute(
+                "SELECT watermark, updated_at "
+                "FROM bronze.eu_startups_discovery_state WHERE singleton = TRUE"
+            ).fetchone()
+            conn.execute("DROP TABLE IF EXISTS bronze.eu_startups_listing_retry")
+            conn.execute("DROP TABLE IF EXISTS bronze.eu_startups_discovery_state")
+            conn.execute(
+                "INSERT INTO bronze.web_scrape_ingest "
+                "(source, stable_id, payload, content_hash, run_id) "
+                "VALUES (%s, %s, '{\"historical\": true}'::jsonb, %s, %s::uuid)",
+                ("pre_kan_83", historical_id, "pre-kan-83-hash", historical_run_id),
+            )
+            upgrade_sql = _KAN_83_UPGRADE.read_text()
+            conn.execute(upgrade_sql)
+            conn.execute(upgrade_sql)
+
+            historical = conn.execute(
+                "SELECT payload, content_hash, run_id FROM bronze.web_scrape_ingest "
+                "WHERE source = 'pre_kan_83' AND stable_id = %s",
+                (historical_id,),
+            ).fetchone()
+
+        assert historical == (
+            {"historical": True},
+            "pre-kan-83-hash",
+            uuid.UUID(historical_run_id),
+        )
+
+        repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+        record = _record(discovery_id, successful_lastmod)
+        failure = _failure(discovery_id, retry_lastmod, 503)
+        assert (
+            repository.commit_batch(
+                DiscoveryBatch((record,), retry_lastmod, (failure,)), str(uuid.uuid4())
+            )
+            == 1
+        )
+        assert repository.list_retryable_listings() == (failure,)
+        assert repository.read_watermark() == "2026-09-11T23:59:59+00:00"
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                "DELETE FROM bronze.web_scrape_ingest "
+                "WHERE source = 'pre_kan_83' AND stable_id = %s",
+                (historical_id,),
+            )
+            conn.execute(
+                "DELETE FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (discovery_id,),
+            )
+            conn.execute(
+                "DELETE FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (retry_url,),
+            )
+            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
+            if previous_state is not None:
+                conn.execute(
+                    "INSERT INTO bronze.eu_startups_discovery_state "
+                    "(singleton, watermark, updated_at) VALUES (TRUE, %s, %s)",
+                    previous_state,
+                )
 
 
 def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():

@@ -33,6 +33,7 @@ _SCHEMA_FILES = (
     "00_extensions.sql",
     "ops.sql",
     "bronze.sql",
+    "kan-83-eu-startups-discovery.sql",
     "silver.sql",
     "gold.sql",
     "operational.sql",
