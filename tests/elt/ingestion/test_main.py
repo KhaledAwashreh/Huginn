@@ -7,11 +7,22 @@ from huginn.elt.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
+from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
+    PostgresEuStartupsDiscoveryRepository,
+)
 from huginn.elt.ingestion import __main__ as main_module
-from huginn.elt.ingestion.__main__ import build_service, main
+from huginn.elt.ingestion.__main__ import (
+    build_eu_startups_discovery_runner,
+    build_service,
+    main,
+)
+from huginn.elt.ingestion.adapters.eu_startups import EuStartupsDiscoveryAdapter
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
+from huginn.elt.ingestion.eu_startups_discovery_runner import (
+    EuStartupsDiscoveryRunner,
+)
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 
@@ -114,12 +125,52 @@ def test_build_service_wires_postgres_backed_ports_with_the_configured_url(monke
     assert service._job_run_writer._database_url == config.database_url
 
 
+def test_build_eu_startups_discovery_runner_wires_real_dependencies():
+    config = Config(database_url="postgresql://example.invalid/db")
+
+    runner = build_eu_startups_discovery_runner(config)
+
+    assert isinstance(runner, EuStartupsDiscoveryRunner)
+    assert isinstance(runner._adapter, EuStartupsDiscoveryAdapter)
+    assert isinstance(runner._repository, PostgresEuStartupsDiscoveryRepository)
+    assert runner._repository._database_url == config.database_url
+
+
 class FakeService:
     def __init__(self, failed_count: int) -> None:
         self._failed_count = failed_count
 
     def run_once(self) -> int:
         return self._failed_count
+
+
+class FakeDiscoveryRunner:
+    def __init__(self) -> None:
+        self.run_count = 0
+
+    def run(self) -> int:
+        self.run_count += 1
+        return 0
+
+
+def test_main_eu_discovery_command_invokes_only_the_dedicated_runner(monkeypatch):
+    config = Config(database_url="postgresql://example.invalid/db")
+    runner = FakeDiscoveryRunner()
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_discovery_runner",
+        lambda actual_config: runner if actual_config is config else None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_service",
+        lambda _config: pytest.fail("shared service must not run for EU discovery"),
+    )
+
+    main(["eu-startups-discovery"])
+
+    assert runner.run_count == 1
 
 
 def test_main_exits_zero_when_every_source_succeeds(monkeypatch):

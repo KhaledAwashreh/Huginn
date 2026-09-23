@@ -5,18 +5,27 @@ job_runs, no framework at this scale; Jira KAN-9 tracks any future upgrade).
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
+from collections.abc import Sequence
 
 from huginn.config import Config, load_config
 from huginn.elt.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
+from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
+    PostgresEuStartupsDiscoveryRepository,
+)
 from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
+from huginn.elt.ingestion.adapters.eu_startups import EuStartupsDiscoveryAdapter
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
+from huginn.elt.ingestion.eu_startups_discovery_runner import (
+    EuStartupsDiscoveryRunner,
+)
 from huginn.elt.ingestion.service import IngestionService
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
@@ -25,6 +34,7 @@ from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 # the stateful cross-run quota tracker architecture-notes/
 # opencorporates-fetch-plan.md section 7 explicitly defers.
 OPENCORPORATES_MAX_CALLS = 50
+EU_STARTUPS_DISCOVERY_COMMAND = "eu-startups-discovery"
 
 
 def build_service(config: Config) -> IngestionService:
@@ -74,23 +84,42 @@ def build_service(config: Config) -> IngestionService:
     )
 
 
-def main() -> None:
-    """Run one ingestion pass. The application entrypoint, not library
+def build_eu_startups_discovery_runner(config: Config) -> EuStartupsDiscoveryRunner:
+    """Construct the source-specific transactional EU discovery pipeline."""
+    return EuStartupsDiscoveryRunner(
+        adapter=EuStartupsDiscoveryAdapter(),
+        repository=PostgresEuStartupsDiscoveryRepository(config.database_url),
+    )
+
+
+def main(argv: Sequence[str] = ()) -> None:
+    """Run the selected ingestion path. The application entrypoint, not library
     code, so it owns logging configuration (adr/0005-logging-required-from-day-one.md).
 
-    Exits non-zero if any source failed: `run_once()` isolates per-source
-    failures internally (so cron gets one clean process per scheduled run
-    regardless of which sources fail), but the exit code is the only signal
-    cron-based alerting can act on, so it must not stay 0 when a source
-    genuinely failed.
+    With no command, preserve the shared HN/YC/OpenCorporates ingestion pass.
+    The explicit ``eu-startups-discovery`` command invokes its dedicated
+    transactional runner instead of changing ``IngestionService``.
     """
+    parser = argparse.ArgumentParser(description="Run Huginn ingestion")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=(EU_STARTUPS_DISCOVERY_COMMAND,),
+        help="optional source-specific ingestion command",
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
-    failed_count = build_service(load_config()).run_once()
+    config = load_config()
+    if args.command == EU_STARTUPS_DISCOVERY_COMMAND:
+        build_eu_startups_discovery_runner(config).run()
+        return
+
+    failed_count = build_service(config).run_once()
     if failed_count:
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
