@@ -248,7 +248,11 @@ class EuStartupsDiscoveryAdapter:
                 f"EU-Startups page fetch failed: {type(exc).__name__}"
             ) from None
 
-    def fetch(self, watermark: str | None) -> DiscoveryBatch:
+    def fetch(
+        self,
+        watermark: str | None,
+        retryable_listings: tuple[FailedListingOutcome, ...] = (),
+    ) -> DiscoveryBatch:
         """Walk every listing sitemap the index lists, fetch every listing
         newer than the supplied watermark, and return a proposed watermark
         with successful records and failed listing outcomes. Persisting that
@@ -290,15 +294,24 @@ class EuStartupsDiscoveryAdapter:
         for sitemap_url in sitemap_urls:
             entries.extend(_parse_listing_sitemap(self.fetch_page(sitemap_url)))
 
-        pending = [
-            (loc, lastmod)
+        pending_by_url = {
+            loc: lastmod
             for loc, lastmod in entries
             if parsed_watermark is None or lastmod > parsed_watermark
-        ]
+        }
+        for retryable_listing in retryable_listings:
+            retry_lastmod = datetime.fromisoformat(retryable_listing.lastmod)
+            existing_lastmod = pending_by_url.get(retryable_listing.url)
+            if existing_lastmod is None or retry_lastmod > existing_lastmod:
+                pending_by_url[retryable_listing.url] = retry_lastmod
+
+        pending = list(pending_by_url.items())
         logger.info(
-            "eu_startups fetch: %d of %d listings pending past the watermark",
+            "eu_startups fetch: %d of %d listings pending past the watermark "
+            "(%d durable retries)",
             len(pending),
             len(entries),
+            len(retryable_listings),
         )
         if not pending:
             return DiscoveryBatch((), None, ())

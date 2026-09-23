@@ -181,6 +181,57 @@ def test_failed_commit_rolls_back_bronze_row_and_watermark_together():
         _restore_eu_discovery_state(stable_ids, [], previous_state)
 
 
+def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    stable_id = f"task3-stale-success-{uuid.uuid4()}"
+    url = f"https://www.eu-startups.com/directory/{stable_id}/"
+    newer_lastmod = "2026-09-10T00:00:00+00:00"
+    stale_lastmod = "2026-09-05T00:00:00+00:00"
+    pinned_watermark = "2026-09-09T23:59:59+00:00"
+    previous_state = _isolate_eu_discovery_state([stable_id], [url])
+
+    try:
+        newer_record = _record(stable_id, newer_lastmod, html="<main>new</main>")
+        repository.commit_batch(
+            DiscoveryBatch((newer_record,), newer_lastmod, ()), str(uuid.uuid4())
+        )
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
+            conn.execute(
+                "INSERT INTO bronze.eu_startups_discovery_state (singleton, watermark) "
+                "VALUES (TRUE, %s)",
+                ("2026-09-01T00:00:00+00:00",),
+            )
+
+        newer_failure = FailedListingOutcome(url, newer_lastmod, 503)
+        repository.commit_batch(
+            DiscoveryBatch((), pinned_watermark, (newer_failure,)), str(uuid.uuid4())
+        )
+
+        stale_record = _record(stable_id, stale_lastmod, html="<main>stale</main>")
+        repository.commit_batch(
+            DiscoveryBatch(
+                (stale_record,),
+                "2026-09-20T00:00:00+00:00",
+                (),
+            ),
+            str(uuid.uuid4()),
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            stored = conn.execute(
+                "SELECT payload FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (stable_id,),
+            ).fetchone()
+
+        assert stored == (newer_record.payload,)
+        assert repository.list_retryable_listings() == (newer_failure,)
+        assert repository.read_watermark() == pinned_watermark
+    finally:
+        _restore_eu_discovery_state([stable_id], [url], previous_state)
+
+
 def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     url_key = f"task2-retry-{uuid.uuid4()}"
