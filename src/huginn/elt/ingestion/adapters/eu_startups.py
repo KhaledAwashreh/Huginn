@@ -294,11 +294,13 @@ class EuStartupsDiscoveryAdapter:
         for sitemap_url in sitemap_urls:
             entries.extend(_parse_listing_sitemap(self.fetch_page(sitemap_url)))
 
-        pending_by_url = {
-            loc: lastmod
-            for loc, lastmod in entries
-            if parsed_watermark is None or lastmod > parsed_watermark
-        }
+        pending_by_url: dict[str, datetime] = {}
+        for loc, lastmod in entries:
+            if parsed_watermark is not None and lastmod <= parsed_watermark:
+                continue
+            existing_lastmod = pending_by_url.get(loc)
+            if existing_lastmod is None or lastmod > existing_lastmod:
+                pending_by_url[loc] = lastmod
         for retryable_listing in retryable_listings:
             retry_lastmod = datetime.fromisoformat(retryable_listing.lastmod)
             existing_lastmod = pending_by_url.get(retryable_listing.url)

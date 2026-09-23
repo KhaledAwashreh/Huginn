@@ -493,3 +493,45 @@ def test_fetch_replays_a_persisted_retry_at_or_before_the_watermark(monkeypatch)
     batch = adapter.fetch(_MAX_FIXTURE_LASTMOD, (retry,))
 
     assert [record.stable_id for record in batch.records] == ["brightroom"]
+
+
+@pytest.mark.parametrize(
+    "duplicate_lastmods",
+    [
+        ("2026-09-10T00:00:00+00:00", "2026-09-05T00:00:00+00:00"),
+        ("2026-09-05T00:00:00+00:00", "2026-09-10T00:00:00+00:00"),
+    ],
+)
+def test_fetch_uses_newest_lastmod_for_duplicate_url_independent_of_order(
+    monkeypatch, duplicate_lastmods
+):
+    duplicate_url = "https://www.eu-startups.com/directory/duplicate/"
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    listing_sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>{duplicate_url}</loc><lastmod>{duplicate_lastmods[0]}</lastmod></url>
+<url><loc>{duplicate_url}</loc><lastmod>{duplicate_lastmods[1]}</lastmod></url>
+<url><loc>https://www.eu-startups.com/directory/filtered/</loc><lastmod>2026-09-03T00:00:00+00:00</lastmod></url>
+</urlset>"""
+    detail_urls = []
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        detail_urls.append(url)
+        return "<main>duplicate</main>"
+
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    batch = adapter.fetch("2026-09-04T00:00:00+00:00")
+
+    assert detail_urls == [duplicate_url]
+    assert len(batch.records) == 1
+    assert batch.records[0].payload["lastmod"] == "2026-09-10T00:00:00+00:00"
+    assert batch.proposed_watermark == "2026-09-10T00:00:00+00:00"
