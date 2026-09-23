@@ -44,6 +44,8 @@ _WRITE_RECORD_SQL = """
         run_id = EXCLUDED.run_id,
         fetched_at = now(),
         last_checked_at = now()
+    WHERE (bronze.web_scrape_ingest.payload ->> 'lastmod')::timestamptz
+          <= (EXCLUDED.payload ->> 'lastmod')::timestamptz
 """
 
 _TOUCH_RECORD_SQL = """
@@ -54,7 +56,7 @@ _TOUCH_RECORD_SQL = """
 
 _CLEAR_RETRY_SQL = """
     DELETE FROM bronze.eu_startups_listing_retry
-    WHERE url = %s
+    WHERE url = %s AND lastmod <= %s::timestamptz
 """
 
 _LIST_RETRYABLE_SQL = """
@@ -191,6 +193,12 @@ class PostgresEuStartupsDiscoveryRepository:
             # Keep retry visibility and checkpoint writes serialized across batches.
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", _COMMIT_LOCK_KEY)
             for record in batch.records:
+                record_lastmod = record.payload.get("lastmod")
+                if not isinstance(record_lastmod, str):
+                    raise ValueError(
+                        "EU-Startups discovery records require a string lastmod"
+                    )
+                _parse_timestamp(record_lastmod)
                 content_hash = compute_content_hash(
                     record.payload,
                     tuple(record.payload),
@@ -209,7 +217,7 @@ class PostgresEuStartupsDiscoveryRepository:
                             run_id,
                         ),
                     )
-                    written += 1
+                    written += cursor.rowcount
                 else:
                     cursor.execute(_TOUCH_RECORD_SQL, (_SOURCE, record.stable_id))
 
@@ -218,7 +226,7 @@ class PostgresEuStartupsDiscoveryRepository:
                     raise ValueError(
                         "EU-Startups discovery records require a string URL"
                     )
-                cursor.execute(_CLEAR_RETRY_SQL, (listing_url,))
+                cursor.execute(_CLEAR_RETRY_SQL, (listing_url, record_lastmod))
 
             for failure in batch.failed_listings:
                 terminal_increment = int(failure.status_code in _TERMINAL_STATUS_CODES)

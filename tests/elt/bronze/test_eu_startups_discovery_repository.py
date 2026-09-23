@@ -67,6 +67,7 @@ def test_commit_batch_rolls_back_and_closes_when_a_statement_fails(monkeypatch):
         def __init__(self):
             self._last_sql = ""
             self.closed = False
+            self.rowcount = 1
 
         def execute(self, sql, _params=()):
             self._last_sql = sql

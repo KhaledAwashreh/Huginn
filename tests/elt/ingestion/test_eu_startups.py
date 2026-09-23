@@ -473,3 +473,23 @@ def test_raw_record_stable_id_is_the_listing_slug_not_the_full_url(monkeypatch):
 
     assert all("/" not in record.stable_id for record in batch.records)
     assert all(not record.stable_id.startswith("http") for record in batch.records)
+
+
+def test_fetch_replays_a_persisted_retry_at_or_before_the_watermark(monkeypatch):
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    retry = FailedListingOutcome(
+        url="https://www.eu-startups.com/directory/brightroom/",
+        lastmod="2026-09-01T07:37:16+00:00",
+        status_code=503,
+    )
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(
+        adapter,
+        "fetch_page",
+        lambda url: _fake_fetch_page(url, listing_sitemap_xml, detail_html),
+    )
+
+    batch = adapter.fetch(_MAX_FIXTURE_LASTMOD, (retry,))
+
+    assert [record.stable_id for record in batch.records] == ["brightroom"]
