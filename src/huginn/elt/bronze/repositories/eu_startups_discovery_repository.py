@@ -5,19 +5,17 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import Literal
 
 import psycopg
 from psycopg.types.json import Jsonb
 
 from huginn.elt.bronze.watermark import compute_content_hash
-from huginn.elt.ingestion.models import DiscoveryBatch
+from huginn.elt.ingestion.models import DiscoveryBatch, FailedListingOutcome
 
 logger = logging.getLogger(__name__)
 
 RETRYABLE = "retryable"
 TERMINAL = "terminal"
-RetryStatus = Literal["retryable", "terminal"]
 
 _SOURCE = "eu_startups"
 _TERMINAL_STATUS_CODES = frozenset({404, 410})
@@ -58,6 +56,13 @@ _CLEAR_RETRY_SQL = """
     WHERE url = %s
 """
 
+_LIST_RETRYABLE_SQL = """
+    SELECT url, lastmod, last_status_code
+    FROM bronze.eu_startups_listing_retry
+    WHERE status = 'retryable'
+    ORDER BY lastmod, url
+"""
+
 _WRITE_RETRY_SQL = """
     INSERT INTO bronze.eu_startups_listing_retry
         (url, lastmod, attempt_count, terminal_attempt_count,
@@ -71,13 +76,13 @@ _WRITE_RETRY_SQL = """
             + EXCLUDED.terminal_attempt_count,
         last_status_code = EXCLUDED.last_status_code,
         status = CASE
-            WHEN EXCLUDED.terminal_attempt_count = 1
-             AND bronze.eu_startups_listing_retry.attempt_count + 1 >= %s
+            WHEN bronze.eu_startups_listing_retry.status = 'terminal'
+              OR (EXCLUDED.terminal_attempt_count = 1
+                  AND bronze.eu_startups_listing_retry.attempt_count + 1 >= %s)
             THEN 'terminal'
             ELSE 'retryable'
         END,
         updated_at = now()
-    RETURNING attempt_count, terminal_attempt_count, status
 """
 
 _WRITE_WATERMARK_SQL = """
@@ -100,19 +105,11 @@ def _parse_timestamp(value: str) -> datetime:
 
 
 def committed_watermark(
-    batch: DiscoveryBatch, failure_statuses: tuple[RetryStatus, ...]
+    batch: DiscoveryBatch, retryable_lastmods: tuple[str, ...]
 ) -> datetime | None:
     """Choose the watermark after applying durable failure policy."""
-    if len(failure_statuses) != len(batch.failed_listings):
-        raise ValueError("one retry status is required for each failed listing")
-
-    retryable_lastmods = [
-        _parse_timestamp(failure.lastmod)
-        for failure, status in zip(batch.failed_listings, failure_statuses, strict=True)
-        if status == RETRYABLE
-    ]
     if retryable_lastmods:
-        return min(retryable_lastmods) - timedelta(seconds=1)
+        return min(map(_parse_timestamp, retryable_lastmods)) - timedelta(seconds=1)
 
     if batch.failed_listings:
         processed_lastmods = [
@@ -128,6 +125,18 @@ def committed_watermark(
     if batch.proposed_watermark is None:
         return None
     return _parse_timestamp(batch.proposed_watermark)
+
+
+def _read_retryable_listings(cursor) -> tuple[FailedListingOutcome, ...]:
+    cursor.execute(_LIST_RETRYABLE_SQL)
+    return tuple(
+        FailedListingOutcome(
+            url=url,
+            lastmod=lastmod.isoformat(),
+            status_code=last_status_code,
+        )
+        for url, lastmod, last_status_code in cursor.fetchall()
+    )
 
 
 class PostgresEuStartupsDiscoveryRepository:
@@ -148,6 +157,17 @@ class PostgresEuStartupsDiscoveryRepository:
         value = row[0].isoformat() if row is not None else None
         logger.debug("EU-Startups discovery watermark read: %s", value or "unset")
         return value
+
+    def list_retryable_listings(self) -> tuple[FailedListingOutcome, ...]:
+        """List durable retryable listings for Task 3's replay path."""
+        with (
+            psycopg.connect(self._database_url) as connection,
+            connection.cursor() as cursor,
+        ):
+            listings = _read_retryable_listings(cursor)
+
+        logger.debug("EU-Startups retryable listings read: %d", len(listings))
+        return listings
 
     def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
         """Commit Bronze rows, retry state, and watermark in one transaction."""
@@ -188,7 +208,6 @@ class PostgresEuStartupsDiscoveryRepository:
                     )
                 cursor.execute(_CLEAR_RETRY_SQL, (listing_url,))
 
-            failure_statuses: list[RetryStatus] = []
             for failure in batch.failed_listings:
                 terminal_increment = int(failure.status_code in _TERMINAL_STATUS_CODES)
                 cursor.execute(
@@ -201,10 +220,11 @@ class PostgresEuStartupsDiscoveryRepository:
                         _TERMINAL_ATTEMPTS,
                     ),
                 )
-                _attempts, _terminal_attempts, status = cursor.fetchone()
-                failure_statuses.append(status)
 
-            watermark = committed_watermark(batch, tuple(failure_statuses))
+            retryable_listings = _read_retryable_listings(cursor)
+            watermark = committed_watermark(
+                batch, tuple(listing.lastmod for listing in retryable_listings)
+            )
             if watermark is not None:
                 cursor.execute(_WRITE_WATERMARK_SQL, (watermark,))
             connection.commit()

@@ -4,8 +4,6 @@ import pytest
 
 from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
-    RETRYABLE,
-    TERMINAL,
     PostgresEuStartupsDiscoveryRepository,
     committed_watermark,
 )
@@ -40,7 +38,7 @@ def test_terminal_failure_no_longer_pins_the_committed_watermark():
         failed_listings=(_failure(404, "2026-09-03T00:00:00+00:00"),),
     )
 
-    result = committed_watermark(batch, (TERMINAL,))
+    result = committed_watermark(batch, ())
 
     assert result == datetime(2026, 9, 5, tzinfo=UTC)
 
@@ -59,7 +57,7 @@ def test_earliest_retryable_failure_pins_watermark_after_terminal_failures():
         ),
     )
 
-    result = committed_watermark(batch, (TERMINAL, RETRYABLE))
+    result = committed_watermark(batch, ("2026-09-04T00:00:00+00:00",))
 
     assert result == datetime(2026, 9, 3, 23, 59, 59, tzinfo=UTC)
 
@@ -77,6 +75,9 @@ def test_commit_batch_rolls_back_and_closes_when_a_statement_fails(monkeypatch):
 
         def fetchone(self):
             return None
+
+        def fetchall(self):
+            return []
 
         def close(self):
             self.closed = True

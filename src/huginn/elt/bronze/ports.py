@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from huginn.elt.ingestion.models import DiscoveryBatch, RawRecord
+from huginn.elt.ingestion.models import (
+    DiscoveryBatch,
+    FailedListingOutcome,
+    RawRecord,
+)
 
 
 class RawStorePort(Protocol):
@@ -59,6 +63,10 @@ class EuStartupsDiscoveryRepositoryPort(Protocol):
 
     def read_watermark(self) -> str | None:
         """Return the durable sitemap watermark, or None before the first run."""
+        ...
+
+    def list_retryable_listings(self) -> tuple[FailedListingOutcome, ...]:
+        """Return durable retryable listings for the next replay pass."""
         ...
 
     def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
