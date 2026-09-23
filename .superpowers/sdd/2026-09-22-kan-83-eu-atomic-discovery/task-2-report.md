@@ -29,9 +29,10 @@ EU-Startups discovery.
   410 and the resulting total `attempt_count` is at least three.
 - Before terminalization, a current network failure or 5xx response remains
   retryable regardless of total attempt count.
-- Terminal status is sticky across later failures because the watermark may
-  already have advanced. A later successful listing write clears the retry
-  row.
+- Terminal status is sticky across later failures for the same listing
+  `lastmod` because the watermark may already have advanced. A strictly newer
+  `lastmod` starts a fresh retry cycle, and a successful listing write clears
+  the retry row.
 - Terminal failures stop pinning the committed watermark. Any remaining
   retryable failure pins it to one second before that listing's `lastmod`.
 
@@ -136,7 +137,8 @@ sources, and pre-existing uncommitted web-scrape work remain untouched.
    repository. It returns durable URL, `lastmod`, and last-status state in
    deterministic `lastmod, url` order for Task 3's future replay path. No
    runner was added.
-3. Terminal retry rows remain terminal across later network/5xx failures. The
+3. Terminal retry rows remain terminal across later network/5xx failures for
+   the same listing version. Round 3 adds the newer-version reset rule. The
    existing successful-listing path still deletes the matching retry row.
 4. Preserved the existing schema DDL and documented bootstrap application as
    an operational prerequisite; no migration framework was added.
@@ -184,3 +186,64 @@ Only the EU discovery repository interface/implementation, focused tests, and
 this report changed. Schema DDL, adapters, the shared ingestion service, other
 sources, and Task 3's runner remain unchanged. Pre-existing uncommitted
 web-scrape work remains preserved and unstaged.
+
+## Fix Round 3/5: Listing-Version Retry Reset
+
+### Finding Addressed
+
+Terminal state is now sticky only while failures carry the same listing
+`lastmod`. When a URL fails with a strictly newer `lastmod`, the atomic retry
+upsert starts a new cycle:
+
+- `attempt_count = 1`;
+- `terminal_attempt_count = 1` for a current 404/410, otherwise `0`;
+- `status = retryable`;
+- the new `lastmod` is persisted and exposed by `list_retryable_listings()`;
+- the checkpoint remains one second before the newer unresolved listing.
+
+Equal or older `lastmod` failures retain the existing sticky-terminal and
+attempt-accumulation behavior. Successful listing writes still clear retry
+state.
+
+### Red Evidence
+
+The new PostgreSQL regression first terminalized an old listing version with
+three 404s, then submitted a newer version with a 503. Before the fix it
+observed `(attempt_count=4, terminal_attempt_count=3, status="terminal")`
+instead of `(1, 0, "retryable")`.
+
+- run result: `1 failed, 8 passed in 0.84s`.
+
+### Verification Commands And Outputs
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+............                                                             [100%]
+12 passed in 0.75s
+```
+
+All 12 tests executed: 3 unit and 9 PostgreSQL Testcontainers cases. Zero
+tests skipped.
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff check src/huginn/elt/bronze/repositories/eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+All checks passed!
+```
+
+```text
+$ rtk env UV_CACHE_DIR=/tmp/huginn-task2-uv-cache uv run ruff format --check src/huginn/elt/bronze/repositories/eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py
+3 files already formatted
+```
+
+```text
+$ rtk git diff --check
+```
+
+`git diff --check` produced no output and exited 0.
+
+### Scope
+
+Only the EU discovery retry upsert, its PostgreSQL regression, and this report
+changed. Schema DDL, ports, adapters, the shared ingestion service, other
+sources, and Task 3 remain unchanged. Pre-existing uncommitted web-scrape work
+remains preserved and unstaged.

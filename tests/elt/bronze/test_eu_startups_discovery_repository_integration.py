@@ -325,6 +325,49 @@ def test_terminal_retry_state_is_sticky_until_a_success_clears_it():
         _restore_eu_discovery_state([url_key], [failure_url], previous_state)
 
 
+def test_newer_listing_version_resets_terminal_retry_cycle():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    url_key = f"task2-new-version-{uuid.uuid4()}"
+    failure_url = f"https://www.eu-startups.com/directory/{url_key}/"
+    old_lastmod = "2026-09-05T00:00:00+00:00"
+    old_proposed = "2026-09-04T23:59:59+00:00"
+    new_lastmod = "2026-09-10T00:00:00+00:00"
+    new_proposed = "2026-09-09T23:59:59+00:00"
+    previous_state = _isolate_eu_discovery_state([], [failure_url])
+
+    try:
+        for _attempt in range(3):
+            repository.commit_batch(
+                DiscoveryBatch(
+                    (), old_proposed, (_failure(url_key, old_lastmod, 404),)
+                ),
+                str(uuid.uuid4()),
+            )
+
+        repository.commit_batch(
+            DiscoveryBatch((), new_proposed, (_failure(url_key, new_lastmod, 503),)),
+            str(uuid.uuid4()),
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            attempt_count, terminal_attempt_count, stored_lastmod, status = (
+                conn.execute(
+                    "SELECT attempt_count, terminal_attempt_count, lastmod, status "
+                    "FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                    (failure_url,),
+                ).fetchone()
+            )
+
+        assert (attempt_count, terminal_attempt_count, status) == (1, 0, RETRYABLE)
+        assert stored_lastmod.isoformat() == new_lastmod
+        assert repository.read_watermark() == new_proposed
+        assert repository.list_retryable_listings() == (
+            FailedListingOutcome(failure_url, new_lastmod, 503),
+        )
+    finally:
+        _restore_eu_discovery_state([], [failure_url], previous_state)
+
+
 @pytest.mark.parametrize("status_code", [404, 410])
 def test_confirmed_missing_listing_terminalizes_on_third_persisted_attempt(
     status_code,

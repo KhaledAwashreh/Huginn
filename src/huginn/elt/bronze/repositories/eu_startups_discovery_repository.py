@@ -70,12 +70,20 @@ _WRITE_RETRY_SQL = """
     VALUES (%s, %s::timestamptz, 1, %s, %s, 'retryable')
     ON CONFLICT (url) DO UPDATE
     SET lastmod = EXCLUDED.lastmod,
-        attempt_count = bronze.eu_startups_listing_retry.attempt_count + 1,
-        terminal_attempt_count =
-            bronze.eu_startups_listing_retry.terminal_attempt_count
-            + EXCLUDED.terminal_attempt_count,
+        attempt_count = CASE
+            WHEN EXCLUDED.lastmod > bronze.eu_startups_listing_retry.lastmod THEN 1
+            ELSE bronze.eu_startups_listing_retry.attempt_count + 1
+        END,
+        terminal_attempt_count = CASE
+            WHEN EXCLUDED.lastmod > bronze.eu_startups_listing_retry.lastmod
+            THEN EXCLUDED.terminal_attempt_count
+            ELSE bronze.eu_startups_listing_retry.terminal_attempt_count
+                 + EXCLUDED.terminal_attempt_count
+        END,
         last_status_code = EXCLUDED.last_status_code,
         status = CASE
+            WHEN EXCLUDED.lastmod > bronze.eu_startups_listing_retry.lastmod
+            THEN 'retryable'
             WHEN bronze.eu_startups_listing_retry.status = 'terminal'
               OR (EXCLUDED.terminal_attempt_count = 1
                   AND bronze.eu_startups_listing_retry.attempt_count + 1 >= %s)
