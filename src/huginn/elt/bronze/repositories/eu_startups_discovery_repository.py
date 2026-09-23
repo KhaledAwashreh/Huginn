@@ -18,6 +18,7 @@ RETRYABLE = "retryable"
 TERMINAL = "terminal"
 
 _SOURCE = "eu_startups"
+_COMMIT_LOCK_KEY = (0x48554749, 0x45555354)  # Huginn / EU-Startups: "HUGI", "EUST".
 _TERMINAL_STATUS_CODES = frozenset({404, 410})
 _TERMINAL_ATTEMPTS = 3
 
@@ -187,6 +188,8 @@ class PostgresEuStartupsDiscoveryRepository:
 
         try:
             cursor = connection.cursor()
+            # Keep retry visibility and checkpoint writes serialized across batches.
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", _COMMIT_LOCK_KEY)
             for record in batch.records:
                 content_hash = compute_content_hash(
                     record.payload,

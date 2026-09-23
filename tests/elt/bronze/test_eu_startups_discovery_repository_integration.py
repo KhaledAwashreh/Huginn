@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from queue import Queue
+from threading import Event
+from time import monotonic
 
 import psycopg
 import pytest
 
+from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
     RETRYABLE,
     TERMINAL,
@@ -204,6 +209,157 @@ def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():
         assert repository.read_watermark() == proposed
     finally:
         _restore_eu_discovery_state([], [failure_url], previous_state)
+
+
+def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
+    monkeypatch,
+):
+    retry_repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    success_repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    failure = _failure(
+        f"task2-concurrent-retry-{uuid.uuid4()}", "2026-09-03T00:00:00+00:00", 503
+    )
+    record = _record(
+        f"task2-concurrent-success-{uuid.uuid4()}", "2026-09-06T00:00:00+00:00"
+    )
+    pinned_watermark = datetime.fromisoformat(failure.lastmod) - timedelta(seconds=1)
+    retry_inserted = Event()
+    release_retry = Event()
+    backend_pids = Queue()
+    real_connect = psycopg.connect
+    previous_state = _isolate_eu_discovery_state([record.stable_id], [failure.url])
+
+    class PausingRetryCursor(psycopg.Cursor):
+        def execute(self, query, params=None, **kwargs):
+            result = super().execute(query, params, **kwargs)
+            if query == eu_startups_discovery_repository._WRITE_RETRY_SQL:
+                retry_inserted.set()
+                assert release_retry.wait(timeout=10), (
+                    "Retry transaction was not released"
+                )
+            return result
+
+    def connect_for_commit(database_url):
+        connection = real_connect(
+            database_url,
+            cursor_factory=PausingRetryCursor,
+            connect_timeout=5,
+            options="-c statement_timeout=10000",
+        )
+        backend_pids.put(connection.info.backend_pid)
+        return connection
+
+    try:
+        with real_connect(DATABASE_URL, autocommit=True) as observer:
+            with (
+                monkeypatch.context() as patch,
+                ThreadPoolExecutor(max_workers=2) as pool,
+            ):
+                patch.setattr(
+                    eu_startups_discovery_repository.psycopg,
+                    "connect",
+                    connect_for_commit,
+                )
+                try:
+                    retry_commit = pool.submit(
+                        retry_repository.commit_batch,
+                        DiscoveryBatch((), pinned_watermark.isoformat(), (failure,)),
+                        str(uuid.uuid4()),
+                    )
+                    retry_pid = backend_pids.get(timeout=10)
+                    assert retry_inserted.wait(timeout=10), (
+                        "Retry insert did not execute"
+                    )
+                    assert (
+                        observer.execute(
+                            "SELECT 1 FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                            (failure.url,),
+                        ).fetchone()
+                        is None
+                    )
+
+                    success_commit = pool.submit(
+                        success_repository.commit_batch,
+                        DiscoveryBatch((record,), record.payload["lastmod"], ()),
+                        str(uuid.uuid4()),
+                    )
+                    success_pid = backend_pids.get(timeout=10)
+                    assert success_pid != retry_pid
+
+                    # Before the fix the success commits past the invisible retry;
+                    # after the fix it waits for this transaction's advisory lock.
+                    saw_advisory_wait = False
+                    deadline = monotonic() + 10
+                    while not success_commit.done():
+                        saw_advisory_wait = observer.execute(
+                            "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                            "WHERE pid = %s AND locktype = 'advisory' AND NOT granted) "
+                            "AND %s = ANY(pg_blocking_pids(%s))",
+                            (success_pid, retry_pid, success_pid),
+                        ).fetchone()[0]
+                        if saw_advisory_wait:
+                            break
+                        assert monotonic() < deadline, (
+                            "Competing commit neither finished nor waited for the advisory lock"
+                        )
+                finally:
+                    release_retry.set()
+
+                assert retry_commit.result(timeout=10) == 0
+                assert success_commit.result(timeout=10) == 1
+
+            retry = observer.execute(
+                "SELECT lastmod, attempt_count, last_status_code, status "
+                "FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (failure.url,),
+            ).fetchone()
+            stored = observer.execute(
+                "SELECT payload FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (record.stable_id,),
+            ).fetchone()
+
+        assert retry == (datetime.fromisoformat(failure.lastmod), 1, 503, RETRYABLE)
+        assert stored == (record.payload,)
+        assert (
+            datetime.fromisoformat(success_repository.read_watermark())
+            <= pinned_watermark
+        )
+        assert success_repository.list_retryable_listings() == (failure,)
+        assert saw_advisory_wait
+    finally:
+        _restore_eu_discovery_state([record.stable_id], [failure.url], previous_state)
+
+
+def test_rollback_releases_discovery_lock_before_connection_close(monkeypatch):
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    record = _record(
+        f"task2-lock-rollback-{uuid.uuid4()}",
+        "2026-09-06T00:00:00+00:00",
+        html={"not", "json-serializable"},
+    )
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                eu_startups_discovery_repository.psycopg,
+                "connect",
+                lambda _url: connection,
+            )
+            patch.setattr(connection, "close", lambda: None)
+            with pytest.raises(TypeError):
+                repository.commit_batch(
+                    DiscoveryBatch((record,), record.payload["lastmod"], ()),
+                    str(uuid.uuid4()),
+                )
+
+        assert (
+            connection.execute(
+                "SELECT 1 FROM pg_locks "
+                "WHERE pid = pg_backend_pid() AND locktype = 'advisory'"
+            ).fetchall()
+            == []
+        )
 
 
 def test_persisted_retryable_failure_pins_a_later_success_and_is_listable():
