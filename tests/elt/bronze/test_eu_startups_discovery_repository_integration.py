@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from queue import Queue
@@ -11,6 +12,8 @@ from time import monotonic
 
 import psycopg
 import pytest
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
@@ -27,6 +30,7 @@ from huginn.elt.ingestion.models import (
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 _SCHEMA_DIR = Path(__file__).resolve().parents[3] / "db" / "schema"
 _KAN_83_UPGRADE = _SCHEMA_DIR / "kan-83-eu-startups-discovery.sql"
+_PRE_KAN_83_SCHEMA_FILES = ("00_extensions.sql", "bronze.sql")
 
 
 def _database_reachable() -> bool:
@@ -104,6 +108,83 @@ def _restore_eu_discovery_state(
                 "(singleton, watermark, updated_at) VALUES (TRUE, %s, %s)",
                 previous_state,
             )
+
+
+def _maintenance_database_url() -> str:
+    connection_options = conninfo_to_dict(DATABASE_URL)
+    connection_options["dbname"] = "postgres"
+    return make_conninfo(**connection_options)
+
+
+def _database_exists(database_name: str) -> bool:
+    with psycopg.connect(_maintenance_database_url()) as conn:
+        return conn.execute(
+            "SELECT EXISTS (SELECT FROM pg_database WHERE datname = %s)",
+            (database_name,),
+        ).fetchone()[0]
+
+
+def _configured_database_state():
+    with psycopg.connect(DATABASE_URL) as conn:
+        return conn.execute(
+            "SELECT current_database(), "
+            "'bronze.web_scrape_ingest'::regclass::oid, "
+            "'bronze.eu_startups_discovery_state'::regclass::oid, "
+            "'bronze.eu_startups_listing_retry'::regclass::oid"
+        ).fetchone()
+
+
+def _drop_temporary_database(database_name: str) -> None:
+    with psycopg.connect(_maintenance_database_url(), autocommit=True) as conn:
+        assert conn.execute("SELECT current_database()").fetchone()[0] == "postgres"
+        conn.execute(
+            sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                sql.Identifier(database_name)
+            )
+        )
+
+
+@contextmanager
+def _temporary_pre_kan_83_database():
+    database_name = f"huginn_kan_83_upgrade_{uuid.uuid4().hex}"
+    if _database_exists(database_name):
+        raise RuntimeError(f"temporary database name already exists: {database_name}")
+
+    try:
+        with psycopg.connect(_maintenance_database_url(), autocommit=True) as conn:
+            assert conn.execute("SELECT current_database()").fetchone()[0] == "postgres"
+            conn.execute(
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name))
+            )
+    except psycopg.errors.InsufficientPrivilege:
+        pytest.skip("isolated upgrade test requires CREATE DATABASE permission")
+    except BaseException:
+        if _database_exists(database_name):
+            _drop_temporary_database(database_name)
+        raise
+
+    configured_database_name = _configured_database_state()[0]
+    connection_options = conninfo_to_dict(DATABASE_URL)
+    connection_options["dbname"] = database_name
+    database_url = make_conninfo(**connection_options)
+    try:
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            assert (
+                conn.execute("SELECT current_database()").fetchone()[0] == database_name
+            )
+            for filename in _PRE_KAN_83_SCHEMA_FILES:
+                schema_sql = (_SCHEMA_DIR / filename).read_text()
+                if any(
+                    line.lstrip().startswith("\\") for line in schema_sql.splitlines()
+                ):
+                    raise RuntimeError(
+                        f"{filename} contains psql meta-commands and cannot run via psycopg"
+                    )
+                conn.execute(schema_sql)
+        yield database_url, database_name, configured_database_name
+    finally:
+        _drop_temporary_database(database_name)
+        assert _database_exists(database_name) is False
 
 
 def test_commit_batch_atomically_persists_row_and_watermark():
@@ -190,7 +271,8 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
     url = f"https://www.eu-startups.com/directory/{stable_id}/"
     newer_lastmod = "2026-09-10T00:00:00+00:00"
     stale_lastmod = "2026-09-05T00:00:00+00:00"
-    pinned_watermark = "2026-09-09T23:59:59+00:00"
+    failure_proposed_watermark = "2026-09-09T23:59:59+00:00"
+    stale_batch_proposed_watermark = "2026-09-20T00:00:00+00:00"
     previous_state = _isolate_eu_discovery_state([stable_id], [url])
 
     try:
@@ -208,14 +290,15 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
 
         newer_failure = FailedListingOutcome(url, newer_lastmod, 503)
         repository.commit_batch(
-            DiscoveryBatch((), pinned_watermark, (newer_failure,)), str(uuid.uuid4())
+            DiscoveryBatch((), failure_proposed_watermark, (newer_failure,)),
+            str(uuid.uuid4()),
         )
 
         stale_record = _record(stable_id, stale_lastmod, html="<main>stale</main>")
         repository.commit_batch(
             DiscoveryBatch(
                 (stale_record,),
-                "2026-09-20T00:00:00+00:00",
+                stale_batch_proposed_watermark,
                 (),
             ),
             str(uuid.uuid4()),
@@ -230,7 +313,7 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
 
         assert stored == (newer_record.payload,)
         assert repository.list_retryable_listings() == (newer_failure,)
-        assert repository.read_watermark() == pinned_watermark
+        assert repository.read_watermark() == stale_batch_proposed_watermark
     finally:
         _restore_eu_discovery_state([stable_id], [url], previous_state)
 
@@ -299,23 +382,35 @@ def test_stale_failure_after_newer_success_leaves_durable_state_unchanged(
         _restore_eu_discovery_state([stable_id], [url], previous_state)
 
 
-def test_kan_83_additive_upgrade_preserves_preexisting_bronze_data_and_enables_repository():
+def test_kan_83_additive_upgrade_isolated_from_configured_database_and_cleans_up():
     historical_id = f"pre-kan-83-{uuid.uuid4()}"
     discovery_id = f"final-review-upgrade-{uuid.uuid4()}"
-    retry_url = f"https://www.eu-startups.com/directory/{discovery_id}/"
     historical_run_id = str(uuid.uuid4())
     successful_lastmod = "2026-09-10T00:00:00+00:00"
     retry_lastmod = "2026-09-12T00:00:00+00:00"
-    previous_state = None
+    configured_database_state = _configured_database_state()
 
-    try:
-        with psycopg.connect(DATABASE_URL) as conn:
-            previous_state = conn.execute(
-                "SELECT watermark, updated_at "
-                "FROM bronze.eu_startups_discovery_state WHERE singleton = TRUE"
-            ).fetchone()
-            conn.execute("DROP TABLE IF EXISTS bronze.eu_startups_listing_retry")
-            conn.execute("DROP TABLE IF EXISTS bronze.eu_startups_discovery_state")
+    with _temporary_pre_kan_83_database() as (
+        database_url,
+        database_name,
+        configured_database_name,
+    ):
+        assert configured_database_name != database_name
+        assert configured_database_name == configured_database_state[0]
+        assert conninfo_to_dict(database_url)["dbname"] == database_name
+        with psycopg.connect(database_url) as conn:
+            assert (
+                conn.execute(
+                    "SELECT to_regclass('bronze.eu_startups_discovery_state')"
+                ).fetchone()[0]
+                is None
+            )
+            assert (
+                conn.execute(
+                    "SELECT to_regclass('bronze.eu_startups_listing_retry')"
+                ).fetchone()[0]
+                is None
+            )
             conn.execute(
                 "INSERT INTO bronze.web_scrape_ingest "
                 "(source, stable_id, payload, content_hash, run_id) "
@@ -338,7 +433,7 @@ def test_kan_83_additive_upgrade_preserves_preexisting_bronze_data_and_enables_r
             uuid.UUID(historical_run_id),
         )
 
-        repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+        repository = PostgresEuStartupsDiscoveryRepository(database_url)
         record = _record(discovery_id, successful_lastmod)
         failure = _failure(discovery_id, retry_lastmod, 503)
         assert (
@@ -348,39 +443,22 @@ def test_kan_83_additive_upgrade_preserves_preexisting_bronze_data_and_enables_r
             == 1
         )
         assert repository.list_retryable_listings() == (failure,)
-        assert repository.read_watermark() == "2026-09-11T23:59:59+00:00"
-    finally:
-        with psycopg.connect(DATABASE_URL) as conn:
-            conn.execute(
-                "DELETE FROM bronze.web_scrape_ingest "
-                "WHERE source = 'pre_kan_83' AND stable_id = %s",
-                (historical_id,),
-            )
-            conn.execute(
-                "DELETE FROM bronze.web_scrape_ingest "
-                "WHERE source = 'eu_startups' AND stable_id = %s",
-                (discovery_id,),
-            )
-            conn.execute(
-                "DELETE FROM bronze.eu_startups_listing_retry WHERE url = %s",
-                (retry_url,),
-            )
-            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
-            if previous_state is not None:
-                conn.execute(
-                    "INSERT INTO bronze.eu_startups_discovery_state "
-                    "(singleton, watermark, updated_at) VALUES (TRUE, %s, %s)",
-                    previous_state,
-                )
+        assert repository.read_watermark() == retry_lastmod
+        assert _configured_database_state() == configured_database_state
+
+    assert _database_exists(database_name) is False
+    assert _configured_database_state() == configured_database_state
 
 
 def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     url_key = f"task2-retry-{uuid.uuid4()}"
+    success_id = f"task2-later-success-{uuid.uuid4()}"
     failure_url = f"https://www.eu-startups.com/directory/{url_key}/"
     lastmod = "2026-09-05T00:00:00+00:00"
     proposed = "2026-09-04T23:59:59+00:00"
-    previous_state = _isolate_eu_discovery_state([], [failure_url])
+    later_success_lastmod = "2026-09-06T00:00:00+00:00"
+    previous_state = _isolate_eu_discovery_state([success_id], [failure_url])
 
     try:
         for status_code in (None, 503):
@@ -399,12 +477,25 @@ def test_retry_count_is_persisted_while_network_and_5xx_remain_retryable():
             ).fetchone()
 
         assert retry == (2, 0, RETRYABLE)
-        assert repository.read_watermark() == proposed
+        assert repository.list_retryable_listings() == (
+            _failure(url_key, lastmod, 503),
+        )
+
+        repository.commit_batch(
+            DiscoveryBatch(
+                (_record(success_id, later_success_lastmod),),
+                later_success_lastmod,
+                (),
+            ),
+            str(uuid.uuid4()),
+        )
+
+        assert repository.read_watermark() == later_success_lastmod
     finally:
-        _restore_eu_discovery_state([], [failure_url], previous_state)
+        _restore_eu_discovery_state([success_id], [failure_url], previous_state)
 
 
-def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
+def test_overlapping_discovery_commits_keep_retryable_failure_and_advance_checkpoint(
     monkeypatch,
 ):
     retry_repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
@@ -415,7 +506,9 @@ def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
     record = _record(
         f"task2-concurrent-success-{uuid.uuid4()}", "2026-09-06T00:00:00+00:00"
     )
-    pinned_watermark = datetime.fromisoformat(failure.lastmod) - timedelta(seconds=1)
+    failure_proposed_watermark = datetime.fromisoformat(failure.lastmod) - timedelta(
+        seconds=1
+    )
     retry_inserted = Event()
     release_retry = Event()
     backend_pids = Queue()
@@ -456,7 +549,9 @@ def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
                 try:
                     retry_commit = pool.submit(
                         retry_repository.commit_batch,
-                        DiscoveryBatch((), pinned_watermark.isoformat(), (failure,)),
+                        DiscoveryBatch(
+                            (), failure_proposed_watermark.isoformat(), (failure,)
+                        ),
                         str(uuid.uuid4()),
                     )
                     retry_pid = backend_pids.get(timeout=10)
@@ -479,8 +574,8 @@ def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
                     success_pid = backend_pids.get(timeout=10)
                     assert success_pid != retry_pid
 
-                    # Before the fix the success commits past the invisible retry;
-                    # after the fix it waits for this transaction's advisory lock.
+                    # The success waits for the retry transaction's advisory lock,
+                    # then advances the checkpoint without discarding the retry.
                     saw_advisory_wait = False
                     deadline = monotonic() + 10
                     while not success_commit.done():
@@ -514,10 +609,7 @@ def test_overlapping_discovery_commits_keep_retryable_failure_checkpoint_pinned(
 
         assert retry == (datetime.fromisoformat(failure.lastmod), 1, 503, RETRYABLE)
         assert stored == (record.payload,)
-        assert (
-            datetime.fromisoformat(success_repository.read_watermark())
-            <= pinned_watermark
-        )
+        assert success_repository.read_watermark() == record.payload["lastmod"]
         assert success_repository.list_retryable_listings() == (failure,)
         assert saw_advisory_wait
     finally:
@@ -555,13 +647,13 @@ def test_rollback_releases_discovery_lock_before_connection_close(monkeypatch):
         )
 
 
-def test_persisted_retryable_failure_pins_a_later_success_and_is_listable():
+def test_persisted_retryable_failure_allows_later_success_and_is_listable():
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     failure_key = f"task2-persisted-retry-{uuid.uuid4()}"
     failure_url = f"https://www.eu-startups.com/directory/{failure_key}/"
     success_id = f"task2-newer-success-{uuid.uuid4()}"
     failure_lastmod = "2026-09-03T00:00:00+00:00"
-    pinned_watermark = "2026-09-02T23:59:59+00:00"
+    failure_proposed_watermark = "2026-09-02T23:59:59+00:00"
     success_lastmod = "2026-09-06T00:00:00+00:00"
     previous_state = _isolate_eu_discovery_state([success_id], [failure_url])
 
@@ -569,7 +661,7 @@ def test_persisted_retryable_failure_pins_a_later_success_and_is_listable():
         repository.commit_batch(
             DiscoveryBatch(
                 (),
-                pinned_watermark,
+                failure_proposed_watermark,
                 (_failure(failure_key, failure_lastmod, 503),),
             ),
             str(uuid.uuid4()),
@@ -591,7 +683,7 @@ def test_persisted_retryable_failure_pins_a_later_success_and_is_listable():
             str(uuid.uuid4()),
         )
 
-        assert repository.read_watermark() == pinned_watermark
+        assert repository.read_watermark() == success_lastmod
         assert repository.list_retryable_listings() == (expected_retry,)
     finally:
         _restore_eu_discovery_state([success_id], [failure_url], previous_state)
@@ -709,7 +801,7 @@ def test_newer_listing_version_resets_terminal_retry_cycle():
 
         assert (attempt_count, terminal_attempt_count, status) == (1, 0, RETRYABLE)
         assert stored_lastmod.isoformat() == new_lastmod
-        assert repository.read_watermark() == new_proposed
+        assert repository.read_watermark() == new_lastmod
         assert repository.list_retryable_listings() == (
             FailedListingOutcome(failure_url, new_lastmod, 503),
         )
@@ -762,7 +854,7 @@ def test_stale_listing_failure_preserves_newer_retry_cycle(stale_status_code):
             503,
             RETRYABLE,
         )
-        assert repository.read_watermark() == new_proposed
+        assert repository.read_watermark() == new_lastmod
 
         repository.commit_batch(
             DiscoveryBatch(
@@ -771,7 +863,7 @@ def test_stale_listing_failure_preserves_newer_retry_cycle(stale_status_code):
             str(uuid.uuid4()),
         )
         assert read_retry() == newer_retry
-        assert repository.read_watermark() == new_proposed
+        assert repository.read_watermark() == new_lastmod
         assert repository.list_retryable_listings() == (
             FailedListingOutcome(failure_url, new_lastmod, 503),
         )
@@ -787,7 +879,7 @@ def test_stale_listing_failure_preserves_newer_retry_cycle(stale_status_code):
             410,
             RETRYABLE,
         )
-        assert repository.read_watermark() == new_proposed
+        assert repository.read_watermark() == new_lastmod
     finally:
         _restore_eu_discovery_state([], [failure_url], previous_state)
 

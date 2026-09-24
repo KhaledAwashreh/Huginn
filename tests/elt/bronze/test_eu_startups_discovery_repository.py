@@ -4,6 +4,7 @@ import pytest
 
 from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
+    _READ_SUCCESSFUL_LISTING_LASTMOD_SQL,
     PostgresEuStartupsDiscoveryRepository,
     committed_watermark,
 )
@@ -38,12 +39,12 @@ def test_terminal_failure_no_longer_pins_the_committed_watermark():
         failed_listings=(_failure(404, "2026-09-03T00:00:00+00:00"),),
     )
 
-    result = committed_watermark(batch, ())
+    result = committed_watermark(batch)
 
     assert result == datetime(2026, 9, 5, tzinfo=UTC)
 
 
-def test_earliest_retryable_failure_pins_watermark_after_terminal_failures():
+def test_retryable_failures_do_not_pin_the_committed_watermark():
     batch = DiscoveryBatch(
         records=(),
         proposed_watermark="2026-09-01T23:59:59+00:00",
@@ -57,9 +58,66 @@ def test_earliest_retryable_failure_pins_watermark_after_terminal_failures():
         ),
     )
 
-    result = committed_watermark(batch, ("2026-09-04T00:00:00+00:00",))
+    result = committed_watermark(batch)
 
-    assert result == datetime(2026, 9, 3, 23, 59, 59, tzinfo=UTC)
+    assert result == datetime(2026, 9, 4, tzinfo=UTC)
+
+
+def test_successful_listing_lastmod_lookup_uses_fixed_source_literal(monkeypatch):
+    class CapturingCursor:
+        def __init__(self):
+            self.executed: list[tuple[str, tuple]] = []
+            self.closed = False
+            self.rowcount = 0
+
+        def execute(self, sql, params=()):
+            self.executed.append((sql, params))
+
+        def fetchone(self):
+            if self.executed[-1][0] == _READ_SUCCESSFUL_LISTING_LASTMOD_SQL:
+                return (None,)
+            return None
+
+        def fetchall(self):
+            return []
+
+        def close(self):
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self):
+            self.cursor_instance = CapturingCursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    connection = FakeConnection()
+    monkeypatch.setattr(
+        eu_startups_discovery_repository.psycopg,
+        "connect",
+        lambda _database_url: connection,
+    )
+    failure = _failure(503, "2026-09-05T00:00:00+00:00")
+
+    PostgresEuStartupsDiscoveryRepository("postgresql://test").commit_batch(
+        DiscoveryBatch((), failure.lastmod, (failure,)),
+        "11111111-1111-1111-1111-111111111111",
+    )
+
+    assert "WHERE source = 'eu_startups'" in _READ_SUCCESSFUL_LISTING_LASTMOD_SQL
+    assert (
+        _READ_SUCCESSFUL_LISTING_LASTMOD_SQL,
+        (failure.url,),
+    ) in connection.cursor_instance.executed
 
 
 def test_commit_batch_rolls_back_and_closes_when_a_statement_fails(monkeypatch):

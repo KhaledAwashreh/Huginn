@@ -152,7 +152,7 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-tra
 rtk uv run --python 3.14 python -m huginn.management
 ```
 
-`export` is a shell builtin, so it is not wrapped with `rtk`. The six-file
+`export` is a shell builtin, so it is not wrapped with `rtk`. The seven-file
 bootstrap is required because retained operational tables reference Gold.
 
 With the local development server running, use a separate terminal:

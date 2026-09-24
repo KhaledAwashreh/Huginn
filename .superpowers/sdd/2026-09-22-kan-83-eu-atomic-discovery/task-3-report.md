@@ -207,3 +207,71 @@ The KAN-83 SQL is intentionally limited to a pre-KAN-83 Bronze schema. Future
 schema evolution still needs the separately deferred KAN-49 migration
 framework decision; this one-off additive file must not be treated as a
 general migration system.
+
+## Human-Authorized Extra Final-Review Fix Wave
+
+### Resolution
+
+1. The destructive pre-KAN-83 upgrade test now creates a UUID-named database
+   through the server's `postgres` maintenance database, runs all DDL and test
+   data against that temporary DSN, and drops it with `WITH (FORCE)` in the
+   context manager's `finally` block. It verifies the configured database's
+   name and relevant Bronze relation OIDs remain unchanged. A failed create
+   attempts cleanup only when the generated database exists. The helper rejects
+   psql meta-commands because it executes the two pre-KAN-83 SQL files through
+   psycopg, not psql.
+2. Durable retry rows no longer choose the committed checkpoint. The repository
+   advances from the current batch's processed/proposed outcomes, while the
+   runner continues to replay retry rows at or before the durable watermark.
+   PostgreSQL coverage proves a later successful record advances the checkpoint
+   without deleting its older retry row. Existing stale-outcome, terminal,
+   newer-cycle, rollback, and advisory-lock coverage remains green.
+3. `docs/management-foundation.md` now correctly calls the verified bootstrap
+   command seven-file. The command lists seven `-f` schema arguments, matching
+   `tests/conftest.py`.
+4. The successful-listing `lastmod` query now has the literal
+   `source = 'eu_startups'` predicate and receives only `failure.url`.
+
+### RED Evidence
+
+Before the production changes:
+
+```text
+rtk env UV_CACHE_DIR=/tmp/huginn-kan83-extra-red-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py tests/elt/bronze/test_eu_startups_discovery_repository_integration.py::test_kan_83_additive_upgrade_isolated_from_configured_database_and_cleans_up tests/elt/ingestion/test_eu_startups_discovery_runner.py
+```
+
+Result: `2 failed, 4 passed, 1 skipped in 0.22s`.
+
+1. `committed_watermark()` still required retryable lastmods and the new
+   independent-checkpoint regression raised `TypeError`.
+2. `_READ_SUCCESSFUL_LISTING_LASTMOD_SQL` still used `source = %s`.
+3. The integration case skipped because this sandbox could not access Docker.
+   It was later run against Testcontainers and did not skip.
+
+### Validation
+
+1. Focused unit and adapter suite: `31 passed in 0.17s`.
+2. Final focused EU discovery suite with real PostgreSQL Testcontainers:
+   `52 passed in 2.68s`.
+3. Final repository and runner PostgreSQL suite after strengthening the
+   maintenance-database isolation helper: `21 passed in 2.76s`.
+4. Scoped `ruff check` passed. Scoped `ruff format --check` reported six files
+   already formatted. `python -m compileall -q src tests` and `git diff --check`
+   passed.
+5. Isolated clean-worktree validation at committed evidence revision `088c1df`:
+   `577 passed in 17.23s` with external database configuration unset and
+   Testcontainers running PostgreSQL. The worktree was clean before and after
+   the run. Whole-repository `ruff check`, `ruff format --check` (`168 files
+   already formatted`), `python -m compileall -q src tests`, and
+   `git diff --check` passed there.
+6. No live HTTP requests were made. Adapter coverage uses fixtures and the
+   database suites use Testcontainers.
+
+### Residual Risk
+
+The isolated upgrade test intentionally requires access to the server's
+`postgres` maintenance database and `CREATE DATABASE`. Normal Testcontainers
+runs provide both and executed the test. A separately supplied database role
+without those permissions cannot run this destructive-schema test safely and
+will skip it rather than mutate the configured database.
+general migration system.

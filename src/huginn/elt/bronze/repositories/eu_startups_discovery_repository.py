@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -57,7 +57,7 @@ _TOUCH_RECORD_SQL = """
 _READ_SUCCESSFUL_LISTING_LASTMOD_SQL = """
     SELECT MAX((payload ->> 'lastmod')::timestamptz)
     FROM bronze.web_scrape_ingest
-    WHERE source = %s AND payload ->> 'url' = %s
+    WHERE source = 'eu_startups' AND payload ->> 'url' = %s
 """
 
 _CLEAR_RETRY_SQL = """
@@ -122,13 +122,8 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed
 
 
-def committed_watermark(
-    batch: DiscoveryBatch, retryable_lastmods: tuple[str, ...]
-) -> datetime | None:
-    """Choose the watermark after applying durable failure policy."""
-    if retryable_lastmods:
-        return min(map(_parse_timestamp, retryable_lastmods)) - timedelta(seconds=1)
-
+def committed_watermark(batch: DiscoveryBatch) -> datetime | None:
+    """Choose the watermark from the outcomes processed in this batch."""
     if batch.failed_listings:
         processed_lastmods = [
             _parse_timestamp(failure.lastmod) for failure in batch.failed_listings
@@ -237,9 +232,7 @@ class PostgresEuStartupsDiscoveryRepository:
             applied_failures = []
             for failure in batch.failed_listings:
                 failure_lastmod = _parse_timestamp(failure.lastmod)
-                cursor.execute(
-                    _READ_SUCCESSFUL_LISTING_LASTMOD_SQL, (_SOURCE, failure.url)
-                )
+                cursor.execute(_READ_SUCCESSFUL_LISTING_LASTMOD_SQL, (failure.url,))
                 successful_lastmod = cursor.fetchone()[0]
                 if (
                     successful_lastmod is not None
@@ -267,7 +260,6 @@ class PostgresEuStartupsDiscoveryRepository:
                 )
                 applied_failures.append(failure)
 
-            retryable_listings = _read_retryable_listings(cursor)
             effective_batch = DiscoveryBatch(
                 records=batch.records,
                 proposed_watermark=batch.proposed_watermark,
@@ -275,10 +267,7 @@ class PostgresEuStartupsDiscoveryRepository:
             )
             watermark = None
             if batch.records or applied_failures or not batch.failed_listings:
-                watermark = committed_watermark(
-                    effective_batch,
-                    tuple(listing.lastmod for listing in retryable_listings),
-                )
+                watermark = committed_watermark(effective_batch)
             if watermark is not None:
                 cursor.execute(_WRITE_WATERMARK_SQL, (watermark,))
             connection.commit()

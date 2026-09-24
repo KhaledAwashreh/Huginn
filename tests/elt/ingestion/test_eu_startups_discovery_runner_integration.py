@@ -12,7 +12,11 @@ from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
 from huginn.elt.ingestion.eu_startups_discovery_runner import (
     EuStartupsDiscoveryRunner,
 )
-from huginn.elt.ingestion.models import DiscoveryBatch, RawRecord
+from huginn.elt.ingestion.models import (
+    DiscoveryBatch,
+    FailedListingOutcome,
+    RawRecord,
+)
 
 DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
@@ -39,6 +43,20 @@ class StaticAdapter:
         self.batch = batch
 
     def fetch(self, _watermark, _retryable_listings) -> DiscoveryBatch:
+        return self.batch
+
+
+class RecordingAdapter(StaticAdapter):
+    def __init__(self, batch: DiscoveryBatch) -> None:
+        super().__init__(batch)
+        self.calls: list[tuple[str | None, tuple[FailedListingOutcome, ...]]] = []
+
+    def fetch(
+        self,
+        watermark: str | None,
+        retryable_listings: tuple[FailedListingOutcome, ...],
+    ) -> DiscoveryBatch:
+        self.calls.append((watermark, retryable_listings))
         return self.batch
 
 
@@ -93,6 +111,80 @@ def test_runner_does_not_advance_watermark_when_persistence_rolls_back():
                 "DELETE FROM bronze.web_scrape_ingest "
                 "WHERE source = 'eu_startups' AND stable_id = %s",
                 (stable_id,),
+            )
+            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
+            if previous_state is not None:
+                conn.execute(
+                    "INSERT INTO bronze.eu_startups_discovery_state "
+                    "(singleton, watermark, updated_at) VALUES (TRUE, %s, %s)",
+                    previous_state,
+                )
+
+
+def test_runner_replays_retry_at_watermark_and_allows_later_progress():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    retry_id = f"task3-retry-{uuid.uuid4()}"
+    success_id = f"task3-success-{uuid.uuid4()}"
+    retry_url = f"https://www.eu-startups.com/directory/{retry_id}/"
+    retry_lastmod = "2026-09-05T00:00:00+00:00"
+    success_lastmod = "2026-09-06T00:00:00+00:00"
+    retry = FailedListingOutcome(retry_url, retry_lastmod, 503)
+    previous_state = None
+
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            previous_state = conn.execute(
+                "SELECT watermark, updated_at "
+                "FROM bronze.eu_startups_discovery_state WHERE singleton = TRUE"
+            ).fetchone()
+            conn.execute(
+                "DELETE FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (success_id,),
+            )
+            conn.execute(
+                "DELETE FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (retry_url,),
+            )
+            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
+
+        repository.commit_batch(
+            DiscoveryBatch((), "2026-09-04T23:59:59+00:00", (retry,)),
+            str(uuid.uuid4()),
+        )
+        success_batch = DiscoveryBatch(
+            (
+                RawRecord(
+                    stable_id=success_id,
+                    payload={
+                        "url": f"https://www.eu-startups.com/directory/{success_id}/",
+                        "html": "<main>later</main>",
+                        "lastmod": success_lastmod,
+                    },
+                ),
+            ),
+            success_lastmod,
+            (),
+        )
+        adapter = RecordingAdapter(success_batch)
+
+        assert (
+            EuStartupsDiscoveryRunner(adapter, repository).run(str(uuid.uuid4())) == 1
+        )
+
+        assert adapter.calls == [(retry_lastmod, (retry,))]
+        assert repository.read_watermark() == success_lastmod
+        assert repository.list_retryable_listings() == (retry,)
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                "DELETE FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (success_id,),
+            )
+            conn.execute(
+                "DELETE FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (retry_url,),
             )
             conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
             if previous_state is not None:

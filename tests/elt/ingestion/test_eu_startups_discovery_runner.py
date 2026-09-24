@@ -72,3 +72,16 @@ def test_runner_supplies_durable_state_and_commits_the_returned_batch():
     assert written == 1
     assert adapter.calls == [(repository.watermark, repository.retryable)]
     assert repository.committed == (batch, "11111111-1111-1111-1111-111111111111")
+
+
+def test_runner_replays_a_durable_retry_at_or_before_the_watermark():
+    repository = FakeRepository()
+    repository.watermark = "2026-09-06T00:00:00+00:00"
+    batch = DiscoveryBatch((), None, ())
+    adapter = FakeAdapter(batch)
+
+    EuStartupsDiscoveryRunner(adapter, repository).run(
+        "11111111-1111-1111-1111-111111111111"
+    )
+
+    assert adapter.calls == [(repository.watermark, repository.retryable)]
