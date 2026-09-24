@@ -124,20 +124,17 @@ def _parse_timestamp(value: str) -> datetime:
 
 def committed_watermark(batch: DiscoveryBatch) -> datetime | None:
     """Choose the watermark from the outcomes processed in this batch."""
-    if batch.failed_listings:
-        processed_lastmods = [
-            _parse_timestamp(failure.lastmod) for failure in batch.failed_listings
-        ]
-        processed_lastmods.extend(
-            _parse_timestamp(record.payload["lastmod"]) for record in batch.records
-        )
-        if batch.proposed_watermark is not None:
-            processed_lastmods.append(_parse_timestamp(batch.proposed_watermark))
-        return max(processed_lastmods)
-
-    if batch.proposed_watermark is None:
+    processed_lastmods = [
+        _parse_timestamp(record.payload["lastmod"]) for record in batch.records
+    ]
+    processed_lastmods.extend(
+        _parse_timestamp(failure.lastmod) for failure in batch.failed_listings
+    )
+    if batch.proposed_watermark is not None:
+        processed_lastmods.append(_parse_timestamp(batch.proposed_watermark))
+    if not processed_lastmods:
         return None
-    return _parse_timestamp(batch.proposed_watermark)
+    return max(processed_lastmods)
 
 
 def _read_retryable_listings(cursor) -> tuple[FailedListingOutcome, ...]:

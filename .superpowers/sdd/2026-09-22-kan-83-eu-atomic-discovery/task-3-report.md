@@ -274,4 +274,53 @@ The isolated upgrade test intentionally requires access to the server's
 runs provide both and executed the test. A separately supplied database role
 without those permissions cannot run this destructive-schema test safely and
 will skip it rather than mutate the configured database.
-general migration system.
+
+## Focused Review Of 23db99e
+
+### Resolution
+
+1. The temporary pre-KAN-83 database helper now enters cleanup protection
+   immediately after a successful `CREATE DATABASE`. State capture, DSN
+   construction, schema setup, assertions, and the test body all run under the
+   same `finally` cleanup. A regression forces configured-state capture to fail
+   after creation and confirms the generated database is absent afterward.
+2. `committed_watermark()` now derives the checkpoint from all effective
+   records, active failures, and the adapter proposal. When an older failure is
+   filtered as stale, a later successful record in the same transaction
+   advances the checkpoint while leaving Bronze and retry state correct.
+
+### RED Evidence
+
+```text
+rtk env UV_CACHE_DIR=/tmp/huginn-kan83-review2-red-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository.py::test_later_success_advances_watermark_after_stale_failure_is_filtered tests/elt/bronze/test_eu_startups_discovery_repository_integration.py::test_temporary_database_is_dropped_when_post_create_setup_fails tests/elt/bronze/test_eu_startups_discovery_repository_integration.py::test_stale_failure_and_later_success_commit_record_without_retry_and_advance
+```
+
+Result: `3 failed in 0.78s`. The failures demonstrated the old pinned
+watermark in unit and PostgreSQL coverage and the leaked temporary database
+after post-create state capture failed.
+
+### Validation
+
+1. The three new regressions passed with PostgreSQL Testcontainers:
+   `3 passed in 0.45s`.
+2. Complete repository unit and PostgreSQL integration coverage:
+   `26 passed in 3.01s`.
+3. Complete EU discovery adapter, runner, repository, and PostgreSQL suite:
+   `55 passed in 3.18s`.
+4. Scoped Ruff check and format check passed (`3 files already formatted`).
+   `python -m compileall -q` for the changed source and tests and
+   `git diff --check` also passed.
+5. No live HTTP requests were made. Adapter coverage uses fixtures and the
+   database suites use Testcontainers.
+6. Detached clean-worktree validation at code-evidence revision `af98335`:
+   `580 passed in 21.27s` with `HUGINN_DATABASE_URL` unset and PostgreSQL
+   Testcontainers running. Whole-repository Ruff check, Ruff format check
+   (`168 files already formatted`), `python -m compileall -q src tests`,
+   `git diff --check`, and clean status checks passed.
+
+### Residual Risk
+
+The isolated upgrade test still requires access to the server's `postgres`
+maintenance database and `CREATE DATABASE`. Normal Testcontainers runs provide
+both. A separately supplied role without those permissions skips the isolated
+schema test rather than mutating the configured database.

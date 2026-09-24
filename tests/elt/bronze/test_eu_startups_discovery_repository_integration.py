@@ -163,11 +163,11 @@ def _temporary_pre_kan_83_database():
             _drop_temporary_database(database_name)
         raise
 
-    configured_database_name = _configured_database_state()[0]
-    connection_options = conninfo_to_dict(DATABASE_URL)
-    connection_options["dbname"] = database_name
-    database_url = make_conninfo(**connection_options)
     try:
+        configured_database_name = _configured_database_state()[0]
+        connection_options = conninfo_to_dict(DATABASE_URL)
+        connection_options["dbname"] = database_name
+        database_url = make_conninfo(**connection_options)
         with psycopg.connect(database_url, autocommit=True) as conn:
             assert (
                 conn.execute("SELECT current_database()").fetchone()[0] == database_name
@@ -185,6 +185,29 @@ def _temporary_pre_kan_83_database():
     finally:
         _drop_temporary_database(database_name)
         assert _database_exists(database_name) is False
+
+
+def test_temporary_database_is_dropped_when_post_create_setup_fails(monkeypatch):
+    database_uuid = uuid.uuid4()
+    database_name = f"huginn_kan_83_upgrade_{database_uuid.hex}"
+
+    def fail_state_capture():
+        raise RuntimeError("simulated configured-state capture failure")
+
+    monkeypatch.setattr(uuid, "uuid4", lambda: database_uuid)
+    monkeypatch.setitem(globals(), "_configured_database_state", fail_state_capture)
+
+    try:
+        with (
+            pytest.raises(RuntimeError, match="configured-state capture failure"),
+            _temporary_pre_kan_83_database(),
+        ):
+            pytest.fail("setup failure should prevent the context body")
+
+        assert _database_exists(database_name) is False
+    finally:
+        if _database_exists(database_name):
+            _drop_temporary_database(database_name)
 
 
 def test_commit_batch_atomically_persists_row_and_watermark():
@@ -380,6 +403,69 @@ def test_stale_failure_after_newer_success_leaves_durable_state_unchanged(
         assert repository.read_watermark() == successful_lastmod
     finally:
         _restore_eu_discovery_state([stable_id], [url], previous_state)
+
+
+def test_stale_failure_and_later_success_commit_record_without_retry_and_advance():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    stale_target_id = f"stale-target-{uuid.uuid4()}"
+    later_success_id = f"later-success-{uuid.uuid4()}"
+    stale_url = f"https://www.eu-startups.com/directory/{stale_target_id}/"
+    existing_lastmod = "2026-09-10T00:00:00+00:00"
+    stale_lastmod = "2026-09-05T00:00:00+00:00"
+    failure_pinned_proposal = "2026-09-04T23:59:59+00:00"
+    later_success_lastmod = "2026-09-20T00:00:00+00:00"
+    stable_ids = [stale_target_id, later_success_id]
+    previous_state = _isolate_eu_discovery_state(stable_ids, [stale_url])
+
+    try:
+        existing_record = _record(
+            stale_target_id, existing_lastmod, html="<main>existing</main>"
+        )
+        repository.commit_batch(
+            DiscoveryBatch((existing_record,), existing_lastmod, ()),
+            str(uuid.uuid4()),
+        )
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute("DELETE FROM bronze.eu_startups_discovery_state")
+            conn.execute(
+                "INSERT INTO bronze.eu_startups_discovery_state "
+                "(singleton, watermark) VALUES (TRUE, %s)",
+                ("2026-09-01T00:00:00+00:00",),
+            )
+
+        later_record = _record(later_success_id, later_success_lastmod)
+        written = repository.commit_batch(
+            DiscoveryBatch(
+                (later_record,),
+                failure_pinned_proposal,
+                (_failure(stale_target_id, stale_lastmod, 503),),
+            ),
+            str(uuid.uuid4()),
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            stored = dict(
+                conn.execute(
+                    "SELECT stable_id, payload FROM bronze.web_scrape_ingest "
+                    "WHERE source = 'eu_startups' AND stable_id = ANY(%s)",
+                    (stable_ids,),
+                ).fetchall()
+            )
+            retry = conn.execute(
+                "SELECT status FROM bronze.eu_startups_listing_retry WHERE url = %s",
+                (stale_url,),
+            ).fetchone()
+
+        assert written == 1
+        assert stored == {
+            stale_target_id: existing_record.payload,
+            later_success_id: later_record.payload,
+        }
+        assert retry is None
+        assert repository.list_retryable_listings() == ()
+        assert repository.read_watermark() == later_success_lastmod
+    finally:
+        _restore_eu_discovery_state(stable_ids, [stale_url], previous_state)
 
 
 def test_kan_83_additive_upgrade_isolated_from_configured_database_and_cleans_up():

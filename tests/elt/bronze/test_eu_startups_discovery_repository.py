@@ -63,6 +63,27 @@ def test_retryable_failures_do_not_pin_the_committed_watermark():
     assert result == datetime(2026, 9, 4, tzinfo=UTC)
 
 
+def test_later_success_advances_watermark_after_stale_failure_is_filtered():
+    batch = DiscoveryBatch(
+        records=(
+            RawRecord(
+                stable_id="later-success",
+                payload={
+                    "url": "https://www.eu-startups.com/directory/later-success/",
+                    "html": "<main>ok</main>",
+                    "lastmod": "2026-09-10T00:00:00+00:00",
+                },
+            ),
+        ),
+        proposed_watermark="2026-09-04T23:59:59+00:00",
+        failed_listings=(),
+    )
+
+    result = committed_watermark(batch)
+
+    assert result == datetime(2026, 9, 10, tzinfo=UTC)
+
+
 def test_successful_listing_lastmod_lookup_uses_fixed_source_literal(monkeypatch):
     class CapturingCursor:
         def __init__(self):
