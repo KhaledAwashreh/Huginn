@@ -367,3 +367,26 @@ escaped from the pre-CREATE `_database_exists()` call as `OperationalError`.
 The normal isolated upgrade path still requires maintenance access and
 `CREATE DATABASE`. Environments without either prerequisite skip that one
 destructive-schema test instead of touching the configured database.
+
+## Second Maintenance-Connection Coverage
+
+### Resolution
+
+A test-only regression now covers the direct maintenance connection made after
+the database-existence probe and immediately before `CREATE DATABASE`. The
+probe is forced to return `False`; the next `psycopg.connect` raises
+`OperationalError`; the test captures the explicit pytest skip and verifies
+the operation sequence stops before CREATE, DROP, or any destructive SQL.
+The existing first-probe denial and post-create cleanup tests remain because
+they cover distinct control-flow paths. No implementation change was needed.
+
+### Validation
+
+1. New direct pre-CREATE connection-denial regression: `1 passed in 0.04s`.
+2. All four temporary-database helper paths with PostgreSQL Testcontainers:
+   `4 passed in 0.61s`.
+3. Complete repository unit and PostgreSQL integration suite:
+   `28 passed in 2.29s`, with no skips.
+4. Scoped Ruff check, Ruff format check (`1 file already formatted`),
+   `python -m compileall -q`, and `git diff --check` passed.
+5. No live HTTP requests were made.

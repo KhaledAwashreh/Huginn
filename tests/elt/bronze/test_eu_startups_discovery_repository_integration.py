@@ -232,6 +232,41 @@ def test_temporary_database_skips_when_maintenance_connection_is_denied(monkeypa
     assert drop_calls == []
 
 
+def test_temporary_database_skips_when_pre_create_connection_is_denied(monkeypatch):
+    operations = []
+    destructive_actions = []
+
+    def database_does_not_exist(database_name):
+        operations.append(("exists", database_name))
+        return False
+
+    def deny_pre_create_connection(database_url, **options):
+        operations.append(
+            ("connect", conninfo_to_dict(database_url)["dbname"], options)
+        )
+        raise psycopg.OperationalError("simulated pre-create connection denial")
+
+    def record_drop(database_name):
+        destructive_actions.append(("drop", database_name))
+
+    monkeypatch.setitem(globals(), "_database_exists", database_does_not_exist)
+    monkeypatch.setattr(psycopg, "connect", deny_pre_create_connection)
+    monkeypatch.setitem(globals(), "_drop_temporary_database", record_drop)
+
+    with (
+        pytest.raises(
+            pytest.skip.Exception,
+            match="maintenance database access",
+        ),
+        _temporary_pre_kan_83_database(),
+    ):
+        pytest.fail("pre-create connection denial should prevent the context body")
+
+    assert [operation[0] for operation in operations] == ["exists", "connect"]
+    assert operations[1][1] == "postgres"
+    assert destructive_actions == []
+
+
 def test_temporary_database_is_dropped_when_post_create_setup_fails(monkeypatch):
     database_uuid = uuid.uuid4()
     database_name = f"huginn_kan_83_upgrade_{database_uuid.hex}"
