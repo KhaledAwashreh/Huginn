@@ -147,11 +147,28 @@ def _drop_temporary_database(database_name: str) -> None:
 @contextmanager
 def _temporary_pre_kan_83_database():
     database_name = f"huginn_kan_83_upgrade_{uuid.uuid4().hex}"
-    if _database_exists(database_name):
+    try:
+        database_exists = _database_exists(database_name)
+    except psycopg.Error as error:
+        pytest.skip(
+            "isolated upgrade test requires maintenance database access: "
+            f"{type(error).__name__}"
+        )
+    if database_exists:
         raise RuntimeError(f"temporary database name already exists: {database_name}")
 
     try:
-        with psycopg.connect(_maintenance_database_url(), autocommit=True) as conn:
+        maintenance_connection = psycopg.connect(
+            _maintenance_database_url(), autocommit=True
+        )
+    except psycopg.Error as error:
+        pytest.skip(
+            "isolated upgrade test requires maintenance database access: "
+            f"{type(error).__name__}"
+        )
+
+    try:
+        with maintenance_connection as conn:
             assert conn.execute("SELECT current_database()").fetchone()[0] == "postgres"
             conn.execute(
                 sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name))
@@ -185,6 +202,34 @@ def _temporary_pre_kan_83_database():
     finally:
         _drop_temporary_database(database_name)
         assert _database_exists(database_name) is False
+
+
+def test_temporary_database_skips_when_maintenance_connection_is_denied(monkeypatch):
+    connect_calls = []
+    drop_calls = []
+
+    def deny_maintenance_connection(database_url, **options):
+        connect_calls.append((database_url, options))
+        raise psycopg.OperationalError("simulated maintenance authentication denial")
+
+    def record_drop(database_name):
+        drop_calls.append(database_name)
+
+    monkeypatch.setattr(psycopg, "connect", deny_maintenance_connection)
+    monkeypatch.setitem(globals(), "_drop_temporary_database", record_drop)
+
+    with (
+        pytest.raises(
+            pytest.skip.Exception,
+            match="maintenance database access",
+        ),
+        _temporary_pre_kan_83_database(),
+    ):
+        pytest.fail("maintenance denial should prevent the context body")
+
+    assert len(connect_calls) == 1
+    assert conninfo_to_dict(connect_calls[0][0])["dbname"] == "postgres"
+    assert drop_calls == []
 
 
 def test_temporary_database_is_dropped_when_post_create_setup_fails(monkeypatch):

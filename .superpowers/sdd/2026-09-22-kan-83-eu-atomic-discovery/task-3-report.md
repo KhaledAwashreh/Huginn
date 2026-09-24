@@ -324,3 +324,46 @@ The isolated upgrade test still requires access to the server's `postgres`
 maintenance database and `CREATE DATABASE`. Normal Testcontainers runs provide
 both. A separately supplied role without those permissions skips the isolated
 schema test rather than mutating the configured database.
+
+## Final Narrow Maintenance-Access Fix
+
+### Resolution
+
+The temporary pre-KAN-83 database helper now applies its explicit safe-skip
+policy to maintenance-database connection, authentication, and access failures
+before `CREATE DATABASE`. A focused regression denies the first maintenance
+connection, captures the pytest skip, confirms the attempted DSN targets
+`postgres`, and confirms no drop is attempted. CREATE privilege denial retains
+its existing skip, while unexpected failures after creation still enter the
+cleanup block and surface.
+
+### RED Evidence
+
+```text
+rtk proxy env -u HUGINN_DATABASE_URL PYTHON_DOTENV_DISABLED=1 UV_CACHE_DIR=/tmp/huginn-kan83-maint-red-uv-cache uv run pytest -q tests/elt/bronze/test_eu_startups_discovery_repository_integration.py::test_temporary_database_skips_when_maintenance_connection_is_denied
+```
+
+Result: `1 failed in 0.10s`. The simulated maintenance authentication denial
+escaped from the pre-CREATE `_database_exists()` call as `OperationalError`.
+
+### Validation
+
+1. New maintenance-denial regression: `1 passed in 0.05s`.
+2. Maintenance denial, post-create cleanup, and normal isolated upgrade paths
+   together under PostgreSQL Testcontainers: `3 passed in 0.44s`.
+3. Complete repository unit and PostgreSQL integration suite under
+   Testcontainers: `27 passed in 2.49s`, with no skips.
+4. Scoped Ruff check, Ruff format check (`1 file already formatted`),
+   `python -m compileall -q`, and `git diff --check` passed.
+5. No live HTTP requests were made.
+6. Detached clean-worktree validation at code-evidence revision `65cef79`:
+   `581 passed in 21.34s` with `HUGINN_DATABASE_URL` unset and PostgreSQL
+   Testcontainers running. Whole-repository Ruff check, Ruff format check
+   (`168 files already formatted`), `python -m compileall -q src tests`,
+   `git diff --check`, and clean status checks passed.
+
+### Residual Risk
+
+The normal isolated upgrade path still requires maintenance access and
+`CREATE DATABASE`. Environments without either prerequisite skip that one
+destructive-schema test instead of touching the configured database.
