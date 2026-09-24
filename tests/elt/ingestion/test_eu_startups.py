@@ -496,6 +496,51 @@ def test_fetch_replays_a_persisted_retry_at_or_before_the_watermark(monkeypatch)
 
 
 @pytest.mark.parametrize(
+    "invalid_retry_url",
+    [
+        "https://evil.example/directory/persisted-retry/",
+        "https://www.eu-startups.com:invalid/directory/persisted-retry/",
+    ],
+)
+def test_fetch_skips_invalid_persisted_retry_and_processes_valid_candidate(
+    monkeypatch, caplog, invalid_retry_url
+):
+    listing_sitemap_xml = _read_fixture("wpbdp_listing-sitemap165.xml")
+    detail_html = _read_fixture("listing_brightroom.html")
+    valid_retry_url = "https://www.eu-startups.com/directory/brightroom/"
+    retryable_listings = (
+        FailedListingOutcome(
+            url=invalid_retry_url,
+            lastmod="2026-09-08T00:00:00+00:00",
+            status_code=503,
+        ),
+        FailedListingOutcome(
+            url=valid_retry_url,
+            lastmod="2026-09-01T07:37:16+00:00",
+            status_code=503,
+        ),
+    )
+    requested_urls = []
+
+    def fake_fetch_page(url: str) -> str:
+        requested_urls.append(url)
+        return _fake_fetch_page(url, listing_sitemap_xml, detail_html)
+
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    batch = adapter.fetch(_MAX_FIXTURE_LASTMOD, retryable_listings)
+
+    detail_requests = [url for url in requested_urls if "/directory/" in url]
+    assert detail_requests == [valid_retry_url]
+    assert [record.stable_id for record in batch.records] == ["brightroom"]
+    assert batch.proposed_watermark == _MAX_FIXTURE_LASTMOD
+    assert batch.failed_listings == ()
+    assert "skipping invalid durable retry listing URL" in caplog.text
+    assert invalid_retry_url in caplog.text
+
+
+@pytest.mark.parametrize(
     "duplicate_lastmods",
     [
         ("2026-09-10T00:00:00+00:00", "2026-09-05T00:00:00+00:00"),

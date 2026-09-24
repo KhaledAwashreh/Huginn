@@ -356,6 +356,40 @@ escaped from the pre-CREATE `_database_exists()` call as `OperationalError`.
 4. Scoped Ruff check, Ruff format check (`1 file already formatted`),
    `python -m compileall -q`, and `git diff --check` passed.
 5. No live HTTP requests were made.
+
+## Final CodeRabbit Cleanup
+
+### Resolution
+
+1. Durable retry URLs now pass `_is_listing_detail_url()` before entering the
+   pending fetch set. Malformed and off-domain persisted URLs are warned and
+   skipped before timestamp parsing, fetching, or stable-ID extraction, so
+   they cannot abort the batch or redirect work outside EU-Startups.
+2. The adapter and repository documentation now states that
+   `proposed_watermark` is advisory. The repository derives the durable
+   checkpoint from effective committed records and outcomes; failures do not
+   pin it because durable retry rows are replayed independently through
+   `list_retryable_listings()` regardless of the watermark.
+
+### RED Evidence
+
+```text
+rtk env UV_CACHE_DIR=/tmp/huginn-kan83-invalid-retry-red-uv-cache uv run pytest -q tests/elt/ingestion/test_eu_startups.py::test_fetch_skips_invalid_persisted_retry_and_processes_valid_candidate
+```
+
+Result: `2 failed in 0.09s`. Both the off-domain and malformed-port persisted
+retry URLs reached `fetch_page()` before validation was added.
+
+### Validation
+
+1. Invalid durable retry regressions: `2 passed in 0.04s`.
+2. Adapter, repository watermark, and runner unit coverage:
+   `34 passed in 0.15s`.
+3. Complete EU discovery suite with PostgreSQL Testcontainers:
+   `59 passed in 1.82s`.
+4. Scoped Ruff check, Ruff format check (`3 files already formatted`),
+   `python -m compileall -q`, and `git diff --check` passed.
+5. No live HTTP requests were made; adapter tests use local fixtures.
 6. Detached clean-worktree validation at code-evidence revision `65cef79`:
    `581 passed in 21.34s` with `HUGINN_DATABASE_URL` unset and PostgreSQL
    Testcontainers running. Whole-repository Ruff check, Ruff format check

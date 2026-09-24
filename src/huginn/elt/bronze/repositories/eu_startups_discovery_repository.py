@@ -123,7 +123,13 @@ def _parse_timestamp(value: str) -> datetime:
 
 
 def committed_watermark(batch: DiscoveryBatch) -> datetime | None:
-    """Choose the watermark from the outcomes processed in this batch."""
+    """Derive the durable checkpoint from effective committed work.
+
+    The adapter's proposed watermark is advisory. Records and retained failure
+    outcomes participate in the maximum so a failure cannot pin the committed
+    checkpoint behind later work. Durable retry rows are replayed separately by
+    `list_retryable_listings()` regardless of this watermark.
+    """
     processed_lastmods = [
         _parse_timestamp(record.payload["lastmod"]) for record in batch.records
     ]

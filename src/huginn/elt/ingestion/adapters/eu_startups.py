@@ -258,15 +258,12 @@ class EuStartupsDiscoveryAdapter:
         with successful records and failed listing outcomes. Persisting that
         batch is intentionally owned by the later transactional boundary.
 
-        The new watermark is not simply "the maximum `lastmod` among
-        successful fetches": a listing with an earlier `lastmod` that fails
-        while a later one succeeds must not be skipped forever (CodeRabbit
-        finding, KAN-64). If any pending listing failed this run, the new
-        watermark is pinned to just before the earliest failure
-        (`min(failed lastmods) - 1 second`), so that failure (and anything
-        with an equal `lastmod`) stays eligible for retry next run, since
-        the filter below is `lastmod > watermark`. Only when nothing failed
-        does the watermark advance to the maximum successful `lastmod`.
+        `proposed_watermark` is an advisory summary of this adapter pass. The
+        adapter may place it just before the earliest current failure, but the
+        repository derives the durable checkpoint from effective committed
+        records and outcomes. Failures therefore do not pin the committed
+        checkpoint: durable retry rows are replayed independently through
+        `list_retryable_listings()` regardless of the watermark.
 
         A single listing's detail-page fetch failing (a permanently broken
         404/410 URL) is logged and skipped, not allowed to abort the whole
@@ -302,6 +299,12 @@ class EuStartupsDiscoveryAdapter:
             if existing_lastmod is None or lastmod > existing_lastmod:
                 pending_by_url[loc] = lastmod
         for retryable_listing in retryable_listings:
+            if not _is_listing_detail_url(retryable_listing.url):
+                logger.warning(
+                    "eu_startups fetch: skipping invalid durable retry listing URL: %s",
+                    retryable_listing.url,
+                )
+                continue
             retry_lastmod = datetime.fromisoformat(retryable_listing.lastmod)
             existing_lastmod = pending_by_url.get(retryable_listing.url)
             if existing_lastmod is None or retry_lastmod > existing_lastmod:
@@ -353,13 +356,10 @@ class EuStartupsDiscoveryAdapter:
             for loc, lastmod, html_text in fetched
         ]
 
-        # `pending` is non-empty here (checked above), so at least one of
-        # `fetched`/`failed_listings` is non-empty too: every pending entry
-        # either succeeded or failed. If anything failed, the new watermark
-        # must sit strictly before the earliest failure so it stays eligible
-        # for retry next run (filter above is `lastmod > watermark`); a
-        # later success must not be allowed to skip an earlier failure
-        # forever (CodeRabbit finding, KAN-64).
+        # This adapter proposal preserves the historical pre-failure hint, but
+        # it is not the durable checkpoint. The repository advances from the
+        # effective committed work, and durable failures are replayed through
+        # list_retryable_listings() independently of the checkpoint.
         if failed_listings:
             new_watermark = min(
                 datetime.fromisoformat(failure.lastmod) for failure in failed_listings
