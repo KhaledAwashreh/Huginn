@@ -17,7 +17,7 @@ These match `docs/entities.md` and the architecture document as of ADR-0002. Col
 
 ## Upgrading a database that already exists
 
-The six files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, in any order, once each:
+The six files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, once each. Order among them does not matter: each is idempotent and guards on the state it finds. The superseded pair is the one case worth knowing about, because it is why that holds: `gold-company-yc-batch.sql` can add `yc_batch` and `gold-company-notes.sql` is what removes it, so whichever of the two runs last decides the outcome unless the successor creates `notes` unconditionally, which it does. The pair converges on `notes` in either order:
 
 ```
 psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql

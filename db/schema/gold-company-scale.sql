@@ -34,6 +34,18 @@ ALTER TABLE gold.company
 
 -- Drop-then-add, because Postgres has no ADD CONSTRAINT IF NOT EXISTS and
 -- this file must be safely re-runnable.
+--
+-- Both names are dropped because a database can arrive here from either
+-- direction. A fresh install that also ran this file already has
+-- company_scale_check, which db/schema/gold.sql now names explicitly for
+-- exactly this reason. A database created before that naming did, and still
+-- carries the auto-generated company_company_scale_check. Dropping only one
+-- would leave a fresh install with a duplicate pair that the next band-list
+-- change updates in one place and not the other, so a value the new list
+-- allows would be rejected by the stale constraint. Reviewer SCHEMA-02.
+ALTER TABLE gold.company
+    DROP CONSTRAINT IF EXISTS company_company_scale_check;
+
 ALTER TABLE gold.company
     DROP CONSTRAINT IF EXISTS company_scale_check;
 
@@ -44,5 +56,7 @@ ALTER TABLE gold.company
 -- Move the size CHECK off company_type, leaving it free text. The
 -- auto-generated name from the original inline CHECK is
 -- company_company_type_check (table-name prefix, not schema-qualified).
+-- The column has since been renamed to legal_form; the constraint was
+-- already gone by then, so there is nothing to rename here.
 ALTER TABLE gold.company
     DROP CONSTRAINT IF EXISTS company_company_type_check;

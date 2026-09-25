@@ -57,7 +57,15 @@ CREATE TABLE gold.company (
     -- team_size=0: confirmed live that 133 YC rows report 0 with a
     -- populated batch, industry, and often a one-liner, and 41 of them
     -- are Active, so it reads as pre-first-hire rather than missing data.
-    company_scale TEXT CHECK (company_scale IN ('0-10', '11-100', '101-1000', '1001+')),
+    -- Named explicitly rather than left to Postgres's auto-generated
+    -- company_company_scale_check, so this constraint and the one
+    -- db/schema/gold-company-scale.sql adds are the same object. Left
+    -- implicit, a fresh install that also ran the migration ended up with
+    -- two CHECKs over the same column, and the next band-list change would
+    -- be enforced by one and silently ignored by the other. This is the
+    -- convention gold-company-signal-source-stable-id.sql already follows.
+    company_scale TEXT CONSTRAINT company_scale_check
+        CHECK (company_scale IN ('0-10', '11-100', '101-1000', '1001+')),
     -- Free-text notes about the company, each opening with the source that
     -- supplied the value, e.g. 'YC Summer 2023'. One column rather
     -- than one per source per fact: a second portal's batch, founding year,

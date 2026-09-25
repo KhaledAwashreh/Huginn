@@ -101,46 +101,67 @@ def build_read_unenriched_company_names_query(limit: int) -> tuple[str, tuple[in
     return _READ_UNENRICHED_COMPANY_NAMES_SQL, (limit,)
 
 
+def _with_timestamp_assignments(assignments: str, bump_current_since: bool) -> str:
+    """Append the two timestamps both write shapes move: `current_since`
+    only when asked, `updated_at` always.
+    """
+    parts = [assignments] if assignments else []
+    if bump_current_since:
+        parts.append("current_since = now()")
+    parts.append("updated_at = now()")
+    return ", ".join(parts)
+
+
 def build_upsert_query(
     domain: str, new_values: dict, bump_current_since: bool
 ) -> tuple[str, tuple]:
-    """Parameterized upsert over "domain" plus whichever `_COMPANY_COLUMNS`
-    are present in `new_values`. `domain` always comes from this
-    parameter, never from a "domain" key inside `new_values`: it is both
-    the `ON CONFLICT` target and a NOT NULL column, so a caller that
-    forgot to duplicate it there must never silently produce an INSERT
-    missing it (Postgres validates NOT NULL before ON CONFLICT is even
-    considered, so that INSERT fails even when only the UPDATE branch
-    should have run). `bump_current_since` bumps `current_since` on the
-    `ON CONFLICT` (update) branch only; a fresh `INSERT` already gets
-    `current_since = now()` from the column default regardless (see
-    db/schema/gold.sql), so `bump_current_since` changing only that
-    branch's SQL text is never observable on insert.
-    """
-    columns = ["domain"] + [
-        column for column in _COMPANY_COLUMNS if column in new_values
-    ]
-    value_placeholders = ", ".join(["%s"] * len(columns))
-    update_set = ", ".join(
-        f"{column} = EXCLUDED.{column}" for column in columns if column != "domain"
-    )
-    if bump_current_since:
-        update_set = (
-            f"{update_set}, current_since = now()"
-            if update_set
-            else "current_since = now()"
-        )
-    update_set = (
-        f"{update_set}, updated_at = now()" if update_set else "updated_at = now()"
-    )
+    """Parameterized write over "domain" plus whichever `_COMPANY_COLUMNS`
+    are present in `new_values`, in one of two shapes. Which one, and why
+    a single statement cannot cover both, is GOLD-01 in
+    docs/advisor/2026-09-25-code-review-findings.md: `name` is
+    gold.company's only NOT NULL column besides `domain` with no default to
+    satisfy it, and Postgres validates NOT NULL before ON CONFLICT is
+    considered, so one statement cannot both insert and skip a column the
+    caller does not have.
 
+    With "name" in `new_values` the shape is one
+    `INSERT ... ON CONFLICT (domain) DO UPDATE`: a new domain is inserted,
+    an existing one updated in place, with no preceding read and no window
+    for a concurrent writer to slip between the two.
+
+    Without it the shape is `UPDATE ... WHERE domain = %s`, which sets only
+    columns the caller supplied and so cannot violate NOT NULL, and never
+    attempts an insert at all. The alternative, binding the domain or a
+    placeholder as the name, would put a fabricated value into the column
+    the lead digest shows as a company's name.
+
+    `domain` always comes from this parameter, never from a "domain" key
+    inside `new_values`, in either shape, so no caller string reaches the
+    ON CONFLICT target or the WHERE clause. `bump_current_since` moves
+    `current_since` only when asked; a fresh `INSERT` already gets
+    `current_since = now()` from the column default regardless (see
+    db/schema/gold.sql), so it is never observable on insert.
+    """
+    columns = [column for column in _COMPANY_COLUMNS if column in new_values]
+
+    if "name" in new_values:
+        insert_columns = ["domain", *columns]
+        update_set = ", ".join(f"{column} = EXCLUDED.{column}" for column in columns)
+        sql = (
+            f"INSERT INTO gold.company ({', '.join(insert_columns)}) "
+            f"VALUES ({', '.join(['%s'] * len(insert_columns))}) "
+            "ON CONFLICT (domain) DO UPDATE SET "
+            f"{_with_timestamp_assignments(update_set, bump_current_since)}"
+        )
+        return sql, (domain, *(new_values[column] for column in columns))
+
+    update_set = ", ".join(f"{column} = %s" for column in columns)
     sql = (
-        f"INSERT INTO gold.company ({', '.join(columns)}) "
-        f"VALUES ({value_placeholders}) "
-        f"ON CONFLICT (domain) DO UPDATE SET {update_set}"
+        "UPDATE gold.company "
+        f"SET {_with_timestamp_assignments(update_set, bump_current_since)} "
+        "WHERE domain = %s"
     )
-    params = (domain, *(new_values[column] for column in columns[1:]))
-    return sql, params
+    return sql, (*(new_values[column] for column in columns), domain)
 
 
 class PostgresCompanyRepository:
@@ -230,7 +251,21 @@ class PostgresCompanyRepository:
     def upsert_company(
         self, domain: str, new_values: dict, bump_current_since: bool
     ) -> None:
+        """Implement `CompanyRepositoryPort.upsert_company`.
+
+        A write carrying no "name" is update-only (see build_upsert_query),
+        so a domain with no row matches nothing and no company is created.
+        That is a fact about the call rather than about the data: there is
+        no name to insert. Raised here, where the rowcount is known, so it
+        cannot be mistaken for a write that happened.
+        """
         self._cur.execute(*build_upsert_query(domain, new_values, bump_current_since))
+        if "name" not in new_values and self._cur.rowcount == 0:
+            raise ValueError(
+                f"no gold.company row for {domain}, and new_values has no 'name' to "
+                "create one with. Supply 'name' to insert a new company, or only "
+                "write companies that already exist."
+            )
 
     def insert_history(
         self,

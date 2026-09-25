@@ -12,13 +12,23 @@
 -- gold.company.notes replaces it, each value opening with its source
 -- ('YC Summer 2023').
 --
--- The guard is load-bearing, not defensive decoration. Migrations are applied
--- in filename order and the successor sorts FIRST ('notes' before 'yc-batch'),
--- so on a fresh install the sequence is: gold.sql creates notes,
--- gold-company-notes.sql finds no yc_batch and correctly does nothing, and
--- then this file would run last and re-add the very column the successor
--- removed. Unguarded, a brand-new database ends up with both notes and
--- yc_batch. Yielding when notes exists makes the pair order-independent.
+-- The guard is load-bearing, not defensive decoration. This file can add
+-- yc_batch, removing it is the successor's job, and the successor is named so
+-- that it sorts first ('notes' before 'yc-batch'). On a fresh install gold.sql
+-- has already created notes, so the guard fires and this file does nothing;
+-- unguarded, a brand-new database would end up carrying both columns.
+--
+-- Yielding when notes exists is necessary but not sufficient, and it is not
+-- what makes the pair order-independent. This guard can only decline to
+-- re-create a column the successor has already replaced, so the successor, not
+-- this file, is what has to guarantee that notes exists by the time this file
+-- runs. It does: gold-company-notes.sql creates notes unconditionally, ahead
+-- of its own guard on yc_batch. It did not always, and for as long as it
+-- returned early on a database carrying neither column, the pair lost in
+-- filename order, this file running last and re-creating the column the
+-- successor was meant to remove. The set exited 0 and the Gold writer then
+-- failed on `column "notes" does not exist`. Reviewer SCHEMA-01,
+-- docs/advisor/2026-09-25-code-review-findings.md.
 --
 -- Idempotent.
 

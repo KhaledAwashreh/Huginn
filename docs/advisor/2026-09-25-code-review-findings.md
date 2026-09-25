@@ -11,8 +11,9 @@ coverage), each told to report findings only and to verify against the live
 database rather than infer. Suite at time of review: 332 passed, 0 skipped.
 Ruff check and format clean.
 
-Status: **partially fixed**. TEST-01, TEST-02 and TEST-03 are fixed
-in `a1f0e2a` (see each entry). Everything else is open. Each defect has a
+Status: **partially fixed**. TEST-01, TEST-02, TEST-03, SCHEMA-01,
+SCHEMA-02, GOLD-01 and TEST-04 are fixed (see each entry). Everything else
+is open. Each defect has a
 stable ID so they can be worked one at a time; the ID is the reference to use
 in commit messages.
 
@@ -20,10 +21,10 @@ in commit messages.
 
 | Area | High | Medium | Low |
 | --- | --- | --- | --- |
-| Schema and migrations | 1 | 1 | 2 |
+| Schema and migrations | 0 (1 fixed) | 0 (1 fixed) | 2 |
 | Documentation accuracy | 5 | 8 | 0 |
-| Gold layer | 0 | 1 | 5 |
-| Test infrastructure | 0 (2 fixed) | 0 (1 fixed) | 4 |
+| Gold layer | 0 | 0 (1 fixed) | 5 |
+| Test infrastructure | 0 (2 fixed) | 0 (2 fixed) | 4 |
 | Refuted data claims in SQL comments | 0 | 1 | 4 |
 
 The single highest-severity defect is a migration-ordering bug that makes an
@@ -54,7 +55,7 @@ runs, before the isolation fix landed. The data was rebuilt afterwards.
 
 ## High severity
 
-### SCHEMA-01: the notes/yc_batch migration pair is order-dependent, and the losing order is the documented one
+### SCHEMA-01: FIXED. the notes/yc_batch migration pair is order-dependent, and the losing order is the documented one
 
 `db/schema/gold-company-notes.sql:42-44` returns early when `yc_batch` is
 absent. `db/schema/gold-company-yc-batch.sql:27-34` yields only when `notes`
@@ -207,7 +208,7 @@ observed a change, which the ADR does not distinguish from "cannot happen".
 
 ## Medium severity
 
-### SCHEMA-02: the two install paths never converge on the `company_scale` CHECK
+### SCHEMA-02: FIXED. the two install paths never converge on the `company_scale` CHECK
 
 `db/schema/gold.sql:60` declares the CHECK inline, so a fresh install gets the
 auto-generated name `company_company_scale_check`.
@@ -233,7 +234,7 @@ constraint to avoid exactly this, so `gold-company-scale.sql` breaks a
 convention the repo already established. Nothing references either name today,
 so this is latent.
 
-### GOLD-01: a Type-2-only write fails against real Postgres, and the test advertising that shape only asserts SQL text
+### GOLD-01: FIXED. a Type-2-only write fails against real Postgres, and the test advertising that shape only asserts SQL text
 
 `company_repository.py:120-143`. `build_upsert_query` hardcodes `domain` into
 the column list because it is NOT NULL and the ON CONFLICT target, and the
@@ -275,7 +276,7 @@ than a set of call patterns, so it closes the class rather than the instances:
 every route to the value has to name it somewhere. Verified that both
 `os.getenv` and a from-import are caught.
 
-### TEST-04: only `name` is ever written to a real `gold.company`, and the intended guard is self-referential
+### TEST-04: FIXED. only `name` is ever written to a real `gold.company`, and the intended guard is self-referential
 
 `company_repository.py:76-90` allowlists thirteen columns, but
 `tests/elt/gold/test_company_integration.py:46-83` is the only test that runs

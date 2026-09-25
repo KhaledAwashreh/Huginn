@@ -1,11 +1,14 @@
-"""Live-Postgres integration coverage for
-`PostgresCompanyRepository.read_unenriched_company_names`.
+"""Live-Postgres integration coverage for the statements
+`PostgresCompanyRepository` runs against gold.company: the
+`read_unenriched_company_names` read, the `read_domain_normalized_signals`
+read, and the `upsert_company` write.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
 skipped when testcontainers or Docker is unavailable. The fake-repository
 unit tests elsewhere (e.g. test_company.py) can't verify real SQL execution
 against gold.company (column names, the `business_sector IS NULL` filter,
-`created_at` ordering, the `LIMIT` bind); this is that verification. See
+`created_at` ordering, the `LIMIT` bind, and which of the two write shapes
+`build_upsert_query` picks); this is that verification. See
 architecture-notes/opencorporates-fetch-plan.md section 5.
 """
 
@@ -15,6 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import psycopg
+import pytest
 
 from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
 
@@ -27,18 +31,216 @@ from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepos
 # the assertions hold no matter what else the session has left behind.
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
+_BEFORE_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
+"""A current_since far enough in the past that any now() the writer writes
+is unambiguously greater, so a test can assert whether current_since moved
+without comparing against a Python-side clock."""
+
 
 def _insert_company(
-    cur, domain: str, name: str, business_sector: list[str] | None, created_at: datetime
+    cur,
+    domain: str,
+    name: str,
+    business_sector: list[str] | None,
+    created_at: datetime,
+    current_since: datetime | None = None,
 ) -> None:
-    """Insert one isolated company fixture through the supplied cursor."""
+    """Insert one isolated company fixture through the supplied cursor.
+
+    `current_since` left None keeps the column default, which is what the
+    read_unenriched_company_names tests below want; pinning it is how the
+    write tests tell a bumped current_since from an untouched one.
+    """
     cur.execute(
         """
-        INSERT INTO gold.company (domain, name, business_sector, created_at)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO gold.company
+            (domain, name, business_sector, created_at, current_since)
+        VALUES (%s, %s, %s, %s, COALESCE(%s, now()))
         """,
-        (domain, name, business_sector, created_at),
+        (domain, name, business_sector, created_at, current_since),
     )
+
+
+def _stored_company(cur, domain: str) -> dict:
+    """Read one gold.company row back by column name."""
+    cur.execute("SELECT * FROM gold.company WHERE domain = %s", (domain,))
+    row = cur.fetchone()
+    if row is None:
+        return {}
+    return dict(zip([column.name for column in cur.description], row, strict=True))
+
+
+def test_a_type_2_only_write_updates_an_existing_row_and_keeps_its_name(
+    integration_database_url: str,
+):
+    """Regression, GOLD-01 in
+    docs/advisor/2026-09-25-code-review-findings.md. `name` is NOT NULL
+    and, unlike `domain`, was not hardcoded into the INSERT column list, so
+    a write carrying only a Type 2 field built an INSERT missing `name` and
+    Postgres rejected it with NotNullViolation before ON CONFLICT was
+    considered, even though the row existed and only the update branch
+    should have run. The whole `write_all` transaction aborted. This is the
+    shape a KAN-43 enrichment writer calls, and the shape
+    test_company_repository.py already advertised while asserting only on
+    SQL text.
+    """
+    domain = f"type2only-{str(uuid.uuid4().int)[:10]}.example"
+
+    try:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            _insert_company(
+                cur, domain, "Original Name", ["fintech"], _EPOCH, _BEFORE_EPOCH
+            )
+
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(
+                domain,
+                {"business_sector": ["b2b", "fintech"]},
+                bump_current_since=True,
+            )
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            stored = _stored_company(cur, domain)
+
+        assert stored["business_sector"] == ["b2b", "fintech"]
+        assert stored["name"] == "Original Name"
+        assert stored["current_since"] > _BEFORE_EPOCH
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
+
+
+def test_a_type_2_only_write_against_an_unknown_domain_writes_nothing_and_raises(
+    integration_database_url: str,
+):
+    """A write with no `name` has nothing to insert, so the insert branch
+    must not run: binding the domain, a placeholder, or the empty string
+    would put a fabricated value into the column the lead digest shows as
+    the company's name. Doing nothing silently is the other wrong answer,
+    since `write_company` counts the domain as written either way, so a
+    name-less write against no row is an error the caller has to see.
+    """
+    domain = f"type2only-absent-{str(uuid.uuid4().int)[:10]}.example"
+
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+        assert _stored_company(cur, domain) == {}
+
+    with (
+        PostgresCompanyRepository(integration_database_url) as repository,
+        pytest.raises(ValueError, match=domain),
+    ):
+        repository.upsert_company(
+            domain, {"business_sector": ["fintech"]}, bump_current_since=False
+        )
+
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+        assert _stored_company(cur, domain) == {}
+
+
+def test_a_name_bearing_write_inserts_then_updates_the_same_row(
+    integration_database_url: str,
+):
+    """The shape `CompanyWriter.write_all` produces today, and the one the
+    statement is built for when `name` is present. Still a single
+    `INSERT ... ON CONFLICT`: one row, not two, and the second write
+    updates it in place.
+    """
+    domain = f"upsert-{str(uuid.uuid4().int)[:10]}.example"
+
+    try:
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(domain, {"name": "First Name"}, False)
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(
+                domain,
+                {"name": "Second Name", "company_scale": "11-100"},
+                False,
+            )
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*), min(name), min(company_scale) "
+                "FROM gold.company WHERE domain = %s",
+                (domain,),
+            )
+            (rows, name, company_scale) = cur.fetchone()
+
+        assert rows == 1
+        assert name == "Second Name"
+        assert company_scale == "11-100"
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
+
+
+def test_current_since_moves_on_an_update_only_when_the_write_asks_for_it(
+    integration_database_url: str,
+):
+    """`bump_current_since` is the caller's statement that a Type 2 tracked
+    field actually changed (ADR-0002), so it must move `current_since` on
+    the write it is passed to and leave it alone otherwise. Both shapes of
+    the write take the flag.
+    """
+    domain = f"bump-{str(uuid.uuid4().int)[:10]}.example"
+    quiet_domain = f"bump-quiet-{str(uuid.uuid4().int)[:10]}.example"
+
+    try:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            _insert_company(cur, domain, "Bumped", None, _EPOCH, _BEFORE_EPOCH)
+            _insert_company(cur, quiet_domain, "Quiet", None, _EPOCH, _BEFORE_EPOCH)
+
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(
+                domain, {"business_sector": ["fintech"]}, bump_current_since=True
+            )
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(
+                quiet_domain, {"company_status": "Active"}, bump_current_since=False
+            )
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            bumped = _stored_company(cur, domain)["current_since"]
+            quiet = _stored_company(cur, quiet_domain)["current_since"]
+
+        assert bumped > _BEFORE_EPOCH
+        assert quiet == _BEFORE_EPOCH
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM gold.company WHERE domain IN (%s, %s)",
+                (domain, quiet_domain),
+            )
+
+
+def test_a_write_carrying_no_values_at_all_touches_only_updated_at(
+    integration_database_url: str,
+):
+    """An empty `new_values` has no column to set, so the write is an
+    UPDATE of `updated_at` alone, and it must not attempt an insert: with
+    nothing but `domain` to bind, that used to be a guaranteed
+    NotNullViolation aborting the caller's transaction. Pinned because the
+    shape reads like a no-op rather than like the failure it was.
+    """
+    domain = f"empty-{str(uuid.uuid4().int)[:10]}.example"
+
+    try:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            _insert_company(
+                cur, domain, "Untouched", None, _BEFORE_EPOCH, _BEFORE_EPOCH
+            )
+
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            repository.upsert_company(domain, {}, bump_current_since=False)
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            stored = _stored_company(cur, domain)
+
+        assert stored["name"] == "Untouched"
+        assert stored["current_since"] == _BEFORE_EPOCH
+        assert stored["updated_at"] > _BEFORE_EPOCH
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
 def test_read_unenriched_company_names_returns_only_rows_with_null_business_sector(

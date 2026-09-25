@@ -420,6 +420,14 @@ def test_every_column_the_writer_sets_survives_the_repository_allowlist():
     discarded. The FakeCompanyRepository above records `new_values` without
     ever building SQL, so it cannot catch that on its own; this runs the
     writer for real and then feeds its output through the real query builder.
+
+    The writer's column names and the repository's allowlist are maintained
+    separately, so comparing one against the other is not circular. The
+    comparison this test used to finish with, the writer's keys against the
+    INSERT list built out of that same allowlist, was: both sides came from
+    the tuple, so a name wrong in both places passed. Whether an allowlisted
+    name is a real column of the real gold.company needs the database and
+    lives in tests/elt/gold/test_company_columns_integration.py.
     """
     repo = FakeCompanyRepository(
         signals=[
@@ -440,14 +448,11 @@ def test_every_column_the_writer_sets_survives_the_repository_allowlist():
     _, new_values, _ = repo.upserted[0]
     sql, params = build_upsert_query("acme.com", new_values, bump_current_since=False)
 
-    # Every key the writer produced survives the allowlist and appears as a
-    # real column in the INSERT, rather than being silently filtered out.
-    insert_columns = set(
-        sql.split("(", 1)[1].split(")", 1)[0].replace(" ", "").split(",")
-    )
-    assert set(new_values) <= insert_columns
-    assert len(params) == len(new_values) + 1  # +1 for the leading domain param
     assert set(new_values) <= set(_COMPANY_COLUMNS)
+    assert len(params) == len(new_values) + 1  # +1 for the leading domain param
+    for value in new_values.values():
+        if isinstance(value, str):
+            assert value not in sql
 
 
 def test_write_all_opens_the_repository_scope_once_for_the_whole_batch():

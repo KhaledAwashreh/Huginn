@@ -9,6 +9,11 @@ from huginn.elt.gold.repositories.company_repository import (
 
 
 def test_build_upsert_query_includes_only_columns_present_in_new_values():
+    """A write carrying a `name` takes the upsert shape, since that is the
+    one caller shape that can insert: one statement, a new domain inserted
+    and an existing one updated in place, with no read in front of it. Only
+    the columns `new_values` supplies are bound.
+    """
     sql, params = build_upsert_query(
         "acme.com", {"name": "Acme"}, bump_current_since=False
     )
@@ -16,25 +21,62 @@ def test_build_upsert_query_includes_only_columns_present_in_new_values():
     assert "acme.com" not in sql
     assert "Acme" not in sql
     assert params == ("acme.com", "Acme")
-    assert "domain" in sql
-    assert "name" in sql
+    assert "INSERT INTO gold.company (domain, name)" in sql
+    assert "ON CONFLICT (domain) DO UPDATE" in sql
     assert "business_sector" not in sql
 
 
-def test_build_upsert_query_always_includes_domain_even_when_new_values_omits_it():
-    """Regression: domain is a NOT NULL ON CONFLICT target. It must come
-    from the explicit `domain` parameter, not from a "domain" key inside
-    new_values — a caller (e.g. a Type-2-only update) may reasonably omit
-    it there. Omitting it from the generated INSERT would make Postgres
-    reject the statement on the NOT NULL constraint before ON CONFLICT is
-    even considered, even when only the UPDATE branch should run.
+def test_build_upsert_query_updates_only_when_new_values_omits_name():
+    """The other shape, and the one `name` decides. Regression, GOLD-01 in
+    docs/advisor/2026-09-25-code-review-findings.md: a Type-2-only write
+    used to build an INSERT with no `name` in its column list, and because
+    Postgres validates NOT NULL before ON CONFLICT is considered, that
+    failed with NotNullViolation even when the row existed and only the
+    update branch should have run. There is no name to insert, so the write
+    must not attempt an insert at all.
     """
     sql, params = build_upsert_query(
         "acme.com", {"business_sector": ["fintech"]}, bump_current_since=True
     )
 
-    assert params[0] == "acme.com"
-    assert "INSERT INTO gold.company (domain, business_sector)" in sql
+    assert "INSERT" not in sql
+    assert "ON CONFLICT" not in sql
+    assert sql.startswith("UPDATE gold.company SET business_sector = %s")
+    assert "current_since = now()" in sql
+    assert params == (["fintech"], "acme.com")
+
+
+def test_build_upsert_query_never_takes_the_domain_from_new_values():
+    """Holds for both shapes, not just the upsert one: `domain` is the
+    ON CONFLICT target and the WHERE key, and it always comes from the
+    explicit parameter, so no caller string reaches either.
+    """
+    upsert_sql, upsert_params = build_upsert_query(
+        "acme.com", {"name": "Acme", "domain": "attacker.example"}, False
+    )
+    update_sql, update_params = build_upsert_query(
+        "acme.com", {"domain": "attacker.example"}, False
+    )
+
+    for sql, params in ((upsert_sql, upsert_params), (update_sql, update_params)):
+        assert "acme.com" not in sql
+        assert "attacker.example" not in sql
+        assert "attacker.example" not in params
+        assert params.count("acme.com") == 1
+
+
+def test_build_upsert_query_keeps_a_none_valued_name_on_the_insert_branch():
+    """Key presence, not truthiness, picks the shape. A caller that writes
+    `{"name": None}` has asked to null a NOT NULL column, and the database
+    saying so is the answer; degrading the write to an update would hide
+    the mistake behind a silent success.
+    """
+    sql, params = build_upsert_query(
+        "acme.com", {"name": None, "company_status": "Active"}, False
+    )
+
+    assert "INSERT INTO gold.company (domain, name, company_status)" in sql
+    assert params == ("acme.com", None, "Active")
 
 
 def test_build_upsert_query_drops_an_unrecognized_key_rather_than_interpolating_it():

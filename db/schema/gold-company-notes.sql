@@ -26,6 +26,22 @@
 -- Type 1, no company_history counterpart: a note is descriptive, so a change
 -- in wording is not a recorded attribute change.
 --
+-- This file, not gold-company-yc-batch.sql, is the authority on the shape of
+-- gold.company, and it converges on `notes` in either apply order. The
+-- invariant: once it has run, gold.company.notes exists and gold.company.yc_batch
+-- does not.
+--
+-- That holds because `notes` is created unconditionally, ahead of the guard on
+-- yc_batch. Guarding the create instead, which is what an earlier version of
+-- this file did, breaks the pair: the superseded file only declines to re-add
+-- yc_batch when notes already exists, so on a database carrying neither column
+-- the successor skipped its own work and the superseded file ran last in
+-- filename order and won. The set exited 0 having left a table with only
+-- yc_batch, so the first Gold write of a company failed on `column "notes"
+-- does not exist`, and a second pass silently repaired it, which is worse than
+-- a clean break because the README documents a single pass. Reviewer SCHEMA-01,
+-- docs/advisor/2026-09-25-code-review-findings.md.
+--
 -- Idempotent.
 
 DO $$
@@ -39,15 +55,20 @@ BEGIN
           AND column_name = 'yc_batch'
     ) INTO has_yc_batch;
 
+    -- Unconditional, and ahead of the guard below. The guard covers the
+    -- rewrite, not the shape of the table: on a database with neither column
+    -- this is the only statement that creates notes, so an early return ahead
+    -- of it hands the outcome to whichever of the pair runs last.
+    ALTER TABLE gold.company
+        ADD COLUMN IF NOT EXISTS notes TEXT;
+
     IF NOT has_yc_batch THEN
         RETURN;
     END IF;
 
-    ALTER TABLE gold.company
-        ADD COLUMN IF NOT EXISTS notes TEXT;
-
     -- Prefix before dropping, so the values survive the rename. Matches
-    -- what CompanyWriter now writes for a YC-sourced batch.
+    -- what CompanyWriter now writes for a YC-sourced batch. The notes guard
+    -- keeps a second pass from prefixing a prefix.
     UPDATE gold.company
     SET notes = 'YC ' || yc_batch
     WHERE yc_batch IS NOT NULL

@@ -83,6 +83,72 @@ def test_write_all_creates_a_new_company_from_a_domain_normalized_signal(
             cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
+def test_write_all_lands_every_column_it_derives_from_a_fully_populated_signal(
+    integration_database_url: str,
+):
+    """The only other test that runs the generated statement against the
+    real table used a signal with none of stage, company_status,
+    team_size, industries, all_locations or batch set, so `new_values`
+    carried `name` alone and every other column `CompanyWriter` can derive
+    was never executed (docs/advisor/2026-09-25-code-review-findings.md,
+    TEST-04). A fully populated YC signal exercises all eight in one
+    statement, and each lands on its own column with its own value.
+    """
+    stable_id = f"derived{str(uuid.uuid4().int)[:8]}"
+    domain = f"companywritertest-{stable_id}.example"
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO silver.resolved_signals
+                (source_stable_id, source, resolved_company_key, company_name_raw,
+                 signal_type, occurred_on, url, key_derivation, stage,
+                 company_status, team_size, industries, all_locations, batch)
+            VALUES (%s, 'yc', %s, 'DerivedCo', 'hiring', %s,
+                    'https://example.invalid', 'domain_normalized',
+                    'Growth', 'Active', 700, %s, 'Markertown, Markerland',
+                    'Winter 2031')
+            """,
+            (stable_id, domain, datetime.now(UTC), ["AlphaSector", "BetaSector"]),
+        )
+
+    try:
+        CompanyWriter(PostgresCompanyRepository(integration_database_url)).write_all()
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT name, stage, company_status, business_sector, company_scale, "
+                "country, city, notes FROM gold.company WHERE domain = %s",
+                (domain,),
+            )
+            row = cur.fetchone()
+
+        assert row == (
+            "DerivedCo",
+            "Growth",
+            "Active",
+            ["AlphaSector", "BetaSector"],
+            "101-1000",
+            "Markerland",
+            "Markertown",
+            "YC Winter 2031",
+        )
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM silver.manual_review_queue WHERE resolved_signal_id IN "
+                "(SELECT id FROM silver.resolved_signals "
+                " WHERE source = 'yc' AND source_stable_id = %s)",
+                (stable_id,),
+            )
+            cur.execute(
+                "DELETE FROM silver.resolved_signals "
+                "WHERE source = 'yc' AND source_stable_id = %s",
+                (stable_id,),
+            )
+            cur.execute("DELETE FROM gold.company_history WHERE domain = %s", (domain,))
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
+
+
 def test_write_all_updates_an_existing_companys_name_without_writing_history(
     integration_database_url: str,
 ):
