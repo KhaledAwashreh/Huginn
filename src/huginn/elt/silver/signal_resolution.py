@@ -133,6 +133,12 @@ class SignalResolver:
                         occurred_on=signal.occurred_on,
                         url=signal.url,
                         key_derivation=key_derivation,
+                        company_status=signal.company_status,
+                        team_size=signal.team_size,
+                        industries=signal.industries,
+                        all_locations=signal.all_locations,
+                        former_names=signal.former_names,
+                        batch=signal.batch,
                     )
                 )
                 written += 1

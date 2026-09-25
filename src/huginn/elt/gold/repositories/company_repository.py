@@ -19,14 +19,19 @@ import psycopg
 
 from huginn.elt.gold.models import DomainNormalizedSignal
 
-# `id` breaks ties deterministically: `resolved_at` defaults to Postgres's
-# transaction-stable now(), so every row silver.resolve_all() writes in one
-# batch shares the exact same value, not just occasionally. Without a
-# secondary key, CompanyWriter.write_all()'s domain-collapse (last row
-# read wins) would depend on whatever incidental order Postgres happens to
-# return same-timestamp rows in.
+# `id` breaks ties so CompanyWriter.write_all()'s domain-collapse (last row
+# read wins) is repeatable rather than dependent on whatever incidental order
+# Postgres happens to return same-timestamp rows in. `resolved_at` alone does
+# not pin that order: it defaults to a transaction-stable now(), so every row
+# one resolve_all() batch writes shares the exact same value, not just
+# occasionally. It is set on INSERT and never refreshed by the ON CONFLICT
+# path (which updates updated_at), so it records when a signal was first seen.
+# With two sources this is stable in practice because a domain has at most
+# one non-NULL value per source-shaped field; the secondary key matters once
+# a third source can supply competing values for the same field.
 _READ_DOMAIN_NORMALIZED_SQL = """
-    SELECT resolved_company_key, company_name_raw
+    SELECT resolved_company_key, company_name_raw, stage,
+           company_status, team_size, industries, all_locations, batch
     FROM silver.resolved_signals
     WHERE key_derivation = 'domain_normalized'
     ORDER BY resolved_at, id
@@ -71,7 +76,11 @@ _INSERT_HISTORY_SQL = """
 # than ever being interpolated (BEST_PRACTICES.md section 8.1).
 _COMPANY_COLUMNS = (
     "name",
+    "stage",
+    "company_status",
     "business_sector",
+    "yc_batch",
+    "company_scale",
     "company_type",
     "country",
     "city",
@@ -190,7 +199,16 @@ class PostgresCompanyRepository:
         """Implement `CompanyRepositoryPort.read_domain_normalized_signals`."""
         self._cur.execute(_READ_DOMAIN_NORMALIZED_SQL)
         return [
-            DomainNormalizedSignal(domain=row[0], company_name_raw=row[1])
+            DomainNormalizedSignal(
+                domain=row[0],
+                company_name_raw=row[1],
+                stage=row[2],
+                company_status=row[3],
+                team_size=row[4],
+                industries=list(row[5]) if row[5] is not None else None,
+                all_locations=row[6],
+                batch=row[7],
+            )
             for row in self._cur.fetchall()
         ]
 

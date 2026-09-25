@@ -15,8 +15,64 @@ CREATE TABLE gold.company (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     domain TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    business_sector TEXT,
-    company_type TEXT CHECK (company_type IN ('enterprise', 'startup', 'sme')),
+    -- Funding/development stage as the source classifies it. Free text,
+    -- not an enum: YC supplies 'Early'/'Growth' but a second source may
+    -- use its own vocabulary, and constraining here would force a
+    -- translation table before a second source exists. Type 1 for now;
+    -- whether a stage transition should write CompanyHistory is part of
+    -- the open column classification (Jira KAN-20).
+    stage TEXT,
+    -- Registry lifecycle status, free text as the source spells it: YC
+    -- supplies 'Active', 'Inactive', 'Acquired', 'Public'. Constraining
+    -- here would bake one registry's vocabulary into the schema before a
+    -- second registry exists, the same reasoning as stage above. A
+    -- distinct axis from company_type (legal form) and from
+    -- company_scale (size). YC's vocabulary is Active/Inactive/Acquired/
+    -- Public, but Acquired and Inactive are filtered out before Silver, so
+    -- in practice this holds 'Active', 'Public', or NULL for a company only
+    -- an HN signal knows about. Type 1 for now, on the same open-question
+    -- footing as stage and company_scale: an Active-to-Public transition is
+    -- a real lifecycle change with no history column to record it, and
+    -- whether it should write one is part of KAN-20.
+    company_status TEXT,
+    -- Sector classification, an array because a company legitimately sits in
+    -- more than one (verified live: 4,899 of 6,252 YC rows report more than
+    -- one industry). Collapsing that list to one value would discard source
+    -- information to fit a scalar, and 'startup'-style flattening was exactly
+    -- the vocabulary mistake already rejected for company_scale. Values are
+    -- YC's own strings, untranslated, including the literal 'Unspecified':
+    -- a company Huginn cannot classify yet is more honestly recorded as
+    -- unknown than assigned a guess, and a second source may fill it later.
+    -- Type 2 tracked (see gold.company_history).
+    business_sector TEXT[],
+    -- Size/structure bucket, derived from a headcount signal such as YC's
+    -- `team_size`. Constrained, and the constraint is the four headcount
+    -- bands rather than a looser 'enterprise'/'startup'/'sme' vocabulary,
+    -- because headcount is objective and reproducible. 'startup' would
+    -- match 100% of a YC-sourced directory and so carry no information,
+    -- and it collides with the separate `stage` column above. The bands
+    -- are Huginn's own, no source supplies them directly, which is what
+    -- makes constraining them here legitimate. The lowest band includes
+    -- team_size=0: confirmed live that 133 YC rows report 0 with a
+    -- populated batch, industry, and often a one-liner, and 41 of them
+    -- are Active, so it reads as pre-first-hire rather than missing data.
+    company_scale TEXT CHECK (company_scale IN ('0-10', '11-100', '101-1000', '1001+')),
+    -- The funded batch this company joined YC in, verbatim, e.g.
+    -- 'Winter 2022'. Not the company age and not `occurred_at`/launched_at,
+    -- which is a separate and largely independent date. Type 1, no
+    -- company_history counterpart: a company joins YC once and stays in that
+    -- batch, so the value cannot change. Source-prefixed so a second
+    -- portal's batches would get their own column instead of overwriting
+    -- this one. Unconstrained, being YC's vocabulary, same as stage above.
+    yc_batch TEXT,
+    -- Legal form, free text: "Private Limited Company", "LLC", "C Corp".
+    -- Deliberately NOT the same axis as company_scale. OpenCorporates
+    -- supplies a legal form here and a headcount-derived size is a
+    -- different measurement; mapping one onto the other silently
+    -- corrupts the column (architecture-notes/opencorporates-fetch-plan.md
+    -- section 4). Unconstrained because legal forms are jurisdiction
+    -- specific and unbounded.
+    company_type TEXT,
     country TEXT,
     city TEXT,
     address TEXT,
@@ -36,7 +92,7 @@ CREATE TABLE gold.company_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES gold.company (id),
     domain TEXT NOT NULL,
-    business_sector TEXT,
+    business_sector TEXT[],
     team_composition_signal TEXT NOT NULL CHECK (team_composition_signal IN ('unknown', 'likely_no', 'likely_yes')),
     icp_filter_pass BOOLEAN NOT NULL,
     valid_from TIMESTAMPTZ NOT NULL,

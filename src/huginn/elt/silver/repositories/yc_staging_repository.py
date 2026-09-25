@@ -16,13 +16,20 @@ from huginn.elt.silver.repositories.postgres_repository import (
 _UPSERT_SQL = """
     INSERT INTO silver.yc_listings
         (stable_id, company_name_raw, website, signal_type, stage,
-         description, occurred_on, url)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+         company_status, team_size, industries, all_locations, former_names,
+         batch, description, occurred_on, url)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (stable_id) DO UPDATE
     SET company_name_raw = EXCLUDED.company_name_raw,
         website = EXCLUDED.website,
         signal_type = EXCLUDED.signal_type,
         stage = EXCLUDED.stage,
+        company_status = EXCLUDED.company_status,
+        team_size = EXCLUDED.team_size,
+        industries = EXCLUDED.industries,
+        all_locations = EXCLUDED.all_locations,
+        former_names = EXCLUDED.former_names,
+        batch = EXCLUDED.batch,
         description = EXCLUDED.description,
         occurred_on = EXCLUDED.occurred_on,
         url = EXCLUDED.url,
@@ -39,6 +46,12 @@ def build_upsert_query(row: YcListingStaging) -> tuple[str, tuple]:
         row.website,
         row.signal_type,
         row.stage,
+        row.company_status,
+        row.team_size,
+        list(row.industries) if row.industries is not None else None,
+        row.all_locations,
+        list(row.former_names) if row.former_names is not None else None,
+        row.batch,
         row.description,
         row.occurred_on,
         row.url,

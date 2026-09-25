@@ -22,6 +22,18 @@ class DomainNormalizedSignal:
 
     domain: str
     company_name_raw: str
+    stage: str | None = None
+    company_status: str | None = None
+    team_size: int | None = None
+    # YC's `industries` as a list, and its `all_locations` display string.
+    # Both are the source's own shape; Gold turns them into
+    # business_sector and country/city (see gold.company.parse_all_locations).
+    industries: list[str] | None = None
+    all_locations: str | None = None
+    # YC's funded batch, e.g. 'Winter 2022', carried verbatim. The date
+    # Huginn wants for "joined the portal", and not `occurred_at`, which is
+    # YC's unrelated `launched_at` (see db/schema/silver-yc-batch.sql).
+    batch: str | None = None
 
 
 @dataclass(frozen=True)
