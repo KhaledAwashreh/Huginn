@@ -1,32 +1,32 @@
 """Shared pytest fixtures for the whole suite. See CLAUDE.md code standard
 4 and Jira KAN-52.
+
+The integration database is provisioned here, never discovered. A suite that
+falls back to whatever HUGINN_DATABASE_URL happens to name re-runs the whole
+pipeline over real dev rows and creates scratch databases on the developer's
+own server, so the only URL an integration test ever sees is the one the
+fixture below starts.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
-import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
+import pytest
 from dotenv import load_dotenv
 
 load_dotenv()
+"""Nothing here connects through the developer's URL, so the only reason to
+read .env is tests/test_integration_database_isolation.py, which needs the
+value to prove the suite is pointed somewhere else. Removing this would
+silently disarm that tripwire.
+"""
 
 logger = logging.getLogger(__name__)
-
-
-def _database_reachable(database_url: str | None) -> bool:
-    if not database_url:
-        return False
-    try:
-        with psycopg.connect(database_url, connect_timeout=2) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except psycopg.Error:
-        return False
-
 
 _SCHEMA_DIR = Path(__file__).resolve().parent.parent / "db" / "schema"
 _SCHEMA_FILES = (
@@ -37,37 +37,35 @@ _SCHEMA_FILES = (
     "gold.sql",
     "operational.sql",
 )
-"""Same order as .github/workflows/ci.yml's "Apply database schema" step:
-extensions before any table, then dependency order (operational
-references gold; the rest reference nothing outside their own schema).
+"""Same order as db/schema/README.md's fresh-install command: extensions
+before any table, then dependency order (operational references gold; the
+rest reference nothing outside their own schema).
 """
 
-_container = None
+_POSTGRES_IMAGE = "postgres:16-alpine"
 
 
-def pytest_configure(config) -> None:
-    """Must run before collection (HUGINN_DATABASE_URL needs to already be
-    set when each integration test module's own skip check fires) and must
-    never raise: an uncaught exception here aborts the whole pytest run,
-    not just the integration tests this is meant to make optional.
+@pytest.fixture(scope="session")
+def integration_database_url() -> Iterator[str]:
+    """Yield a connection URL to a throwaway Postgres holding the production schema.
+
+    Skips rather than fails when testcontainers or Docker is unavailable, so
+    an environment that cannot host a database costs the integration tests
+    and nothing else. The alternative failure mode is worse than a skip: a
+    suite that quietly falls back to a reachable database runs against
+    whatever the developer keeps in it.
     """
-    global _container
-    if _database_reachable(os.environ.get("HUGINN_DATABASE_URL")):
-        return
-
     try:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
-        logger.warning(
-            "testcontainers not installed (uv sync should have installed "
-            "the dev group); integration tests will skip"
+        pytest.skip(
+            "testcontainers is not installed; run uv sync to install the dev group"
         )
-        return
 
     container = None
     try:
         container = PostgresContainer(
-            "postgres:16-alpine",
+            _POSTGRES_IMAGE,
             username="postgres",
             password="huginn",
             dbname="huginn",
@@ -75,29 +73,22 @@ def pytest_configure(config) -> None:
         )
         container.start()
     except Exception as exc:
-        # Construction itself (not just start()) can fail, e.g. if the
-        # Docker client can't be initialized — guard the whole thing, not
-        # just start(), and only attempt cleanup if construction actually
-        # produced a container to stop.
+        # Construction itself (not just start()) can fail, e.g. if the Docker
+        # client can't be initialized, so guard the whole thing and only
+        # attempt cleanup if construction produced a container to stop.
         if container is not None:
             with contextlib.suppress(Exception):
                 container.stop()
-        logger.warning(
-            "testcontainers: could not start a Postgres container, "
-            "integration tests will skip: %s",
-            exc,
-        )
-        return
+        logger.warning("could not start a Postgres container: %s", exc)
+        pytest.skip(f"could not start a Postgres container: {exc}")
 
     database_url = container.get_connection_url()
 
-    # Unlike the container-start step above, a failure here is not treated
-    # as "fall back to skip": by this point Docker and Postgres have both
-    # already proven themselves working (the container started and accepted
-    # a connection), so an exception applying db/schema/*.sql means the SQL
-    # itself is broken, not that the environment is unavailable. Swallowing
-    # that into a quiet skip would hide a real schema bug behind a false
-    # "tests skipped" result instead of a loud failure.
+    # Unlike the container start above, a failure here is not a reason to
+    # skip: Docker and Postgres have both already proven themselves working,
+    # so an exception applying db/schema/*.sql means the SQL is broken rather
+    # than the environment missing. Swallowing it into a quiet skip would hide
+    # a real schema bug behind a false "tests skipped" result.
     try:
         with psycopg.connect(database_url, autocommit=True) as conn:
             for filename in _SCHEMA_FILES:
@@ -107,11 +98,9 @@ def pytest_configure(config) -> None:
             container.stop()
         raise
 
-    _container = container
-    os.environ["HUGINN_DATABASE_URL"] = database_url
-
-
-def pytest_unconfigure(config) -> None:
-    if _container is not None:
+    logger.info("integration database ready at %s", database_url)
+    try:
+        yield database_url
+    finally:
         with contextlib.suppress(Exception):
-            _container.stop()
+            container.stop()
