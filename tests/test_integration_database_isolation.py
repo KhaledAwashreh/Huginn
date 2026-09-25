@@ -1,105 +1,89 @@
-"""Regression tripwire for the integration suite's connection target.
+"""Regression tripwires for the integration suite's connection target.
 
-The bug this exists for: tests/conftest.py used to short-circuit the
-testcontainers path whenever a database named by HUGINN_DATABASE_URL
-answered a query, which on any developer machine meant every integration
-test ran against real dev data, and the CREATE DATABASE / DROP DATABASE
-migration tests created and dropped scratch databases on the real server.
+The bug these exist for: tests/conftest.py used to short-circuit its
+testcontainers path whenever a database named by HUGINN_DATABASE_URL answered
+a query, which on any developer machine meant every integration test ran
+against real dev data, and the CREATE DATABASE / DROP DATABASE migration tests
+created and dropped scratch databases on the real server.
 
-The invariant, stated once so both regressions are caught: whatever the
-suite connects to must not be the database the developer's own
-environment points at, and the suite must reach that target by injection
-rather than by writing os.environ["HUGINN_DATABASE_URL"] for its callers
-to read back. Comparing against the live server rather than the DSN
-string catches the second case too, because a suite that overwrites the
-variable makes the two look identical.
+The invariant: the database the suite runs against is one the suite itself
+provisioned. Nothing else is acceptable, and the check must not depend on the
+environment, because CI does not set HUGINN_DATABASE_URL and a guard that reads
+it skips in exactly the place a regression would ship.
+
+So the fixture stamps the database it creates (conftest.TEST_DATABASE_STAMP,
+written with COMMENT ON DATABASE) and the first test below asserts the stamp is
+there. A database the developer keeps their data in has no such comment, so the
+assertion fails against it. That is positive evidence of provenance, available
+identically on a laptop and on a runner, with no second database required.
+
+The second test is the static half: no module under tests/ may derive a
+connection from the environment at all, directly or indirectly.
 """
 
 from __future__ import annotations
 
-import contextlib
-import os
-import re
 from pathlib import Path
 
 import psycopg
-import pytest
+
+from tests.conftest import TEST_DATABASE_STAMP
 
 _TESTS_DIR = Path(__file__).resolve().parent
 _THIS_FILE = Path(__file__).name
-"""The one place the developer's URL may be read is here, where it is read
-to be compared against. Every other module has to receive its connection by
-injection.
-"""
-_DEVELOPER_URL_READ = re.compile(
-    r"""os\.environ(?:\.get\(|\[)\s*["']HUGINN_DATABASE_URL"""
-)
+"""The one place the variable may be named, and it is named to assert nothing
+else is. Every other module has to receive its connection by injection."""
 
 
-def _database_identity(database_url: str) -> tuple[str | None, str | None, str, str]:
-    """Return enough of a server's identity to tell two databases apart.
-
-    Two URLs naming the same database must agree on all four parts. The
-    system identifier alone is authoritative for "same cluster", but
-    pg_control_system() is superuser-only, so the network coordinates
-    stand in for it when it cannot be read; a testcontainers instance and
-    a developer's local server never share those either.
-    """
-    with psycopg.connect(database_url, connect_timeout=5) as conn:
-        system_identifier = None
-        with contextlib.suppress(psycopg.Error):
-            system_identifier = conn.execute(
-                "SELECT system_identifier::text FROM pg_control_system()"
-            ).fetchone()[0]
-        address, port, database = conn.execute(
-            "SELECT inet_server_addr()::text, inet_server_port(), current_database()"
-        ).fetchone()
-    return system_identifier, address, str(port), database
-
-
-def test_integration_database_is_not_the_developers_own_database(
+def test_the_suite_database_was_provisioned_by_this_suite(
     integration_database_url: str,
 ):
-    """The suite's database must not be the one HUGINN_DATABASE_URL names."""
-    developer_url = os.environ.get("HUGINN_DATABASE_URL")
-    if developer_url is None:
-        pytest.skip("HUGINN_DATABASE_URL is unset, so there is no developer database")
+    """The suite's database must carry the stamp conftest writes on creation.
 
-    try:
-        developer_identity = _database_identity(developer_url)
-    except psycopg.Error:
-        # The URL is not echoed into the skip reason: it carries a password,
-        # and pytest prints skip reasons in the summary.
-        pytest.skip(
-            "HUGINN_DATABASE_URL is unreachable, so there is no developer "
-            "database to compare against"
-        )
+    A dev database, a CI service database, or anything else the suite did not
+    provision itself has no such comment, so this fails against it rather than
+    skipping. Deliberately does not read HUGINN_DATABASE_URL: comparing against
+    an environment variable is what made the previous version of this guard
+    vacuous on CI.
+    """
+    with psycopg.connect(integration_database_url, connect_timeout=5) as conn:
+        stamp = conn.execute(
+            "SELECT shobj_description(oid, 'pg_database') "
+            "FROM pg_database WHERE datname = current_database()"
+        ).fetchone()[0]
 
-    suite_identity = _database_identity(integration_database_url)
-
-    assert suite_identity != developer_identity, (
-        "the integration suite is about to run against the same database as "
-        "HUGINN_DATABASE_URL, so it would read and rewrite real dev data; "
-        "the suite must use a database it provisioned itself"
+    assert stamp == TEST_DATABASE_STAMP, (
+        "the database the integration suite is about to use was not provisioned "
+        "by the suite: it carries no provisioning stamp, so it is a pre-existing "
+        "database and the suite is about to read and rewrite real data. The "
+        "suite must only ever use the throwaway Postgres its own fixture starts."
     )
 
 
-def test_no_test_module_derives_its_connection_from_the_developers_url():
-    """No module under tests/ may read HUGINN_DATABASE_URL out of the environment.
+def test_no_test_module_derives_its_connection_from_the_environment():
+    """No module under tests/ may name HUGINN_DATABASE_URL, by any route.
 
-    Reading it is how the suite ends up pointed at whatever the developer's
-    shell happens to say, with the whole pipeline re-running over real rows.
-    Injection is the fix, so the absence of the read is the invariant worth
-    asserting. The pattern matches the read itself rather than a bare
-    mention, so a docstring or a commit-style citation stays allowed.
+    Naming the variable at all is the defect, not the particular way it is
+    read, so this matches the bare string rather than a set of call patterns. An
+    earlier version matched `os.environ.get(` and `os.environ[`, which an
+    earlier version of this guard was supposed to catch and did not:
+    `os.getenv(...)`, `from os import environ` followed by `environ[...]`,
+    `from os import getenv`, and `dotenv_values()[...]` all slipped past it.
+
+    Every route to the value has to name it somewhere, so matching the string
+    closes the class rather than the instances. A docstring mention is allowed
+    and is not the defect; the file is parsed as text, not as code, because the
+    point is the name appearing, not which expression consumes it.
     """
     offenders = sorted(
         str(path.relative_to(_TESTS_DIR))
         for path in _TESTS_DIR.rglob("*.py")
-        if path.name != _THIS_FILE and _DEVELOPER_URL_READ.search(path.read_text())
+        if path.name != _THIS_FILE and "HUGINN_DATABASE_URL" in path.read_text()
     )
 
     assert not offenders, (
-        "these modules read HUGINN_DATABASE_URL instead of taking the "
-        f"connection from the integration_database_url fixture: {offenders}"
+        "these modules name HUGINN_DATABASE_URL, so a connection derived from "
+        "the environment can reach the suite again, directly or through "
+        f"os.getenv, dotenv_values, or a from-import. Take it from the "
+        f"integration_database_url fixture instead: {offenders}"
     )
