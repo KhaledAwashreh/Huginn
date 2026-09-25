@@ -1,4 +1,4 @@
-Status: DRAFT. Architecture decided across a series of design sessions, September 2026. No code written yet.
+Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze/Silver/Gold ELT write path are built and live-verified; the domain, scoring, and digest layers above Gold are not yet built. Field-level, code-verified maps of the current tree: `docs/status/`. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -8,7 +8,7 @@ Companion documents: [Huginn Concept Doc](https://kawashreh.atlassian.net/wiki/s
 Architecture at a glance:
 
 1. Storage: one Postgres database. Three ELT schemas (bronze, silver, gold) feed a separate operational schema.
-2. Ingestion: ports and adapters, two sources at launch, HN "Who's Hiring" and the YC directory.
+2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
 4. Scoring: two stages. v0 ranks by recency alone. The weighted composite (v1) is deferred until there is real filtered-data volume to design against.
 5. Delivery: a weekly email digest to a single user, on a data model that is multi-user from day one.
