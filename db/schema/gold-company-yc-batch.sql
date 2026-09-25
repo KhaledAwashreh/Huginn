@@ -1,24 +1,39 @@
--- gold.company gains yc_batch: the funded batch a company joined YC in,
--- carried through from silver verbatim (db/schema/silver-yc-batch.sql).
+-- SUPERSEDED by gold-company-notes.sql. Kept so a database that already ran
+-- this file is not left with a half-applied pair, and guarded so it cannot
+-- undo the successor.
 --
--- Typed 1, not history-tracked. A company joins YC once and stays in that
--- batch for the rest of its life, so the value cannot change and there is
--- nothing for a gold.company_history row to record. No matching column on
--- company_history, unlike business_sector, which is genuinely re-classified
--- over time. See ADR-0002 and gold/dimensional.py TYPE_2_TRACKED_FIELDS.
+-- What this originally did: added gold.company.yc_batch, holding the funded
+-- batch a company joined YC in, carried through from silver verbatim
+-- (db/schema/silver-yc-batch.sql). Type 1, no company_history counterpart.
 --
--- Prefixed rather than named plain `batch`, because "batch" alone does not
--- say which portal assigned it, and the other source-specific Gold columns
--- follow the same convention of naming the source where two sources could
--- disagree (company_status names the registry, company_scale is Huginn's own
--- vocabulary). A second portal with its own batches would need its own
--- column rather than overwriting this one.
+-- Why it was superseded: a column named for one source asserts that only that
+-- source will ever fill it. A second portal's batch, founding year, or registry
+-- field is inevitable, and a column per source per fact does not scale, so
+-- gold.company.notes replaces it, each value opening with its source
+-- ('YC Summer 2023').
 --
--- No check constraint. The values are YC's own strings and the vocabulary is
--- not Huginn's to constrain, the same reasoning that leaves gold.stage and
--- gold.company_status unconstrained.
+-- The guard is load-bearing, not defensive decoration. Migrations are applied
+-- in filename order and the successor sorts FIRST ('notes' before 'yc-batch'),
+-- so on a fresh install the sequence is: gold.sql creates notes,
+-- gold-company-notes.sql finds no yc_batch and correctly does nothing, and
+-- then this file would run last and re-add the very column the successor
+-- removed. Unguarded, a brand-new database ends up with both notes and
+-- yc_batch. Yielding when notes exists makes the pair order-independent.
 --
 -- Idempotent.
 
-ALTER TABLE gold.company
-    ADD COLUMN IF NOT EXISTS yc_batch TEXT;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'gold'
+          AND table_name = 'company'
+          AND column_name = 'notes'
+    ) THEN
+        RETURN;
+    END IF;
+
+    ALTER TABLE gold.company
+        ADD COLUMN IF NOT EXISTS yc_batch TEXT;
+END
+$$;

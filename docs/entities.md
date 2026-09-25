@@ -14,7 +14,7 @@ Current state only. One row per company, always. Overwritten in place when any f
 - CompanyType: String (legal form, free text and jurisdiction specific, e.g. "Private Limited Company", "LLC". A different axis from CompanyScale; see architecture-notes/opencorporates-fetch-plan.md section 4)
 - Country: String (parsed in Gold from YC's `all_locations` display string, first location's last comma segment; a bare `Remote` or an empty string yields no value rather than a guess; Type 1)
 - City: String (parsed in Gold from YC's `all_locations`, first location's first comma segment; left null when a location names no city of its own, e.g. `Singapore, Singapore`; Type 1)
-- YcBatch: String (nullable; the funded batch a company joined YC in, verbatim, e.g. `Winter 2022`. Not company age and not `OccurredOn`, which is YC's unrelated `launched_at`; see `YcListingStaging.Batch`. Type 1 with no `CompanyHistory` counterpart, because a company joins YC once and stays in that batch, so the value cannot change)
+- Notes: String (nullable; free text about the company, each value opening with the source that supplied it, e.g. `YC Summer 2023`. One column rather than one per source per fact, because a second portal's batch, founding year, or registry field is inevitable and the prefix keeps a reader able to tell whose statement it is. Composed in Gold, not captured in Silver, because the prefix is Huginn's vocabulary. Type 1 with no `CompanyHistory` counterpart: a note is descriptive, so a change in wording is not a recorded attribute change)
 - Address: String
 - PhoneNumber: String
 - Email: String

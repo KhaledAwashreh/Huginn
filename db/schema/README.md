@@ -34,9 +34,10 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-business-sector-array.sql` | `gold.company.business_sector` widens TEXT to TEXT[] in both `company` and `company_history` |
 | `silver-yc-former-names.sql` | `silver.yc_listings.former_names` and its `resolved_signals` counterpart, captured for the KAN-4 matcher |
 | `silver-yc-batch.sql` | `silver.yc_listings.batch` and its `resolved_signals` counterpart, the funded batch a company joined YC in |
-| `gold-company-yc-batch.sql` | `gold.company.yc_batch`, the same label carried into Gold |
+| `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
+| `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 
-All ten are idempotent: re-running one on a database it has already been applied to is a no-op. Covered by `tests/elt/gold/test_company_signal_migration.py` for the signal key, by `tests/elt/gold/test_business_sector_array_migration.py` for the array widening, by `tests/elt/silver/test_upsert_sql_shape.py` for the Silver upsert column/placeholder parity, and by the fresh-install rebuild in CI for the rest.
+All eleven are idempotent: re-running one on a database it has already been applied to is a no-op. Covered by `tests/elt/gold/test_company_signal_migration.py` for the signal key, by `tests/elt/gold/test_business_sector_array_migration.py` for the array widening, by `tests/elt/silver/test_upsert_sql_shape.py` for the Silver upsert column/placeholder parity, and by the fresh-install rebuild in CI for the rest.
 
 Three need a word of warning, because idempotent does not mean unconditional:
 

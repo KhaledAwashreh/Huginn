@@ -79,7 +79,7 @@ _COMPANY_COLUMNS = (
     "stage",
     "company_status",
     "business_sector",
-    "yc_batch",
+    "notes",
     "company_scale",
     "company_type",
     "country",

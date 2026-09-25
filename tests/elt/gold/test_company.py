@@ -331,27 +331,27 @@ def test_write_all_keeps_a_known_scale_when_a_later_signal_has_no_headcount():
     ]
 
 
-def test_write_all_carries_yc_batch_from_the_signal():
+def test_write_all_carries_a_note_prefixed_with_yc_from_the_batch():
     repo = FakeCompanyRepository(
-        signals=[_signal("acme.com", "Acme", batch="Winter 2022")]
+        signals=[_signal("acme.com", "Acme", batch="Summer 2023")]
     )
     writer = CompanyWriter(repo)
 
     writer.write_all()
 
     assert repo.upserted == [
-        ("acme.com", {"name": "Acme", "yc_batch": "Winter 2022"}, False)
+        ("acme.com", {"name": "Acme", "notes": "YC Summer 2023"}, False)
     ]
 
 
-def test_write_all_keeps_a_known_yc_batch_when_a_later_signal_has_none():
+def test_write_all_keeps_a_known_note_when_a_later_signal_has_none():
     """The HN case, and the reason this is a last-non-null merge: an HN
     signal read after a YC one carries no batch, and a plain last-row-wins
     collapse would erase it.
     """
     repo = FakeCompanyRepository(
         signals=[
-            _signal("acme.com", "Acme", batch="Winter 2022"),
+            _signal("acme.com", "Acme", batch="Summer 2023"),
             _signal("acme.com", "Acme", batch=None),
         ]
     )
@@ -361,11 +361,22 @@ def test_write_all_keeps_a_known_yc_batch_when_a_later_signal_has_none():
 
     assert written == 1
     assert repo.upserted == [
-        ("acme.com", {"name": "Acme", "yc_batch": "Winter 2022"}, False)
+        ("acme.com", {"name": "Acme", "notes": "YC Summer 2023"}, False)
     ]
 
 
-def test_write_all_omits_yc_batch_entirely_when_no_signal_carries_one():
+def test_write_all_writes_no_note_at_all_when_the_batch_is_absent():
+    """A blank note would be indistinguishable from a real one to a reader,
+    and would overwrite a known note on a last-non-null merge.
+    """
+    repo = FakeCompanyRepository(signals=[_signal("acme.com", "Acme", batch=None)])
+
+    CompanyWriter(repo).write_all()
+
+    assert repo.upserted == [("acme.com", {"name": "Acme"}, False)]
+
+
+def test_write_all_omits_notes_entirely_when_no_signal_carries_one():
     """Omitted rather than written as NULL, so gold.company keeps whatever an
     earlier run stored instead of being reset.
     """
@@ -381,10 +392,10 @@ def test_write_all_omits_yc_batch_entirely_when_no_signal_carries_one():
     ]
 
 
-def test_yc_batch_alone_writes_no_history_row():
+def test_notes_alone_write_no_history_row():
     """Type 1, like every field but the three in TYPE_2_TRACKED_FIELDS. A
-    company joins YC once and stays in that batch, so the value cannot
-    change and there is nothing for a history row to record.
+    note is descriptive rather than a measured attribute, so there is nothing
+    for a history row to record when it changes.
     """
     repo = FakeCompanyRepository(
         signals=[],
@@ -397,7 +408,7 @@ def test_yc_batch_alone_writes_no_history_row():
         },
     )
 
-    write_company(repo, "acme.com", {"name": "Acme", "yc_batch": "Winter 2022"})
+    write_company(repo, "acme.com", {"name": "Acme", "notes": "YC S23"})
 
     assert repo.history_inserted == []
     assert repo.upserted[0][2] is False

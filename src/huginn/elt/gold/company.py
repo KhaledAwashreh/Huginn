@@ -141,7 +141,7 @@ class CompanyWriter:
     here.
 
     Only `domain`, `name`, `stage`, `company_status`, `company_scale`,
-    `business_sector`, `country`, `city`, and `yc_batch` are derivable from
+    `business_sector`, `country`, `city`, and `notes` are derivable from
     resolved_signals today: docs/entities.md's ResolvedSignal carries no
     team_composition_signal, icp_filter_pass, or contact field. Those stay at
     their gold.company default until a future writer (Jira KAN-43, enrichment)
@@ -153,10 +153,10 @@ class CompanyWriter:
     the four constrained bands here, because the bands are Huginn's
     vocabulary rather than a source's (see team_size_to_scale).
     `country` and `city` come from YC's `all_locations` display string,
-    split here for the same reason (see parse_all_locations). `yc_batch` is
-    YC's own funded-batch label carried through unchanged, but under a
-    Huginn-prefixed column name so the column stays unambiguous about which
-    portal assigned it.
+    split here for the same reason (see parse_all_locations). `notes` is
+    assembled here from a source's own value plus a source prefix, so a
+    second portal's contribution is attributable rather than overwriting the
+    first (see build_source_note).
     """
 
     def __init__(self, repository: CompanyRepositoryPort) -> None:
@@ -177,7 +177,7 @@ class CompanyWriter:
         The collapse is per field, not per row. `name` keeps plain
         last-read-wins, unchanged, because it is NOT NULL upstream and
         every signal carries one. `stage`, `company_status`, `business_sector`,
-        `country`, `city`, `yc_batch`, and the `company_scale` derived from
+        `country`, `city`, `notes`, and the `company_scale` derived from
         `team_size` keep the last *non-null* value instead, because they are
         source-specific: every HN signal has all of them as None by
         construction (silver/hn_staging.py), so a plain last-row-wins collapse
@@ -211,7 +211,7 @@ class CompanyWriter:
                     ),
                     ("country", country),
                     ("city", city),
-                    ("yc_batch", signal.batch),
+                    ("notes", f"YC {signal.batch}" if signal.batch else None),
                 ):
                     if value is not None:
                         values[column] = value

@@ -30,9 +30,8 @@ class DomainNormalizedSignal:
     # business_sector and country/city (see gold.company.parse_all_locations).
     industries: list[str] | None = None
     all_locations: str | None = None
-    # YC's funded batch, e.g. 'Winter 2022', carried verbatim. The date
-    # Huginn wants for "joined the portal", and not `occurred_at`, which is
-    # YC's unrelated `launched_at` (see db/schema/silver-yc-batch.sql).
+    # YC's funded batch, e.g. 'Summer 2023', carried verbatim from Silver.
+    # Gold prefixes it to form gold.company.notes.
     batch: str | None = None
 
 

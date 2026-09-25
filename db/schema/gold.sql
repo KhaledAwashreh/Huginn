@@ -57,14 +57,16 @@ CREATE TABLE gold.company (
     -- populated batch, industry, and often a one-liner, and 41 of them
     -- are Active, so it reads as pre-first-hire rather than missing data.
     company_scale TEXT CHECK (company_scale IN ('0-10', '11-100', '101-1000', '1001+')),
-    -- The funded batch this company joined YC in, verbatim, e.g.
-    -- 'Winter 2022'. Not the company age and not `occurred_at`/launched_at,
-    -- which is a separate and largely independent date. Type 1, no
-    -- company_history counterpart: a company joins YC once and stays in that
-    -- batch, so the value cannot change. Source-prefixed so a second
-    -- portal's batches would get their own column instead of overwriting
-    -- this one. Unconstrained, being YC's vocabulary, same as stage above.
-    yc_batch TEXT,
+    -- Free-text notes about the company, each opening with the source that
+    -- supplied the value, e.g. 'YC Summer 2023'. One column rather
+    -- than one per source per fact: a second portal's batch, founding year,
+    -- or registry field is inevitable, and a column per fact per source does
+    -- not scale. The prefix is what keeps a reader able to tell whose
+    -- statement it is. Type 1, no company_history counterpart: a note is
+    -- descriptive, so a change in wording is not a recorded attribute
+    -- change. Values are composed in Gold, not captured in Silver, because
+    -- the prefix is Huginn's vocabulary (section 4.3).
+    notes TEXT,
     -- Legal form, free text: "Private Limited Company", "LLC", "C Corp".
     -- Deliberately NOT the same axis as company_scale. OpenCorporates
     -- supplies a legal form here and a headcount-derived size is a
