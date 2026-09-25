@@ -72,6 +72,51 @@ _REAL_COMMENT_WITH_NO_PARAGRAPH_BREAK = {
     "text": "Acme Corp | Backend Engineer | Remote | Full-time",
 }
 
+# Real shape (item 49523716, live): a YC cohort annotation appended to the
+# company name, inside the first pipe field. Confirmed live.
+_REAL_COMMENT_WITH_YC_COHORT_SUFFIX = {
+    "id": 49523716,
+    "type": "comment",
+    "parent": 49522897,
+    "time": 1757406100,
+    "by": "monumint_hn",
+    "text": (
+        "Monumint (YC W24) | \nTech stack: TypeScript | Node | React | Postgres"
+        "<p>We are a small team building financial infrastructure."
+    ),
+}
+
+# Real shape (item 49615973, live): poster put a location prefix and the
+# website link inside the company field, so link removal leaves an empty
+# pair of parens behind.
+_REAL_COMMENT_WITH_LOCATION_PREFIX_AND_LINK = {
+    "id": 49615973,
+    "type": "comment",
+    "parent": 49522897,
+    "time": 1757406200,
+    "by": "close_hn",
+    "text": (
+        'Remote (US) Close (<a href="https:&#x2F;&#x2F;close.com" rel="nofollow">'
+        "https:&#x2F;&#x2F;close.com</a>) | Senior Backend Engineer | Full-time"
+        "<p>We're bootstrapped, profitable, and 130 people, all remote."
+    ),
+}
+
+# Real shape (item 49522903 family, live): a parenthetical that carries
+# identity, not annotation. Stripping every trailing paren would destroy
+# the domain and the acronym. These must survive untouched.
+_REAL_COMMENT_WITH_IDENTITY_PARENTHETICAL = {
+    "id": 49523040,
+    "type": "comment",
+    "parent": 49522897,
+    "time": 1757406300,
+    "by": "chronograph_hn",
+    "text": (
+        "Chronograph (chronograph.pe) | Data Engineer | Remote | Full-time"
+        "<p>Building compliance infrastructure for crypto."
+    ),
+}
+
 _REAL_ROOT_STORY = {
     "id": 49522897,
     "type": "story",
@@ -87,6 +132,39 @@ _REAL_DELETED_COMMENT = {
     "parent": 49522897,
     "deleted": True,
 }
+
+
+def test_parse_hn_posting_strips_yc_cohort_annotation_from_company_name():
+    result = parse_hn_posting(_REAL_COMMENT_WITH_YC_COHORT_SUFFIX)
+
+    assert result.company_name_raw == "Monumint"
+
+
+def test_parse_hn_posting_strips_empty_parens_left_by_link_removal():
+    result = parse_hn_posting(_REAL_COMMENT_WITH_LOCATION_PREFIX_AND_LINK)
+
+    assert result.company_name_raw == "Remote (US) Close"
+
+
+def test_parse_hn_posting_keeps_parenthetical_that_carries_identity():
+    result = parse_hn_posting(_REAL_COMMENT_WITH_IDENTITY_PARENTHETICAL)
+
+    assert result.company_name_raw == "Chronograph (chronograph.pe)"
+
+
+def test_parse_hn_posting_documented_real_comment_name_is_unchanged():
+    """The pre-existing real fixture has no trailing annotation, so the
+    new normalisation must not alter it.
+    """
+    result = parse_hn_posting(_REAL_COMMENT_WITH_TRAILING_LINK)
+
+    assert result.company_name_raw == "Modash.io"
+
+
+def test_parse_hn_posting_website_is_unaffected_by_name_normalisation():
+    result = parse_hn_posting(_REAL_COMMENT_WITH_LOCATION_PREFIX_AND_LINK)
+
+    assert result.website == "https://close.com"
 
 
 def test_parse_hn_posting_extracts_company_name_from_first_pipe_field():
