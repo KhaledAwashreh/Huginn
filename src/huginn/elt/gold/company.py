@@ -143,7 +143,7 @@ class CompanyWriter:
     Only `domain`, `name`, `stage`, `company_status`, `company_scale`,
     `business_sector`, `country`, `city`, and `notes` are derivable from
     resolved_signals today: docs/entities.md's ResolvedSignal carries no
-    team_composition_signal, icp_filter_pass, or contact field. Those stay at
+    team_composition_signal, or contact field. Those stay at
     their gold.company default until a future writer (Jira KAN-43, enrichment)
     has real data for them and calls `write_company` with a richer
     `new_values` dict.
@@ -188,9 +188,10 @@ class CompanyWriter:
         A field absent from every signal is omitted from `new_values`
         entirely, so gold.company keeps whatever an earlier run wrote
         rather than being reset to NULL. Which columns are mergeable this
-        way and which instead need a null to clear them (icp_filter_pass,
-        per architecture document section 4.3) is the open column
-        classification in Jira KAN-20.
+        way, and which instead need a null to clear them, is the open column
+        classification in Jira KAN-20. ADR-0008 removed the one column that
+        had been named there, icp_filter_pass, because an ICP verdict is
+        per-user and does not belong on a shared dimension.
         """
         with self._repository:
             signals = self._repository.read_domain_normalized_signals()

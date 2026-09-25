@@ -19,7 +19,6 @@ Current state only. One row per company, always. Overwritten in place when any f
 - PhoneNumber: String
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
-- IcpFilterPass: Boolean (Type 2 tracked, see CompanyHistory)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
@@ -31,7 +30,6 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 - Domain: String (denormalized for convenience)
 - BusinessSector: List of Strings
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes)
-- IcpFilterPass: Boolean
 - ValidFrom: DateTimeOffset
 - ValidTo: DateTimeOffset
 

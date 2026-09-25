@@ -55,15 +55,14 @@ def test_write_all_creates_a_new_company_from_a_domain_normalized_signal(
 
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT name, team_composition_signal, icp_filter_pass "
+                "SELECT name, team_composition_signal "
                 "FROM gold.company WHERE domain = %s",
                 (domain,),
             )
-            name, team_composition_signal, icp_filter_pass = cur.fetchone()
+            name, team_composition_signal = cur.fetchone()
 
         assert name == "CompanyWriterTestCo"
         assert team_composition_signal == "unknown"
-        assert icp_filter_pass is False
 
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(

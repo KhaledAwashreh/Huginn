@@ -144,12 +144,12 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 
 A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter).
 
-`Company` covers every company Silver has resolved and evaluated against the filter at least once. ICP-filter-pass is a tracked attribute on the row, not a gate on whether the row exists, so a company that later stops passing keeps its record.
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0008 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match` keyed by user and company).
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
 1. `Company`: exactly one row per company, always, overwritten in place whenever any field changes.
-2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`), holding the superseded values with a `ValidFrom`/`ValidTo` window.
+2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`), holding the superseded values with a `ValidFrom`/`ValidTo` window. ADR-0008 removed the third field, `IcpFilterPass`, because an ICP verdict is per-user.
 3. Type 1 cosmetic fields: overwrite in `Company`, no history.
 
 The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. `Company` cannot return a stale row.
@@ -261,7 +261,6 @@ erDiagram
         String Domain "resolved natural key, section 6"
         String BusinessSector "Type 2 tracked"
         Enum TeamCompositionSignal "Type 2 tracked"
-        Boolean IcpFilterPass "Type 2 tracked, attribute not a gate"
     }
     CompanyHistory {
         GUID Id PK

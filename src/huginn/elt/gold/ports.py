@@ -48,9 +48,9 @@ class CompanyRepositoryPort(Protocol):
         exists yet (first occurrence).
 
         Only the fields `apply_company_update` needs are guaranteed:
-        "id", "current_since", and the three
+        "id", "current_since", and the
         `huginn.elt.gold.dimensional.TYPE_2_TRACKED_FIELDS`
-        ("business_sector", "team_composition_signal", "icp_filter_pass").
+        ("business_sector", "team_composition_signal").
         A caller wanting another gold.company column's current value must
         extend both this method's contract and its Postgres implementation
         (`huginn.elt.gold.repositories.company_repository`), not assume

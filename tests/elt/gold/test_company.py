@@ -102,20 +102,20 @@ def test_write_company_writes_history_when_a_type_2_field_changes_on_an_existing
         companies={
             "acme.com": {
                 "id": "c1",
-                "icp_filter_pass": False,
+                "business_sector": ["fintech"],
                 "current_since": datetime(2026, 1, 1, tzinfo=UTC),
             }
         },
     )
 
-    write_company(repo, "acme.com", {"icp_filter_pass": True})
+    write_company(repo, "acme.com", {"business_sector": ["b2b", "fintech"]})
 
     assert repo.upserted[0][2] is True
     assert len(repo.history_inserted) == 1
     company_id, domain, snapshot, valid_from = repo.history_inserted[0]
     assert company_id == "c1"
     assert domain == "acme.com"
-    assert snapshot["icp_filter_pass"] is False
+    assert snapshot["business_sector"] == ["fintech"]
     assert valid_from == datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -128,7 +128,7 @@ def test_write_company_never_writes_history_on_first_occurrence_even_if_a_type_2
     """
     repo = FakeCompanyRepository(signals=[])
 
-    write_company(repo, "acme.com", {"icp_filter_pass": True})
+    write_company(repo, "acme.com", {"business_sector": ["b2b", "fintech"]})
 
     assert repo.history_inserted == []
 
@@ -402,7 +402,7 @@ def test_notes_alone_write_no_history_row():
         companies={
             "acme.com": {
                 "id": "c1",
-                "icp_filter_pass": False,
+                "business_sector": ["fintech"],
                 "current_since": datetime(2026, 1, 1, tzinfo=UTC),
             }
         },

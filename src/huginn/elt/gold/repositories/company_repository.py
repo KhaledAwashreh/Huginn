@@ -42,8 +42,7 @@ _READ_DOMAIN_NORMALIZED_SQL = """
 # write_all() run, or a future writer) can't read the same pre-update
 # state this one is about to act on.
 _GET_COMPANY_SQL = """
-    SELECT id, business_sector, team_composition_signal, icp_filter_pass,
-           current_since
+    SELECT id, business_sector, team_composition_signal, current_since
     FROM gold.company
     WHERE domain = %s
     FOR UPDATE
@@ -64,8 +63,8 @@ _READ_UNENRICHED_COMPANY_NAMES_SQL = """
 _INSERT_HISTORY_SQL = """
     INSERT INTO gold.company_history
         (company_id, domain, business_sector, team_composition_signal,
-         icp_filter_pass, valid_from, valid_to)
-    VALUES (%s, %s, %s, %s, %s, %s, now())
+         valid_from, valid_to)
+    VALUES (%s, %s, %s, %s, %s, now())
 """
 
 # The only gold.company columns a caller may set through upsert_company,
@@ -88,7 +87,6 @@ _COMPANY_COLUMNS = (
     "phone_number",
     "email",
     "team_composition_signal",
-    "icp_filter_pass",
 )
 
 
@@ -226,8 +224,7 @@ class PostgresCompanyRepository:
             "id": row[0],
             "business_sector": row[1],
             "team_composition_signal": row[2],
-            "icp_filter_pass": row[3],
-            "current_since": row[4],
+            "current_since": row[3],
         }
 
     def upsert_company(
@@ -249,7 +246,6 @@ class PostgresCompanyRepository:
                 domain,
                 snapshot["business_sector"],
                 snapshot["team_composition_signal"],
-                snapshot["icp_filter_pass"],
                 valid_from,
             ),
         )

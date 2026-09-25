@@ -30,11 +30,11 @@ def test_build_upsert_query_always_includes_domain_even_when_new_values_omits_it
     even considered, even when only the UPDATE branch should run.
     """
     sql, params = build_upsert_query(
-        "acme.com", {"icp_filter_pass": True}, bump_current_since=True
+        "acme.com", {"business_sector": ["fintech"]}, bump_current_since=True
     )
 
     assert params[0] == "acme.com"
-    assert "INSERT INTO gold.company (domain, icp_filter_pass)" in sql
+    assert "INSERT INTO gold.company (domain, business_sector)" in sql
 
 
 def test_build_upsert_query_drops_an_unrecognized_key_rather_than_interpolating_it():

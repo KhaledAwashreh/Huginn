@@ -3,8 +3,9 @@
 --
 -- Company holds exactly one row per company, always, overwritten in
 -- place. CompanyHistory gets a new row only when a Type 2 tracked field
--- changes (business_sector, team_composition_signal, icp_filter_pass;
--- see src/huginn/gold/dimensional.py TYPE_2_TRACKED_FIELDS). This is a
+-- changes (business_sector and team_composition_signal; see
+-- src/huginn/gold/dimensional.py TYPE_2_TRACKED_FIELDS, and ADR-0008 for the
+-- third field this list used to have). This is a
 -- current-plus-history split, not a single SCD Type 2 table (ADR-0002):
 -- every scoring read needs current state, and this design removes the
 -- IsCurrent-filter risk from that read entirely.
@@ -81,7 +82,6 @@ CREATE TABLE gold.company (
     phone_number TEXT,
     email TEXT,
     team_composition_signal TEXT NOT NULL DEFAULT 'unknown' CHECK (team_composition_signal IN ('unknown', 'likely_no', 'likely_yes')),
-    icp_filter_pass BOOLEAN NOT NULL DEFAULT false,
     current_since TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -96,7 +96,6 @@ CREATE TABLE gold.company_history (
     domain TEXT NOT NULL,
     business_sector TEXT[],
     team_composition_signal TEXT NOT NULL CHECK (team_composition_signal IN ('unknown', 'likely_no', 'likely_yes')),
-    icp_filter_pass BOOLEAN NOT NULL,
     valid_from TIMESTAMPTZ NOT NULL,
     valid_to TIMESTAMPTZ NOT NULL
 );
