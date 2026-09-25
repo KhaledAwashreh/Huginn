@@ -393,7 +393,7 @@ def test_write_all_omits_notes_entirely_when_no_signal_carries_one():
 
 
 def test_notes_alone_write_no_history_row():
-    """Type 1, like every field but the three in TYPE_2_TRACKED_FIELDS. A
+    """Type 1, like every field but the two in TYPE_2_TRACKED_FIELDS. A
     note is descriptive rather than a measured attribute, so there is nothing
     for a history row to record when it changes.
     """

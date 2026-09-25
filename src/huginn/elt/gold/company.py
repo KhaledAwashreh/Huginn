@@ -47,26 +47,17 @@ def team_size_to_scale(team_size: int | None) -> str | None:
 
 
 def parse_all_locations(all_locations: str | None) -> tuple[str | None, str | None]:
-    """Split YC's `all_locations` into (city, country).
+    """Split YC's `all_locations` display string into (city, country), taking
+    the first of its semicolon-separated entries as the primary location.
 
-    The field is a human-facing display string, not structured source data,
-    so this parse is Huginn's interpretation and lives in Gold rather than in
-    Silver (architecture document section 4.3). Its shape, confirmed on all
-    6,252 live rows, is a semicolon-separated list of `City, Region, Country`
-    entries, optionally ending in a bare `Remote`:
-
-        'San Francisco, CA, USA'
-        'San Francisco, CA, USA; Mountain View, CA, USA'
-        'New York City, NY, USA; New York, NY, USA; Remote'
-        'Singapore, Singapore'
-        'Remote'
-
-    The first entry is taken as the primary location. Anything that yields no
-    real geography returns (None, None) rather than a guess: 154 live rows
-    are empty strings and 44 are a bare 'Remote', and 'Remote' as a country
-    would be worse than no country. Where a location has no city segment of
-    its own (`'Singapore, Singapore'`), city is left None rather than
-    repeating the country name, which is 203 live rows.
+    A Huginn interpretation of a human-facing string rather than structured
+    source data, so it lives in Gold rather than in Silver (architecture
+    document section 4.3). Measured over the 4,349 YC rows of
+    `silver.resolved_signals`: 65 empty strings and 29 bare `'Remote'`
+    yield no geography and return (None, None), and 48 rows whose city
+    segment repeats the country ('Singapore, Singapore') get city None
+    rather than a duplicated name. `docs/entities.md` holds the wider field
+    profile; the destination columns are declared in `db/schema/gold.sql`.
     """
     if not all_locations:
         return None, None
@@ -143,20 +134,24 @@ class CompanyWriter:
     Only `domain`, `name`, `stage`, `company_status`, `company_scale`,
     `business_sector`, `country`, `city`, and `notes` are derivable from
     resolved_signals today: docs/entities.md's ResolvedSignal carries no
-    team_composition_signal, or contact field. Those stay at
-    their gold.company default until a future writer (Jira KAN-43, enrichment)
+    team_composition_signal or contact field. Those stay at their
+    gold.company default until a future writer (Jira KAN-43, enrichment)
     has real data for them and calls `write_company` with a richer
     `new_values` dict.
 
-    Two of the derivable ones are not read from resolved_signals directly.
-    `company_scale` comes from YC's raw `team_size` integer, bucketed into
-    the four constrained bands here, because the bands are Huginn's
-    vocabulary rather than a source's (see team_size_to_scale).
-    `country` and `city` come from YC's `all_locations` display string,
-    split here for the same reason (see parse_all_locations). `notes` is
-    assembled here from a source's own value plus a source prefix, so a
-    second portal's contribution is attributable rather than overwriting the
-    first (see build_source_note).
+    Three of the derivable ones are not read from resolved_signals directly:
+
+    1. `company_scale`, bucketed from YC's raw `team_size` integer into the
+       four bands `db/schema/gold.sql` constrains it to, because the bands
+       are Huginn's vocabulary rather than a source's (see
+       team_size_to_scale).
+    2. `country` and `city`, split from YC's `all_locations` display string
+       for the same reason (see parse_all_locations).
+    3. `notes`, YC's `batch` under a hardcoded `YC ` prefix, written only
+       when the signal carries one. The prefix is a label, not a merge key:
+       `DomainNormalizedSignal` carries no `source`, so a second portal's
+       batch would take the same last-non-null merge, overwrite YC's note,
+       and be labelled `YC`.
     """
 
     def __init__(self, repository: CompanyRepositoryPort) -> None:

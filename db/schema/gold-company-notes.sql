@@ -11,9 +11,13 @@
 --
 -- The batch itself is NOT company age and NOT occurred_at, which carries YC's
 -- unrelated launched_at. Verified live: the 90-company 'Fall 2026' batch has 90
--- distinct launched_at values spanning 19 months, and every batch from Summer
--- 2005 to Winter 2011 has its earliest launched_at on exactly 2012-01-17, a
--- profile backfill wave.
+-- distinct launched_at values spanning 19 months, and twelve of the thirteen
+-- batches from Summer 2005 to Winter 2011 have their earliest launched_at on
+-- exactly 2012-01-17, a profile backfill wave. Summer 2008 is the exception,
+-- its earliest 2010-01-17 on one row of that batch's 22. Those batch counts are
+-- measured on bronze.api_ingest; on silver.yc_listings the range is eleven
+-- batches, Summer 2005 and Winter 2006 being absent, and every one of those
+-- reads 2012-01-17. See db/schema/silver-yc-batch.sql for the full evidence.
 --
 -- Data is preserved rather than dropped. Existing yc_batch values are rewritten
 -- into the prefixed form before the old column goes, so a database upgraded

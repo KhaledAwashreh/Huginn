@@ -71,7 +71,10 @@ CREATE TABLE gold.company (
     -- than one per source per fact: a second portal's batch, founding year,
     -- or registry field is inevitable, and a column per fact per source does
     -- not scale. The prefix is what keeps a reader able to tell whose
-    -- statement it is. Type 1, no company_history counterpart: a note is
+    -- statement it is, as long as YC is the only source writing one: the
+    -- prefix is hardcoded and is a label, not a merge key, so a second
+    -- portal's value would take the same last-non-null merge, overwrite
+    -- this one, and be labelled YC. See gold.company.CompanyWriter. Type 1, no company_history counterpart: a note is
     -- descriptive, so a change in wording is not a recorded attribute
     -- change. Values are composed in Gold, not captured in Silver, because
     -- the prefix is Huginn's vocabulary (section 4.3).

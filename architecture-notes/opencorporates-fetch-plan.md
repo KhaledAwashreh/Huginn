@@ -35,21 +35,49 @@ Reasons:
 2. This mirrors an existing, working precedent in this codebase: `huginn.elt.silver.signal_resolution.resolve_signal` treats an ATS/platform host as "no match" rather than a wrong confident one, on the stated principle that a wrong match is worse than none. The same principle applies here: writing OpenCorporates data for the wrong company would corrupt `gold.company`, not just leave a gap.
 3. A skipped company is not lost. It stays selected by the next run's query (section 5) until it either resolves to exactly one hit or the run budget is spent trying.
 
-## 4. Field mapping: officers, ownership, and `company_type` excluded from structured fields
+## 4. Field mapping: officers and ownership excluded, `company_type` maps cleanly
 
-Decision: `RawRecord.payload` carries the matched company object close to as
-returned (see `docs/sources/opencorporates-api.md`, Response shape, "Company
+Decision: `RawRecord.payload` carries the matched company object close to
+as returned (see `docs/sources/opencorporates-api.md`, Response shape, "Company
 detail record" field list), with the privacy-safe exception that this adapter
 removes the top-level `officers` field before Bronze persistence. The adapter
 does not mutate the API response object. Its structured field selection (what
-Silver eventually maps out of the payload, a later ticket's scope) also
-explicitly excludes:
+Silver eventually maps out of the payload, a later ticket's scope) settles
+three source fields:
 
-- **`officers`** — `docs/sources/opencorporates-api.md`'s Open questions/risks flags this as containing names, positions, sometimes dates of birth and home addresses. No data-retention policy exists yet for that class of data, independent of and separate from the licensing question KAN-12 already accepted. It is therefore removed from the Bronze payload at `_company_record`, rather than merely excluded from later structured use.
-- **`controlling_entity`, `ultimate_beneficial_owners`, `ultimate_controlling_company`, `corporate_groupings`** — genuinely new signal (parent/ownership structure), not something the original proposed mapping in `docs/sources/opencorporates-api.md` accounted for. Jira KAN-57 is the dedicated epic for deciding what, if anything, Huginn should do with this; this adapter's job is only to not lose the data (it survives in `raw_payload` regardless), not to design its use.
-- **`company_type`** — OpenCorporates' `company_type` is a legal form ("Private Limited Company", "LLC"), and the Gold column now named `legal_form` holds exactly that. These were different axes: `gold.company.company_type` was, at the time this note was written, `CHECK (company_type IN ('enterprise', 'startup', 'sme'))`, a size/structure classification, which `db/schema/gold-company-scale.sql` split into `company_scale` and left `company_type` holding legal forms under a misleading name. Mapping OpenCorporates' value onto the size classification would have silently corrupted the column, not just under-populated it. The later rename to `legal_form` is recorded in `db/schema/gold-rename-company-type-to-legal-form.sql`.
+- **`officers`**: `docs/sources/opencorporates-api.md`'s Open questions/risks flags this as containing names, positions, sometimes dates of birth and home addresses. No data-retention policy exists yet for that class of data, independent of and separate from the licensing question KAN-12 already accepted. It is therefore removed from the Bronze payload at `_company_record`, rather than merely excluded from later structured use.
+- **`controlling_entity`, `ultimate_beneficial_owners`, `ultimate_controlling_company`, `corporate_groupings`**: genuinely new signal (parent/ownership structure), not something the original proposed mapping in `docs/sources/opencorporates-api.md` accounted for. Jira KAN-57 is the dedicated epic for deciding what, if anything, Huginn should do with this; this adapter's job is only to not lose the data (it survives in `raw_payload` regardless), not to design its use.
+- **OpenCorporates' `company_type`**: the one source field with a genuine,
+  non-conflicting fit, because it is a legal form ("Private Limited Company",
+  "LLC") and `gold.company.legal_form` holds exactly that: free text,
+  jurisdiction specific, unconstrained. It did not always, and the reasoning
+  is worth keeping. When this note was written `gold.company.company_type` was
+  `CHECK (company_type IN ('enterprise', 'startup', 'sme'))`, a
+  size/structure classification, so mapping a legal form onto it would have
+  silently corrupted the column rather than merely under-populating it.
+  `db/schema/gold-company-scale.sql` split that one overloaded column in two:
+  the size axis became `company_scale`, constrained to the four headcount
+  bands `0-10`, `11-100`, `101-1000`, `1001+`, and what was left holding
+  legal forms was renamed `legal_form` by
+  `db/schema/gold-rename-company-type-to-legal-form.sql`. `legal_form` is NULL
+  on all 4,423 live rows and no writer in the tree sets it, so nothing has
+  gone through it yet; that is a queue state, not a reason to withhold the
+  mapping. The hazard recorded here still stands for whoever writes the
+  column: `legal_form` and `company_scale` are different axes and neither
+  may be derived from the other.
 
-Fields with a genuine, non-conflicting fit for `gold.company`'s currently-empty columns (`business_sector`, `country`, `city`, `address` — confirmed empty as of KAN-40's build): `industry_codes` → `business_sector`, `registered_address_in_full`/`jurisdiction_code` → `address`/`country`/`city`. Actually writing these into Gold is out of this ticket's scope (see section 6); this section only settles what this adapter's own field selection does and does not carry forward.
+Fields with a genuine, non-conflicting fit among the other `gold.company`
+columns: `industry_codes` → `business_sector`,
+`registered_address_in_full`/`jurisdiction_code` → `address`/`country`/`city`.
+`business_sector`, `country` and `city` were all empty when this note was
+written and are now populated from YC, on 4,337, 4,244 and 4,196 of the 4,423
+live rows respectively; `address` is still empty on all 4,423. `business_sector`
+is Type 2 tracked, so a differing value written there for a company that
+already has a row supersedes that row into `gold.company_history`, which is a
+decision for the writer that fills it, not for this adapter. Actually writing
+any of these into Gold is out of this ticket's scope (see section 7); this
+section only settles what this adapter's own field selection does and does not
+carry forward.
 
 ## 5. Company selection: read `gold.company` for never-enriched rows
 
@@ -77,11 +105,11 @@ This adapter's use of real `stable_fields` is the first to actually exercise tha
 Explicitly out of scope for KAN-53/54, matching KAN-54's own ticket text ("mirroring HackerNewsAdapter/YcDirectoryAdapter's shape" — an ingestion adapter, nothing more):
 
 - No Silver staging step for `bronze.api_ingest` rows with `source = "opencorporates"`. Nothing currently reads them back out of Bronze.
-- No write-back into `gold.company`'s empty `business_sector`/`country`/`city`/`address` columns. Section 4 names the field-fit; actually wiring it through Silver/Gold is real, separate scope, not yet ticketed.
+- No write-back into `gold.company`'s `business_sector`/`country`/`city`/`address` columns. Of those four only `address` is still empty; the other three are populated from YC since this note was written (section 4). Section 4 names the field-fit; actually wiring it through Silver/Gold is real, separate scope, not yet ticketed.
 - No stateful monthly/daily quota tracking against `GET /account_status` (`docs/sources/opencorporates-api.md`, Access). This build takes a simple per-run call budget (a constructor parameter), not a cross-run persistent tracker.
 
 These are natural follow-up tickets once real OpenCorporates data has actually been looked at (matching this session's "build it cheap, decide usefulness later" reasoning) — not oversights.
 
 ## Reference
 
-`docs/sources/opencorporates-api.md` (Access, Response shape, Signal mapping, Open questions/risks). `src/huginn/elt/ingestion/{models,ports}.py` (`RawRecord`, `ApiSourcePort`). `src/huginn/elt/ingestion/adapters/yc.py` (closest existing adapter pattern). `src/huginn/elt/bronze/watermark.py` (`compute_content_hash`, the field-presence bug this build fixes). `src/huginn/elt/gold/repositories/company_repository.py`, `src/huginn/elt/gold/ports.py` (existing `gold.company` read pattern this build's new selection query mirrors). `db/schema/gold.sql` (`gold.company`'s empty enrichable columns, and the legal-form versus size semantic mismatch). Jira KAN-53 (this note), KAN-54 (consumes it), KAN-57 (parent/ownership signal epic), KAN-58 (discovery-mode revisit), KAN-47 (the broader stable_fields/hashing debt this build partially closes), KAN-12 (licensing, unaffected by this build).
+`docs/sources/opencorporates-api.md` (Access, Response shape, Signal mapping, Open questions/risks). `src/huginn/elt/ingestion/{models,ports}.py` (`RawRecord`, `ApiSourcePort`). `src/huginn/elt/ingestion/adapters/yc.py` (closest existing adapter pattern). `src/huginn/elt/bronze/watermark.py` (`compute_content_hash`, the field-presence bug this build fixes). `src/huginn/elt/gold/repositories/company_repository.py`, `src/huginn/elt/gold/ports.py` (existing `gold.company` read pattern this build's new selection query mirrors). `db/schema/gold.sql` (the legal-form versus size semantic mismatch, and which enrichable columns are still empty). Jira KAN-53 (this note), KAN-54 (consumes it), KAN-57 (parent/ownership signal epic), KAN-58 (discovery-mode revisit), KAN-47 (the broader stable_fields/hashing debt this build partially closes), KAN-12 (licensing, unaffected by this build).

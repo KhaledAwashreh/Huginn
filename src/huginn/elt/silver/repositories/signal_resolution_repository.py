@@ -17,10 +17,10 @@ _HN_STAGING_SELECT_SQL = """
     FROM silver.hn_postings
 """
 
-# Wider than the HN select by design: only silver.yc_listings has a
-# registry status, a headcount, an industry list, and a location, so those
-# four columns are projected here and not there. See ADR-0001 on
-# source-specific staging columns.
+# Wider than the HN select by design: only silver.yc_listings has a registry
+# status, a headcount, an industry list, a location, prior names, or a funded
+# batch, so those six columns are projected here and not there. See ADR-0001
+# on source-specific staging columns.
 _YC_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,
            description, occurred_on, url, company_status, team_size,

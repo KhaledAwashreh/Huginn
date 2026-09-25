@@ -1,7 +1,8 @@
 -- gold.company.business_sector widens from TEXT to TEXT[]: a company sits in
--- more than one sector, and YC says so (4,899 of 6,252 live rows carry more
--- than one industry). gold.company_history.business_sector follows so a
--- history row records the same shape as the current row it describes.
+-- more than one sector, and YC says so (4,899 of the 6,252 live
+-- bronze.api_ingest YC payloads report more than one industry).
+-- gold.company_history.business_sector follows so a history row records the
+-- same shape as the current row it describes.
 --
 -- The USING clause is not optional and is not a plain cast, both verified
 -- against Postgres 16:
@@ -14,10 +15,12 @@
 --   USING CASE ... array[c]  -> correct
 --
 -- So a database that still had a scalar populated degrades it to a
--- one-element array rather than failing the migration. Every live value is
--- currently NULL, which this preserves as NULL rather than as '{}': an
--- empty array would read as "known to have no sectors" when the truth is
--- "not classified yet".
+-- one-element array rather than failing the migration. The NULL branch
+-- preserves a NULL as NULL rather than as '{}', because an empty array
+-- would read as "known to have no sectors" when the truth is "not
+-- classified yet". The branch is still load-bearing: 4,337 of the
+-- 4,423 live gold.company rows are populated and every one of them is
+-- single-dimensional, but 86 are NULL and must stay NULL.
 --
 -- Idempotent, and the type guard is the load-bearing part. Without it,
 -- re-running against an already-migrated column re-applies
@@ -26,9 +29,10 @@
 -- '{{B2B,Fintech}}'. Postgres raises no error for that, the column type
 -- stays text[], and cardinality() still returns 2, so the damage is silent
 -- until something asserts a dimension or the Type 2 history path compares a
--- re-read value against the single-dimension list it just wrote. Verified
--- against Postgres 16 on 6,204 live populated rows, which is why the guard
--- tests the column's current type rather than assuming a re-run is inert.
+-- re-read value against the single-dimension list it just wrote.
+-- Verified against Postgres 16, on a populated column of that shape, so
+-- the guard tests the column's current type rather than assuming a
+-- re-run is inert.
 --
 -- A pg_typeof test inside the USING expression does not work: while the
 -- column is still TEXT, Postgres resolves the CASE's branches at plan time

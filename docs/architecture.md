@@ -31,7 +31,7 @@ Goals for this phase:
 1. A weekly digest: a ranked shortlist of companies matching a plain-language ICP.
 2. Per company: name, site, a LinkedIn search link (not scraped data), a short description, plain-language match reasoning, and a drafted outreach opener.
 3. A domain model that's multi-user from day one, even though exactly one user exists right now. Phase 2 becomes additive, not a rebuild.
-4. Ingestion from exactly two sources: HN "Who's Hiring" and the YC directory.
+4. Ingestion from three sources: HN "Who's Hiring", the YC directory, and OpenCorporates.
 
 Non-goals for this phase:
 
@@ -142,9 +142,9 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 
 ### 4.3 Gold
 
-A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter).
+A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0008, below).
 
-`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0008 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match` keyed by user and company).
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0008 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match`, whose grain is one row per user and company but which carries no unique constraint on that pair yet).
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
@@ -376,4 +376,4 @@ Jira epic KAN-16 holds tech debt (tools and libraries chosen without deep review
 6. `architecture-notes/industry-references-elt-medallion.md`: Databricks, Kimball, dbt, and Fivetran primary sources this document's pipeline design is checked against.
 7. `docs/sources/*.md`: per-source access and risk findings.
 8. Jira epic KAN-16: tracked tech debt and research debt.
-9. `adr/0001-per-source-silver-staging-tables.md` and `adr/0002-gold-current-history-split.md`: decision records for the Silver and Gold layer designs above.
+9. `adr/0001-per-source-silver-staging-tables.md`, `adr/0002-gold-current-history-split.md`, and `adr/0008-icp-verdict-not-on-company-dimension.md`: decision records for the Silver and Gold layer designs above. ADR-0008 governs section 4.3's `Company` and `CompanyHistory` columns.

@@ -44,27 +44,38 @@ CREATE TABLE silver.yc_listings (
     stage TEXT,
     company_status TEXT,
     team_size INTEGER,
-    -- YC's `industries` verbatim: a list on 78% of live rows, singular
-    -- `industry` is always its first element, so this is a strict superset
-    -- and `industry` is not stored separately. Source's own vocabulary,
-    -- untranslated, including the literal 'Unspecified'.
+    -- YC's `industries` verbatim: the key is present on every live row,
+    -- all 6,252 bronze.api_ingest YC payloads and all 4,349 rows here.
+    -- 4,899 of the 6,252 bronze rows report more than one entry, which
+    -- is what makes it an array rather than a scalar. Singular
+    -- `industry` is `industries[0]` on all 6,252 of those payloads, so
+    -- storing it separately would be a derived duplicate. Source's own
+    -- vocabulary, untranslated, including the literal 'Unspecified'.
     industries TEXT[],
     -- YC's `all_locations` verbatim, e.g. 'San Francisco, CA, USA; Remote'.
     -- Kept as the source's display string rather than split here: it is a
     -- human-facing field with no guaranteed structure, so the parse into
     -- Gold's country/city is Gold's interpretation to own (section 4.3).
     all_locations TEXT,
-    -- YC's `former_names` verbatim, on 3,054 of 6,252 live rows. Not
-    -- cleaned: entries include case variants of the current name and
-    -- self-referential ones, e.g. ['Imgix', 'imgix']. Captured because
-    -- Silver owns faithful capture, and read by nothing yet: recall needs
-    -- name-based matching, which is Jira KAN-4.
+    -- YC's `former_names` verbatim. Non-null on all 4,349 rows of
+    -- silver.yc_listings, of which 2,064 are an empty array. NULL and
+    -- empty are kept distinct on purpose: NULL means the source did
+    -- not report prior names at all. 3,054 is a bronze.api_ingest
+    -- count, that many of the 6,252 YC payloads carrying at least one.
+    -- Not cleaned: entries include case variants of the current name
+    -- and self-referential ones, e.g. ['Imgix', 'imgix']. Captured
+    -- because Silver owns faithful capture, and read by nothing yet:
+    -- recall needs name-based matching, which is Jira KAN-4.
     former_names TEXT[],
     -- YC's `batch` verbatim, e.g. 'Winter 2022': the funded batch the
     -- company joined YC in. Deliberately not derived from occurred_on,
-    -- which carries YC's unrelated `launched_at`. 51 distinct live values
-    -- plus one 'Unspecified'. See db/schema/silver-yc-batch.sql for the
-    -- evidence that the two dates are independent.
+    -- which carries YC's unrelated `launched_at`. 49 distinct live
+    -- values, spanning 'Summer 2006' to 'Winter 2027', of which one row
+    -- reads 'Unspecified'; bronze.api_ingest holds 51 spanning 'Summer
+    -- 2005' to 'Winter 2027', because 'Summer 2005' and 'Winter 2006'
+    -- are absent here, every one of their rows being Acquired or
+    -- Inactive. See db/schema/silver-yc-batch.sql for the evidence that
+    -- the two dates are independent.
     batch TEXT,
     description TEXT,
     occurred_on TIMESTAMPTZ,

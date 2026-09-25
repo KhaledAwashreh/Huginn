@@ -13,7 +13,7 @@ Hand-written DDL, not a migration tool. No migration framework has been chosen y
 psql "$HUGINN_DATABASE_URL" -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
 ```
 
-These match `docs/entities.md` and the architecture document as of ADR-0002. Column-by-column Type 1/Type 2 classification beyond the three fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/gold/dimensional.py` together when that lands.
+These match `docs/entities.md` and the architecture document as of ADR-0002. Column-by-column Type 1/Type 2 classification beyond the two fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/elt/gold/dimensional.py` together when that lands.
 
 ## Upgrading a database that already exists
 
@@ -39,7 +39,14 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0008 |
 | `gold-rename-company-type-to-legal-form.sql` | `gold.company.company_type` renamed to `legal_form`, the axis the column actually holds |
 
-All thirteen are idempotent: re-running one on a database it has already been applied to is a no-op. Covered by `tests/elt/gold/test_company_signal_migration.py` for the signal key, by `tests/elt/gold/test_business_sector_array_migration.py` for the array widening, by `tests/elt/silver/test_upsert_sql_shape.py` for the Silver upsert column/placeholder parity, and by the fresh-install rebuild in CI for the rest.
+All thirteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
+
+1. Two of the thirteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, and `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`.
+2. The other eleven have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
+3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/conftest.py` applies the six base files listed above and none of the thirteen `ALTER` files, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
+4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
+
+The gap is recorded as reviewer SCHEMA-04 and TEST-05, docs/advisor/2026-09-25-code-review-findings.md, which lists the uncovered files as untested surface.
 
 Three need a word of warning, because idempotent does not mean unconditional:
 

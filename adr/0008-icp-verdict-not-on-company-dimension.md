@@ -39,10 +39,15 @@ deliberate absence, which is the specific reason this ADR exists.
 3. `BOOLEAN NOT NULL DEFAULT false` cannot distinguish "evaluated and failed"
    from "never evaluated", while section 4.3 promises `Company` "covers every
    company Silver has resolved and evaluated against the filter at least once".
-4. `operational.match` is already keyed `(user_id, company_id)` and the ER
-   diagram labels it "shared pool, matched per user", so the correct grain
-   already exists in the operational schema, written by the matching step
-   rather than by the ELT pipeline.
+4. `operational.match` already has the right grain for a per-user verdict: it
+   carries `user_id` and `company_id` as separate foreign keys, and the ER
+   diagram labels the relationship "shared pool, matched per user", so the
+   verdict belongs in the operational schema, written by the matching step
+   rather than by the ELT pipeline. Note that this is a grain, not yet an
+   enforced key: the table's only unique constraint is its `id` primary key,
+   and nothing stops two rows for the same user and company. That gap is the
+   matching step's to close, and it is a reason the verdict cannot be inferred
+   from this table today, not a reason to put it on `gold.company`.
 
 ## Considered Options
 
@@ -73,10 +78,20 @@ which is the layer that owns users and already has the right grain.
 4. Bad: there is no longer any record on the dimension that a company was ever
    evaluated, so "which companies have we looked at" needs the matching step's
    tables. Acceptable, since that is the layer that performs the evaluation.
-5. Bad: `company_history` narrows to two tracked fields, and a
-   business-sector-only change is now the sole common trigger for a history
-   row. If `team_composition_signal` is never populated either, the history
-   table stays empty, which is already true today.
+5. Bad: `company_history` narrows to two tracked fields, and of those two
+   `business_sector` is the only one with a writer, so a sector change is
+   now the sole common trigger for a history row. It is not a rare one:
+   `business_sector` is populated on 4,337 of the 4,423 live `gold.company`
+   rows, so a company whose `silver.resolved_signals.industries` differ
+   between two `write_all` runs writes a row.
+6. Bad: the history table is empty today, and nothing in this decision is
+   what keeps it that way. `team_composition_signal` has no writer anywhere
+   in the tree, but that is not the reason: `business_sector` alone fills
+   the table without it. The reason is that no re-run has yet observed a
+   differing `business_sector` for a company row that already exists, which
+   is a property of the data so far rather than a guarantee. An unwritten
+   field and an unchanged field are indistinguishable from the row count,
+   so the two are worth keeping apart.
 
 ## Pros and Cons of the Options
 
@@ -120,8 +135,8 @@ which is the layer that owns users and already has the right grain.
    tracked field" generically and never enumerates the three, so the decision
    changes the implementation without superseding that ADR.
 3. `db/schema/operational.sql`, `operational.match` and
-   `operational.users.icp_profile`, the grain that already fits a per-user
-   verdict.
+   `operational.users.icp_profile`, the grain that fits a per-user verdict.
+   The pair is not yet uniquely constrained; see Decision Driver 4.
 4. Jira KAN-18, the matching step, which owns where the verdict is computed and
    stored.
 5. Jira KAN-20, the open column-by-column Type 1/Type 2 classification, of

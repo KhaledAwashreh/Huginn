@@ -3,8 +3,9 @@ document section 4.3.
 
 `Company` holds exactly one row per company, always, overwritten in
 place. `CompanyHistory` gets a new row only when a Type 2 tracked field
-changes. The exact column-by-column classification beyond these three
-fields is pending the concrete schema (Jira KAN-20).
+changes. The exact column-by-column classification beyond the two fields in
+`TYPE_2_TRACKED_FIELDS` is still open (Jira KAN-20); the columns themselves
+are declared in `db/schema/gold.sql`.
 """
 
 from __future__ import annotations

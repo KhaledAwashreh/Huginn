@@ -11,9 +11,10 @@ coverage), each told to report findings only and to verify against the live
 database rather than infer. Suite at time of review: 332 passed, 0 skipped.
 Ruff check and format clean.
 
-Status: **partially fixed**. TEST-01, TEST-02, TEST-03, SCHEMA-01,
-SCHEMA-02, GOLD-01 and TEST-04 are fixed (see each entry). Everything else
-is open. Each defect has a
+Status: **nearly all fixed**. 27 of 34 entries are fixed (see each entry).
+Remaining open: SCHEMA-03, TEST-05, TEST-06, TEST-07, TEST-08, TEST-09,
+TEST-10, and the untested-surface list, none of which break anything at
+runtime. Each defect has a
 stable ID so they can be worked one at a time; the ID is the reference to use
 in commit messages.
 
@@ -21,11 +22,11 @@ in commit messages.
 
 | Area | High | Medium | Low |
 | --- | --- | --- | --- |
-| Schema and migrations | 0 (1 fixed) | 0 (1 fixed) | 2 |
-| Documentation accuracy | 5 | 8 | 0 |
-| Gold layer | 0 | 0 (1 fixed) | 5 |
-| Test infrastructure | 0 (2 fixed) | 0 (2 fixed) | 4 |
-| Refuted data claims in SQL comments | 0 | 1 | 4 |
+| Schema and migrations | 0 (1 fixed) | 0 (1 fixed) | 0 (2 fixed) |
+| Documentation accuracy | 0 (5 fixed) | 0 (8 fixed) | 0 |
+| Gold layer | 0 | 0 (1 fixed) | 0 (5 fixed) |
+| Test infrastructure | 0 (2 fixed) | 0 (2 fixed) | 4 open |
+| Refuted data claims in SQL comments | 0 | 0 | 0 (4 fixed) |
 
 The single highest-severity defect is a migration-ordering bug that makes an
 upgraded database unusable while reporting success. The documentation findings
@@ -127,7 +128,7 @@ confined to them. Verified with `DOCKER_HOST` pointed at a dead socket:
 `286 passed, 46 errors`, exit code 1. The DB-free unit tests still run and
 still pass, and CI goes red.
 
-### DOC-01: `docs/status/04-gold-mapping.md` describes the pre-change Gold writer throughout
+### DOC-01: FIXED. `docs/status/04-gold-mapping.md` describes the pre-change Gold writer throughout
 
 The file advertises itself as a code-verified map. It is wrong in its lead,
 read, write, allowlist, SQL and conclusions. `company.py` changed by 158 lines
@@ -154,7 +155,7 @@ The lead sentence is a false statement in correct form, which is the most
 expensive kind of drift: a reader gets the opposite of the truth on the file's
 central subject.
 
-### DOC-02: `docs/status/03-silver-mapping.md` omits the six fields and denies the filter exists
+### DOC-02: FIXED. `docs/status/03-silver-mapping.md` omits the six fields and denies the filter exists
 
 | Line | Claim | Reality |
 | --- | --- | --- |
@@ -168,7 +169,7 @@ central subject.
 Section 1.2 is titled as the authoritative Bronze-to-YC-staging map, which is
 the one place a reader would look for the new fields.
 
-### DOC-03: `docs/status/00-repo-and-run-status.md` is wrong in four of five sections
+### DOC-03: FIXED. `docs/status/00-repo-and-run-status.md` is wrong in four of five sections
 
 | Line | Claim | Reality |
 | --- | --- | --- |
@@ -182,7 +183,7 @@ the one place a reader would look for the new fields.
 | 64-69 vs 138-139 | untracked files list contradicts itself | `docs/status/04-gold-mapping.md` is now committed |
 | 144-145 | company signal writer "separate branch, not merged" | merged on this branch |
 
-### DOC-04: `docs/status/README.md` key facts 2, 3 and 5 are refuted
+### DOC-04: FIXED. `docs/status/README.md` key facts 2, 3 and 5 are refuted
 
 | Line | Claim | Reality |
 | --- | --- | --- |
@@ -192,7 +193,7 @@ the one place a reader would look for the new fields.
 | 60-63 | dev DB on a pre-rename schema; nine tests fail; CI applies DDL | migrated; 332 passed; CI uses testcontainers |
 | 42 | diagram: company_signal "table exists, no writer" | writer exists |
 
-### DOC-05: ADR-0008's own consequence is contradicted by the same commit
+### DOC-05: FIXED. ADR-0008's own consequence is contradicted by the same commit
 
 `adr/0008-icp-verdict-not-on-company-dimension.md:76-79`, consequence 5:
 
@@ -326,14 +327,14 @@ Two silent no-op states:
 Neither is reachable from the current files, so this is low, but it is the same
 class as the bug the guard was written to prevent.
 
-### SCHEMA-04: `db/schema/README.md:41` overstates migration test coverage
+### SCHEMA-04: FIXED. `db/schema/README.md:41` overstates migration test coverage
 
 Says the ALTER files are covered by named tests "and by the fresh-install
 rebuild in CI for the rest". The fresh-install path is the six base files, so it
 exercises `gold.sql`/`silver.sql`, not the twelve ALTER scripts. Ten of twelve
 have no automated idempotency or upgrade-path coverage.
 
-### DOC-06: `docs/architecture.md:145` still keeps the ICP gate ADR-0008 asked to be reworded
+### DOC-06: FIXED. `docs/architecture.md:145` still keeps the ICP gate ADR-0008 asked to be reworded
 
 The commit correctly rewrote lines 147 and 152 but left 145, which still says
 the team-composition heuristic is "run only on companies that already passed the
@@ -345,7 +346,7 @@ Section 13 item 9 lists only `adr/0001` and `adr/0002` as the decision records
 for the Silver and Gold designs, while `adr/0008` is a Gold decision the body
 now depends on.
 
-### DOC-07: wrong module path in two authoritative files
+### DOC-07: FIXED. wrong module path in two authoritative files
 
 `db/schema/gold.sql:7` and `db/schema/README.md:16` both cite
 `src/huginn/gold/dimensional.py`, which does not exist. The real path is
@@ -353,7 +354,7 @@ now depends on.
 `db/schema/silver-yc-former-names.sql:6` cites `silver/elt/resolution.py`; the
 real path is `src/huginn/elt/silver/resolution.py`.
 
-### DOC-08: `signal_resolution_repository.py:20-23` says four columns above a SELECT that projects six
+### DOC-08: FIXED. `signal_resolution_repository.py:20-23` says four columns above a SELECT that projects six
 
 The comment reads "only silver.yc_listings has a registry status, a headcount,
 an industry list, and a location, so those four columns are projected here and
@@ -362,7 +363,7 @@ not there." The select at lines 24-29 projects `company_status`, `team_size`,
 `all_locations` and never reaches the two newest fields, which is what makes
 the "wider by design" framing misleading.
 
-### DOC-09: `entities.md` and `silver.sql` carry four wrong counts
+### DOC-09: FIXED. `entities.md` and `silver.sql` carry four wrong counts
 
 | Claim | Location | Reality |
 | --- | --- | --- |
@@ -374,7 +375,7 @@ the "wider by design" framing misleading.
 Separately, `entities.md:133` says "~11% of sampled HN posts have no
 extractable URL" where the live figure is 178 of 273, **65%** (pre-existing).
 
-### DOC-10: `parse_all_locations` documents bronze populations and one unreproducible number
+### DOC-10: FIXED. `parse_all_locations` documents bronze populations and one unreproducible number
 
 `src/huginn/elt/gold/company.py:49-70`. The docstring opens "confirmed on all
 6,252 live rows", a bronze population, inside a Gold function whose input is
@@ -390,7 +391,7 @@ Under the repo's "docstrings cite, they don't restate" rule this is also a
 standards violation: 21 lines of prose explaining what the parse does, with no
 citation.
 
-### DOC-11: `docs/status/05-orchestration-config-ops.md` §6 and §7.5 are superseded
+### DOC-11: FIXED. `docs/status/05-orchestration-config-ops.md` §6 and §7.5 are superseded
 
 | Line | Claim | Reality |
 | --- | --- | --- |
@@ -399,7 +400,7 @@ citation.
 | 120-124 | "212 passed, 9 failed, all against the stale local schema" | 332 passed, 0 failed |
 | 155-156 | CI runs against a Postgres 16 service with fresh schema | deleted in `79590ef` |
 
-### DOC-12: `docs/status/01-source-field-registry.md` §2.3 omits every field Silver reads
+### DOC-12: FIXED. `docs/status/01-source-field-registry.md` §2.3 omits every field Silver reads
 
 The section promises "exactly which fields the code reads and where each one
 goes" and lists four adapter reads, all in `yc.py`. Thirteen more are read by
@@ -407,7 +408,7 @@ goes" and lists four adapter reads, all in `yc.py`. Thirteen more are read by
 `docs/status/` maps any of the six new fields from the Bronze payload to a
 Silver column.**
 
-### GOLD-02: stale "three" count for the Type 2 fields, twice
+### GOLD-02: FIXED. stale "three" count for the Type 2 fields, twice
 
 `src/huginn/elt/gold/dimensional.py:6` says "The exact column-by-column
 classification beyond these **three** fields is pending the concrete schema
@@ -416,14 +417,14 @@ and the docstring beneath it, not the module docstring above.
 `tests/elt/gold/test_company.py:396` says the same thing. Also "pending the
 concrete schema" is stale independently: `db/schema/gold.sql` exists.
 
-### GOLD-03: `company.py` cites a function that no longer exists
+### GOLD-03: FIXED. `company.py` cites a function that no longer exists
 
 `src/huginn/elt/gold/company.py:159` ends "first (see build_source_note)". That
 function was deleted in `1402f65` when the prefixing was inlined;
 `build_source_note` appears nowhere in `src/` or `tests/`. Under CLAUDE.md code
 standard 3 a docstring citation is a promise the target exists.
 
-### GOLD-04: `company.py` claims a second-portal property the code does not have
+### GOLD-04: FIXED. `company.py` claims a second-portal property the code does not have
 
 `src/huginn/elt/gold/company.py:157-159` says `notes` is assembled "from a
 source's own value plus a source prefix, so a second portal's contribution is
@@ -436,24 +437,24 @@ records; only the docstring overclaims. The same overclaim is at
 
 ## Low severity
 
-### GOLD-05: dangling comma from the deleted middle item
+### GOLD-05: FIXED. dangling comma from the deleted middle item
 
 `src/huginn/elt/gold/company.py:146` reads "ResolvedSignal carries no
 team_composition_signal, or contact field." The comma belonged to the deleted
 `icp_filter_pass`. Content is correct; punctuation is not.
 
-### GOLD-06: "Two" where three derivations are described
+### GOLD-06: FIXED. "Two" where three derivations are described
 
 `src/huginn/elt/gold/company.py:151` says "Two of the derivable ones are not
 read from resolved_signals directly" then describes three: `company_scale`,
 `country`/`city`, and `notes`. Pre-existing wording; the third was added by
 `1402f65` without updating the count.
 
-### GOLD-07: em dash in a test docstring
+### GOLD-07: FIXED. em dash in a test docstring
 
 `tests/elt/gold/test_company_repository.py:27`. Pre-existing (`6a5a324`).
 
-### SCHEMA-05: refuted data claims in SQL comments
+### SCHEMA-05: FIXED. refuted data claims in SQL comments
 
 | Claim | Location | Reality |
 | --- | --- | --- |
