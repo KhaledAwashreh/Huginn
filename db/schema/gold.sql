@@ -27,7 +27,7 @@ CREATE TABLE gold.company (
     -- supplies 'Active', 'Inactive', 'Acquired', 'Public'. Constraining
     -- here would bake one registry's vocabulary into the schema before a
     -- second registry exists, the same reasoning as stage above. A
-    -- distinct axis from company_type (legal form) and from
+    -- distinct axis from legal_form (legal form of incorporation) and from
     -- company_scale (size). YC's vocabulary is Active/Inactive/Acquired/
     -- Public, but Acquired and Inactive are filtered out before Silver, so
     -- in practice this holds 'Active', 'Public', or NULL for a company only
@@ -75,7 +75,7 @@ CREATE TABLE gold.company (
     -- corrupts the column (architecture-notes/opencorporates-fetch-plan.md
     -- section 4). Unconstrained because legal forms are jurisdiction
     -- specific and unbounded.
-    company_type TEXT,
+    legal_form TEXT,
     country TEXT,
     city TEXT,
     address TEXT,

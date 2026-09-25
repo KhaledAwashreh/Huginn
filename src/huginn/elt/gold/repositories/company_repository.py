@@ -80,7 +80,7 @@ _COMPANY_COLUMNS = (
     "business_sector",
     "notes",
     "company_scale",
-    "company_type",
+    "legal_form",
     "country",
     "city",
     "address",

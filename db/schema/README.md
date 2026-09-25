@@ -37,8 +37,9 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0008 |
+| `gold-rename-company-type-to-legal-form.sql` | `gold.company.company_type` renamed to `legal_form`, the axis the column actually holds |
 
-All twelve are idempotent: re-running one on a database it has already been applied to is a no-op. Covered by `tests/elt/gold/test_company_signal_migration.py` for the signal key, by `tests/elt/gold/test_business_sector_array_migration.py` for the array widening, by `tests/elt/silver/test_upsert_sql_shape.py` for the Silver upsert column/placeholder parity, and by the fresh-install rebuild in CI for the rest.
+All thirteen are idempotent: re-running one on a database it has already been applied to is a no-op. Covered by `tests/elt/gold/test_company_signal_migration.py` for the signal key, by `tests/elt/gold/test_business_sector_array_migration.py` for the array widening, by `tests/elt/silver/test_upsert_sql_shape.py` for the Silver upsert column/placeholder parity, and by the fresh-install rebuild in CI for the rest.
 
 Three need a word of warning, because idempotent does not mean unconditional:
 
