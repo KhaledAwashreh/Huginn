@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze/Silver/Gold ELT write path are built and live-verified; the domain, scoring, and digest layers above Gold are not yet built. Field-level, code-verified maps of the current tree: `docs/status/`. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze/Silver/Gold ELT write path are built and live-verified; the domain, scoring, and digest layers above Gold are not yet built. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.

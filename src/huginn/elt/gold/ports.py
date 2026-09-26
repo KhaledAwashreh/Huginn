@@ -70,14 +70,9 @@ class CompanyRepositoryPort(Protocol):
         Type 2 value set took effect).
 
         A `new_values` carrying "name" inserts or updates. Without it the
-        write is update-only, because `name` is `gold.company`'s one NOT
-        NULL column besides `domain` with no default, and a single INSERT
-        cannot skip a column the caller does not have. An update-only write
-        against a domain with no row therefore creates nothing, which this
-        raises ValueError for rather than leaving a caller to read a
-        successful return as a company that was written. See GOLD-01 in
-        docs/advisor/2026-09-25-code-review-findings.md and
-        `huginn.elt.gold.repositories.company_repository.build_upsert_query`.
+        write is update-only, and raises ValueError if it matched no row,
+        rather than reporting a company that was not written (ADR-0009, and
+        `huginn.elt.gold.repositories.company_repository.build_upsert_query`).
         """
         ...
 

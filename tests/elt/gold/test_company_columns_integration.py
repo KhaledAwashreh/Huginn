@@ -7,8 +7,7 @@ skipped when testcontainers or Docker is unavailable.
 `tests/elt/gold/test_company.py` guards the writer against the repository's
 `_COMPANY_COLUMNS` allowlist, but both sides of that comparison are code, so
 a name wrong in db/schema/gold.sql and wrong in `_COMPANY_COLUMNS` the same
-way passes it. That is the `yc_batch` to `notes` rename (see
-docs/advisor/2026-09-25-code-review-findings.md, TEST-04): the suite stayed
+way passes it. That is the `yc_batch` to `notes` rename: the suite stayed
 green and `write_all()` raised UndefinedColumn on the first real ingest.
 Reading the catalog is what makes the comparison independent of both code
 paths, and executing the full-width statement is what catches a name that

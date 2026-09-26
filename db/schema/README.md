@@ -46,8 +46,6 @@ All thirteen are idempotent: re-running one on a database it has already been ap
 3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/conftest.py` applies the six base files listed above and none of the thirteen `ALTER` files, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
-The gap is recorded as reviewer SCHEMA-04 and TEST-05, docs/advisor/2026-09-25-code-review-findings.md, which lists the uncovered files as untested surface.
-
 Three need a word of warning, because idempotent does not mean unconditional:
 
 1. `gold-company-scale.sql` drops and recreates the `company_scale` CHECK. Re-running it after a future change to the band list validates existing values against the new list, so adding a band and backfilling it are two steps, and adding a band that existing rows violate fails loudly rather than silently dropping rows.

@@ -90,8 +90,7 @@ def test_write_all_lands_every_column_it_derives_from_a_fully_populated_signal(
     real table used a signal with none of stage, company_status,
     team_size, industries, all_locations or batch set, so `new_values`
     carried `name` alone and every other column `CompanyWriter` can derive
-    was never executed (docs/advisor/2026-09-25-code-review-findings.md,
-    TEST-04). A fully populated YC signal exercises all eight in one
+    was never executed. A fully populated YC signal exercises all eight in one
     statement, and each lands on its own column with its own value.
     """
     stable_id = f"derived{str(uuid.uuid4().int)[:8]}"

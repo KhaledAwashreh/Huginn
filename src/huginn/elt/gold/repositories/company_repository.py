@@ -116,24 +116,14 @@ def build_upsert_query(
     domain: str, new_values: dict, bump_current_since: bool
 ) -> tuple[str, tuple]:
     """Parameterized write over "domain" plus whichever `_COMPANY_COLUMNS`
-    are present in `new_values`, in one of two shapes. Which one, and why
-    a single statement cannot cover both, is GOLD-01 in
-    docs/advisor/2026-09-25-code-review-findings.md: `name` is
-    gold.company's only NOT NULL column besides `domain` with no default to
-    satisfy it, and Postgres validates NOT NULL before ON CONFLICT is
-    considered, so one statement cannot both insert and skip a column the
-    caller does not have.
+    are present in `new_values`, in one of two shapes, chosen by whether
+    "name" is a key (ADR-0009, which records why a single statement cannot
+    cover both).
 
-    With "name" in `new_values` the shape is one
-    `INSERT ... ON CONFLICT (domain) DO UPDATE`: a new domain is inserted,
-    an existing one updated in place, with no preceding read and no window
-    for a concurrent writer to slip between the two.
-
-    Without it the shape is `UPDATE ... WHERE domain = %s`, which sets only
-    columns the caller supplied and so cannot violate NOT NULL, and never
-    attempts an insert at all. The alternative, binding the domain or a
-    placeholder as the name, would put a fabricated value into the column
-    the lead digest shows as a company's name.
+    With "name", one `INSERT ... ON CONFLICT (domain) DO UPDATE`: a new domain
+    is inserted, an existing one updated in place, with no preceding read.
+    Without it, `UPDATE ... WHERE domain = %s`, which sets only columns the
+    caller supplied and never attempts an insert.
 
     `domain` always comes from this parameter, never from a "domain" key
     inside `new_values`, in either shape, so no caller string reaches the

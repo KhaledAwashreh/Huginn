@@ -27,8 +27,7 @@
 -- returned early on a database carrying neither column, the pair lost in
 -- filename order, this file running last and re-creating the column the
 -- successor was meant to remove. The set exited 0 and the Gold writer then
--- failed on `column "notes" does not exist`. Reviewer SCHEMA-01,
--- docs/advisor/2026-09-25-code-review-findings.md.
+-- failed on `column "notes" does not exist`.
 --
 -- Idempotent.
 

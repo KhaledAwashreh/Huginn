@@ -27,13 +27,12 @@ def test_build_upsert_query_includes_only_columns_present_in_new_values():
 
 
 def test_build_upsert_query_updates_only_when_new_values_omits_name():
-    """The other shape, and the one `name` decides. Regression, GOLD-01 in
-    docs/advisor/2026-09-25-code-review-findings.md: a Type-2-only write
-    used to build an INSERT with no `name` in its column list, and because
-    Postgres validates NOT NULL before ON CONFLICT is considered, that
-    failed with NotNullViolation even when the row existed and only the
-    update branch should have run. There is no name to insert, so the write
-    must not attempt an insert at all.
+    """The other shape, and the one `name` decides. Regression, ADR-0009: a
+    Type-2-only write used to build an INSERT with no `name` in its column
+    list, and because Postgres validates NOT NULL before ON CONFLICT is
+    considered, that failed with NotNullViolation even when the row existed
+    and only the update branch should have run. There is no name to insert,
+    so the write must not attempt an insert at all.
     """
     sql, params = build_upsert_query(
         "acme.com", {"business_sector": ["fintech"]}, bump_current_since=True

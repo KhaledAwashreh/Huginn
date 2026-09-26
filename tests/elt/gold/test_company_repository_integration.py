@@ -73,9 +73,8 @@ def _stored_company(cur, domain: str) -> dict:
 def test_a_type_2_only_write_updates_an_existing_row_and_keeps_its_name(
     integration_database_url: str,
 ):
-    """Regression, GOLD-01 in
-    docs/advisor/2026-09-25-code-review-findings.md. `name` is NOT NULL
-    and, unlike `domain`, was not hardcoded into the INSERT column list, so
+    """Regression, ADR-0009. `name` is NOT NULL and, unlike `domain`, was
+    not hardcoded into the INSERT column list, so
     a write carrying only a Type 2 field built an INSERT missing `name` and
     Postgres rejected it with NotNullViolation before ON CONFLICT was
     considered, even though the row existed and only the update branch

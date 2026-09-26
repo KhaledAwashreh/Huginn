@@ -43,8 +43,7 @@
 -- filename order and won. The set exited 0 having left a table with only
 -- yc_batch, so the first Gold write of a company failed on `column "notes"
 -- does not exist`, and a second pass silently repaired it, which is worse than
--- a clean break because the README documents a single pass. Reviewer SCHEMA-01,
--- docs/advisor/2026-09-25-code-review-findings.md.
+-- a clean break because the README documents a single pass.
 --
 -- Idempotent.
 
