@@ -143,3 +143,10 @@ class EnrichmentCandidatePort(Protocol):
         enrichment-status column needed (fetch-plan section 5).
         """
         ...
+
+    def read_company_names_pending_eu_startups_search(self, limit: int) -> list[str]:
+        """Up to `limit` gold.company names with `eu_startups_searched_at IS NULL`,
+        oldest-created first: companies not yet searched via EU-Startups,
+        oldest first, capped by the caller's run budget. See ADR-0010.
+        """
+        ...

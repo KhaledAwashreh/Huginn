@@ -60,6 +60,18 @@ _READ_UNENRICHED_COMPANY_NAMES_SQL = """
     LIMIT %s
 """
 
+_READ_COMPANY_NAMES_PENDING_EU_STARTUPS_SEARCH_SQL = """
+    SELECT name
+    FROM (
+        SELECT DISTINCT ON (name) name, created_at, id
+        FROM gold.company
+        WHERE eu_startups_searched_at IS NULL
+        ORDER BY name, created_at, id
+    ) AS distinct_companies
+    ORDER BY created_at, id
+    LIMIT %s
+"""
+
 _INSERT_HISTORY_SQL = """
     INSERT INTO gold.company_history
         (company_id, domain, business_sector, team_composition_signal,
@@ -110,6 +122,18 @@ def _with_timestamp_assignments(assignments: str, bump_current_since: bool) -> s
         parts.append("current_since = now()")
     parts.append("updated_at = now()")
     return ", ".join(parts)
+
+
+def build_read_company_names_pending_eu_startups_search_query(
+    limit: int,
+) -> tuple[str, tuple[int]]:
+    """Parameterized query for `EnrichmentCandidatePort.read_company_names_pending_eu_startups_search`:
+    up to `limit` distinct gold.company names with `eu_startups_searched_at IS NULL`,
+    oldest-created first with `id` as the deterministic tie-breaker (ADR-0010).
+    `limit` is always a bind parameter, never interpolated into the SQL text
+    (BEST_PRACTICES.md section 8.1).
+    """
+    return _READ_COMPANY_NAMES_PENDING_EU_STARTUPS_SEARCH_SQL, (limit,)
 
 
 def build_upsert_query(
@@ -224,6 +248,13 @@ class PostgresCompanyRepository:
     def read_unenriched_company_names(self, limit: int) -> list[str]:
         """Implement `EnrichmentCandidatePort.read_unenriched_company_names`."""
         self._cur.execute(*build_read_unenriched_company_names_query(limit))
+        return [row[0] for row in self._cur.fetchall()]
+
+    def read_company_names_pending_eu_startups_search(self, limit: int) -> list[str]:
+        """Implement `EnrichmentCandidatePort.read_company_names_pending_eu_startups_search`."""
+        self._cur.execute(
+            *build_read_company_names_pending_eu_startups_search_query(limit)
+        )
         return [row[0] for row in self._cur.fetchall()]
 
     def get_company(self, domain: str) -> dict | None:

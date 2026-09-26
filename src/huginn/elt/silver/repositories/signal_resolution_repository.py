@@ -101,12 +101,17 @@ class PostgresSignalResolutionRepository:
     Composes a `PostgresConnectionScope` for its connection lifecycle
     rather than inheriting one, consistent with this codebase's
     dependency-injection style elsewhere. Both sides live on one class so
-    `SignalResolver.resolve_all()` needs a single connection and a single
-    transaction for its whole call, rather than one per port. That also
-    puts the staging reads and the resolved_signals writes in one
-    transaction, so the batch is resolved against a single consistent
-    snapshot. Every method here is only valid between `__enter__` and
-    `__exit__`.
+    a caller needing single-scope behavior gets a single connection and a
+    single transaction from one `with` block, rather than one per port.
+
+    `SignalResolver.resolve_all()` does not use it that way as of ADR-0006:
+    it opens this class's scope twice, once for the staging reads and once
+    for the resolved_signals writes, so a network call added to the
+    per-row resolution logic (Jira KAN-62) never runs while a database
+    connection is held. The staging reads and the writes are therefore two
+    separate transactions, not one consistent snapshot; see ADR-0006 for
+    why that's an accepted tradeoff for this orchestrator specifically.
+    Every method here is only valid between `__enter__` and `__exit__`.
     """
 
     def __init__(self, database_url: str) -> None:

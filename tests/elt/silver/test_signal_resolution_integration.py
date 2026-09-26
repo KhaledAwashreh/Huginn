@@ -10,11 +10,30 @@ import uuid
 from datetime import UTC, datetime
 
 import psycopg
+import pytest
 
+from huginn.elt.silver import signal_resolution
 from huginn.elt.silver.repositories.signal_resolution_repository import (
     PostgresSignalResolutionRepository,
 )
 from huginn.elt.silver.signal_resolution import SignalResolver
+
+
+@pytest.fixture(autouse=True)
+def _reachable_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every reachability check positively.
+
+    `resolve_signal` calls `check_domain_reachable`, which opens a socket
+    (Jira KAN-62). These tests exist to verify the database write wiring,
+    not the reachability decision, and their domains are
+    documentation-reserved names that never resolve, so a real call would
+    make the suite depend on the network to pass. The unit coverage for
+    the decision itself is in `test_signal_resolution.py`.
+    """
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
+    )
+
 
 _YC_PROFILE_HIT = {
     "stage": "Growth",

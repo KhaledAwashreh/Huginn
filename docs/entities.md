@@ -1,4 +1,53 @@
+# Operational
 
+## Account
+
+Authentication credentials and account lifecycle only. `Account` does not own
+personal, professional, targeting, or matching data.
+
+- Id: GUID
+- Username: String (trimmed spelling, case-insensitive unique index)
+- PasswordHash: String
+- Status: Enum (Active, Disabled)
+- CreatedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
+
+## User
+
+Mandatory personal and contact information. `AccountId` is the unique
+ownership key to Account. `User.Id`, not Account.Id, is the ownership key for
+professional and business-domain data. The existing `Match.UserId` therefore
+continues to reference User.
+
+- Id: GUID
+- AccountId: GUID (unique foreign key to Account)
+- FirstName: String
+- LastName: String
+- Email: String
+- PhoneNumber: String
+- CountryOfResidence: String
+- Timezone: String (nullable)
+- CreatedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
+
+## ProfessionalProfile
+
+The intended lifecycle has one profile per User. `UserId` is the unique
+ownership key, which enforces at most one profile; KAN-72 must create the
+profile atomically with Account and User to make it mandatory. Skills,
+experience, and previous projects are validated arrays of structured objects,
+never null, and default to empty arrays. Their complete object contract is in
+the [management foundation](management-foundation.md).
+
+- Id: GUID
+- UserId: GUID (unique foreign key to User)
+- Headline: String (nullable)
+- ProfessionalSummary: String (nullable)
+- Skills: JSON array
+- Experience: JSON array
+- PreviousProjects: JSON array
+- CreatedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
 
 # Gold
 
@@ -19,6 +68,7 @@ Current state only. One row per company, always. Overwritten in place when any f
 - PhoneNumber: String
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
+- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. Nothing writes it yet, so it is NULL for every row today and the ADR-0010 candidate gate cannot yet exclude an already-searched company)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset

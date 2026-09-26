@@ -18,7 +18,11 @@ import logging
 
 from huginn.elt.silver.models import ResolvedSignalRecord
 from huginn.elt.silver.ports import SignalResolutionRepositoryPort
-from huginn.elt.silver.resolution import KeyDerivation, normalize_domain
+from huginn.elt.silver.resolution import (
+    KeyDerivation,
+    check_domain_reachable,
+    normalize_domain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +84,20 @@ def resolve_signal(
     producing a confident-looking key that merged unrelated companies. A
     wrong confident key is worse than none, so these route to manual
     review like any other unresolvable row.
+
+    A domain must also pass `check_domain_reachable` to earn
+    `DOMAIN_NORMALIZED` (Jira KAN-62). A transient network failure is
+    retried once inside `check_domain_reachable` itself rather than
+    distinguished from a confident negative here (see this plan's Global
+    Constraint 3).
     """
     if website:
         domain = normalize_domain(website)
-        if domain and not _is_non_company_host(domain):
+        if (
+            domain
+            and not _is_non_company_host(domain)
+            and check_domain_reachable(domain)
+        ):
             return domain, KeyDerivation.DOMAIN_NORMALIZED
     return (
         unresolved_placeholder_key(source, source_stable_id),
@@ -107,40 +121,50 @@ class SignalResolver:
         returning the count of rows upserted (always equals the input
         count; the write executes on every row even when nothing
         changed).
+
+        Reads and writes open two separate connection scopes rather than
+        one shared scope, so `resolve_signal()`'s network call (Jira
+        KAN-62) never runs while a database connection is held open. See
+        ADR-0006 for why this deviates from `huginn.elt.silver.ports`'s
+        stated one-scope-per-orchestrator pattern, and why that's not a
+        correctness loss for this orchestrator specifically.
         """
-        # See huginn.elt.silver.ports's module docstring for why this whole
-        # method shares one `with self._repository:` scope.
         with self._repository:
             staged_signals = (
                 self._repository.read_hn_postings()
                 + self._repository.read_yc_listings()
             )
 
-            written = 0
-            for signal in staged_signals:
-                resolved_company_key, key_derivation = resolve_signal(
-                    signal.source, signal.stable_id, signal.website
+        resolved_records = []
+        for signal in staged_signals:
+            resolved_company_key, key_derivation = resolve_signal(
+                signal.source, signal.stable_id, signal.website
+            )
+            resolved_records.append(
+                ResolvedSignalRecord(
+                    source=signal.source,
+                    source_stable_id=signal.stable_id,
+                    resolved_company_key=resolved_company_key,
+                    company_name_raw=signal.company_name_raw,
+                    signal_type=signal.signal_type,
+                    stage=signal.stage,
+                    description=signal.description,
+                    occurred_on=signal.occurred_on,
+                    url=signal.url,
+                    key_derivation=key_derivation,
+                    company_status=signal.company_status,
+                    team_size=signal.team_size,
+                    industries=signal.industries,
+                    all_locations=signal.all_locations,
+                    former_names=signal.former_names,
+                    batch=signal.batch,
                 )
-                self._repository.upsert(
-                    ResolvedSignalRecord(
-                        source=signal.source,
-                        source_stable_id=signal.stable_id,
-                        resolved_company_key=resolved_company_key,
-                        company_name_raw=signal.company_name_raw,
-                        signal_type=signal.signal_type,
-                        stage=signal.stage,
-                        description=signal.description,
-                        occurred_on=signal.occurred_on,
-                        url=signal.url,
-                        key_derivation=key_derivation,
-                        company_status=signal.company_status,
-                        team_size=signal.team_size,
-                        industries=signal.industries,
-                        all_locations=signal.all_locations,
-                        former_names=signal.former_names,
-                        batch=signal.batch,
-                    )
-                )
+            )
+
+        written = 0
+        with self._repository:
+            for record in resolved_records:
+                self._repository.upsert(record)
                 written += 1
 
         logger.info("silver.resolved_signals resolve_all: %d written", written)

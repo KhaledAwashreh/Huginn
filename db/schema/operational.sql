@@ -1,17 +1,50 @@
--- Operational schema: written by the matching step, not by the ELT
--- pipeline. See architecture document section 9 and docs/entities.md.
---
--- `users` is not in docs/entities.md's current sketch (only referenced via
--- Match.UserId and the "icp_profile" label in the architecture document's
--- data model diagram). Included here minimally so the foreign key below
--- is valid; revisit alongside the ICP capture flow (architecture document
--- section 11, open item, not yet tracked).
+-- Operational schema: management-owned account/profile data and matching-owned
+-- workflow data. See KAN-71 and ADR-0011.
 
 CREATE SCHEMA IF NOT EXISTS operational;
 
+CREATE TABLE operational.accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT NOT NULL CHECK (username <> '' AND username !~ '(^[[:space:]])|([[:space:]]$)'),
+    password_hash TEXT NOT NULL CHECK (password_hash ~ '[^[:space:]]'),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX accounts_username_lower_key
+    ON operational.accounts (lower(username));
+
 CREATE TABLE operational.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    icp_profile JSONB,
+    account_id UUID NOT NULL UNIQUE REFERENCES operational.accounts (id),
+    first_name TEXT NOT NULL CHECK (first_name <> '' AND first_name !~ '(^[[:space:]])|([[:space:]]$)'),
+    last_name TEXT NOT NULL CHECK (last_name <> '' AND last_name !~ '(^[[:space:]])|([[:space:]]$)'),
+    email TEXT NOT NULL CHECK (email <> '' AND email !~ '(^[[:space:]])|([[:space:]]$)'),
+    phone_number TEXT NOT NULL CHECK (phone_number <> '' AND phone_number !~ '(^[[:space:]])|([[:space:]]$)'),
+    country_of_residence TEXT NOT NULL CHECK (country_of_residence <> '' AND country_of_residence !~ '(^[[:space:]])|([[:space:]]$)'),
+    timezone TEXT CHECK (timezone <> '' AND timezone !~ '(^[[:space:]])|([[:space:]]$)'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.professional_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE REFERENCES operational.users (id),
+    headline TEXT CHECK (headline <> '' AND headline !~ '(^[[:space:]])|([[:space:]]$)'),
+    professional_summary TEXT CHECK (professional_summary <> '' AND professional_summary !~ '(^[[:space:]])|([[:space:]]$)'),
+    skills JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(skills) = 'array'
+        AND NOT jsonb_path_exists(skills, 'strict $[*] ? (@.type() != "object")')
+    ),
+    experience JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(experience) = 'array'
+        AND NOT jsonb_path_exists(experience, 'strict $[*] ? (@.type() != "object")')
+    ),
+    previous_projects JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(previous_projects) = 'array'
+        AND NOT jsonb_path_exists(previous_projects, 'strict $[*] ? (@.type() != "object")')
+    ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

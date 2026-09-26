@@ -44,20 +44,32 @@ def _insert_company(
     business_sector: list[str] | None,
     created_at: datetime,
     current_since: datetime | None = None,
+    eu_startups_searched_at: datetime | None = None,
 ) -> None:
     """Insert one isolated company fixture through the supplied cursor.
 
     `current_since` left None keeps the column default, which is what the
     read_unenriched_company_names tests below want; pinning it is how the
     write tests tell a bumped current_since from an untouched one.
+    `eu_startups_searched_at` is the ADR-0010 candidate gate's marker: NULL
+    still means the company is awaiting an EU-Startups search, so the
+    fixture default of None is the pending case.
     """
     cur.execute(
         """
         INSERT INTO gold.company
-            (domain, name, business_sector, created_at, current_since)
-        VALUES (%s, %s, %s, %s, COALESCE(%s, now()))
+            (domain, name, business_sector, created_at, current_since,
+             eu_startups_searched_at)
+        VALUES (%s, %s, %s, %s, COALESCE(%s, now()), %s)
         """,
-        (domain, name, business_sector, created_at, current_since),
+        (
+            domain,
+            name,
+            business_sector,
+            created_at,
+            current_since,
+            eu_startups_searched_at,
+        ),
     )
 
 
@@ -386,4 +398,47 @@ def test_read_domain_normalized_signals_maps_every_column_to_its_own_field(
                 "DELETE FROM silver.resolved_signals "
                 "WHERE source = 'yc' AND source_stable_id = %s",
                 (stable_id,),
+            )
+
+
+def test_read_company_names_pending_eu_startups_search_returns_only_rows_with_null_column(
+    integration_database_url: str,
+):
+    """Candidate reads exclude companies that already have eu_startups_searched_at
+    set.
+    """
+    suffix = str(uuid.uuid4().int)[:10]
+    pending_domain = f"eustartuptest-pending-{suffix}.example"
+    searched_domain = f"eustartuptest-searched-{suffix}.example"
+    now = datetime.now(UTC)
+
+    try:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            _insert_company(
+                cur,
+                pending_domain,
+                "PendingCo",
+                ["software"],
+                now,
+                eu_startups_searched_at=None,
+            )
+            _insert_company(
+                cur,
+                searched_domain,
+                "SearchedCo",
+                ["software"],
+                now,
+                eu_startups_searched_at=now,
+            )
+
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            names = repository.read_company_names_pending_eu_startups_search(limit=1000)
+
+        assert "PendingCo" in names
+        assert "SearchedCo" not in names
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM gold.company WHERE domain IN (%s, %s)",
+                (pending_domain, searched_domain),
             )

@@ -30,10 +30,30 @@ from huginn.elt.gold.repositories.company_repository import (
 # upsert key rather than a value (it is always the explicit `domain`
 # parameter), and `current_since` is moved by `bump_current_since` through
 # now() rather than bound. `_COMPANY_COLUMNS` is therefore expected to be
-# exactly gold.company minus these five; a column added to the schema and
+# exactly gold.company minus these; a column added to the schema and
 # left out of the allowlist is a column no writer can ever set.
+#
+# `eu_startups_searched_at` is here because it is deliberately not part of
+# the generic company write surface: it marks that the ADR-0010 enrichment
+# candidate gate has already searched for a company, so it is set once per
+# company by the enrichment flow, never as a company attribute. KNOWN GAP,
+# inherited from master and not introduced by this merge: no code writes it
+# yet. `eu_startups_enrichment.py`'s module docstring records that wiring
+# the candidate read was left out of KAN-65's scope, so the column stays
+# NULL for every row and
+# `read_company_names_pending_eu_startups_search` currently returns every
+# company rather than only the unsearched ones. Listing it here keeps that
+# visible in one place instead of letting it read as a working gate; closing
+# it means writing the column from the enrichment flow, not allowlisting it.
 _REPOSITORY_MANAGED_COLUMNS = frozenset(
-    {"id", "domain", "current_since", "created_at", "updated_at"}
+    {
+        "id",
+        "domain",
+        "current_since",
+        "created_at",
+        "updated_at",
+        "eu_startups_searched_at",
+    }
 )
 
 # One distinct, recognizable value per allowlisted column, so a column
