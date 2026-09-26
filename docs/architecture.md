@@ -179,21 +179,30 @@ flowchart TB
     end
 
     subgraph IN["Adapters, Phase 0"]
-        A1["HN: official Firebase API"]
-        A2["YC: direct Algolia search-key query"]
+        A1["HN"]
+        A2["YC"]
+    end
+
+    subgraph CONN["Connectors"]
+        C1["Firebase API"]
+        C2["Algolia index"]
     end
 
     SCH --> ISVC
     ISVC ==>|"Defines and calls"| PORT
     PS --> A1
     PS --> A2
+    A1 --> C1
+    A2 --> C2
     PR --> BR["Bronze"]
     PT --> CUR["Hash map per stable ID"]
 ```
 
-`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol and holds no ingestion policy of its own.
+`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol.
 
-Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which the adapter queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
+Each adapter reaches its external API through a connector, a thin client constructed in `build_service` and injected, so an adapter holds ingestion policy and a connector holds transport. The two are separated because a connector has no notion of what it is fetching: `FirebaseConnector` knows the URL shape of a Firebase item and nothing about what makes a thread a "Who's Hiring" thread, while `AlgoliaConnector` owns its index's request bodies and the adapter owns which records become `RawRecord`s. Both stay stateless because the adapters call them concurrently from one shared instance (ADR-0003).
+
+Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which Huginn queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
 
 Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths, neither adopted now (Jira KAN-9).
 
