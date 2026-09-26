@@ -53,7 +53,7 @@ def _fake_fetch_page(url: str, listing_sitemap_xml: str, detail_html: str) -> st
 
 
 def _read_fixture(name: str) -> str:
-    return (_FIXTURES / name).read_text()
+    return (_FIXTURES / name).read_text(encoding="utf-8")
 
 
 def test_parse_sitemap_index_returns_only_wpbdp_listing_sitemaps():

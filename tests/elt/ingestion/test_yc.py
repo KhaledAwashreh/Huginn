@@ -2,11 +2,40 @@ from __future__ import annotations
 
 import logging
 
-import requests
-
 from huginn.elt.ingestion.adapters import yc
 from huginn.elt.ingestion.models import RawRecord
 from huginn.elt.ingestion.ports import ApiSourcePort
+
+
+class _FakeAlgoliaConnector:
+    """Stands in for `AlgoliaConnector` so the adapter's orchestration is
+    testable without a network call (CLAUDE.md code standard 4). Records
+    which batches it was asked for, so a test can assert the connector is
+    untouched when the policy is not exercised.
+    """
+
+    def __init__(self, batches, hits_by_batch=None, total=0, errors=None) -> None:
+        """Capture the canned responses for each of the connector's methods."""
+        self._batches = list(batches)
+        self._hits_by_batch = hits_by_batch or {}
+        self._total = total
+        self._errors = errors or {}
+        self.fetch_batch_calls: list[str] = []
+
+    def discover_batches(self) -> list[str]:
+        """Return the canned batch facet values."""
+        return list(self._batches)
+
+    def fetch_batch(self, batch: str) -> list[dict]:
+        """Return or raise the canned response for one batch."""
+        self.fetch_batch_calls.append(batch)
+        if batch in self._errors:
+            raise self._errors[batch]
+        return self._hits_by_batch.get(batch, [])
+
+    def total_hit_count(self) -> int:
+        """Return the canned directory total."""
+        return self._total
 
 
 def test_yc_directory_adapter_explicitly_implements_api_source_port():
@@ -14,274 +43,79 @@ def test_yc_directory_adapter_explicitly_implements_api_source_port():
 
 
 def test_yc_directory_adapter_source_and_mechanism_unchanged():
-    adapter = yc.YcDirectoryAdapter()
+    adapter = yc.YcDirectoryAdapter(algolia=_FakeAlgoliaConnector(batches=[]))
     assert adapter.source == "yc"
     assert adapter.mechanism == "api"
 
 
-def test_algolia_api_key_reads_env_var(monkeypatch):
-    monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "test-secured-key")
-
-    assert yc._algolia_api_key() == "test-secured-key"
-
-
-def test_algolia_api_key_raises_when_unset(monkeypatch):
-    monkeypatch.delenv(yc.ALGOLIA_API_KEY_ENV_VAR, raising=False)
-
-    try:
-        yc._algolia_api_key()
-        raise AssertionError("expected RuntimeError")
-    except RuntimeError as exc:
-        assert yc.ALGOLIA_API_KEY_ENV_VAR in str(exc)
-
-
-def test_algolia_api_key_raises_when_empty(monkeypatch):
-    monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "")
-
-    try:
-        yc._algolia_api_key()
-        raise AssertionError("expected RuntimeError")
-    except RuntimeError as exc:
-        assert yc.ALGOLIA_API_KEY_ENV_VAR in str(exc)
-
-
-def test_algolia_query_posts_expected_url_headers_and_body(monkeypatch):
-    captured = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"hits": [], "nbHits": 0}
-
-    def fake_post(url, json, headers, timeout):
-        captured["url"] = url
-        captured["json"] = json
-        captured["headers"] = headers
-        captured["timeout"] = timeout
-        return FakeResponse()
-
-    monkeypatch.setattr(yc.requests, "post", fake_post)
-    monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "test-secured-key")
-
-    result = yc._algolia_query({"query": ""})
-
-    assert captured["url"] == yc.ALGOLIA_QUERY_URL
-    assert captured["json"] == {"query": ""}
-    assert captured["headers"] == {
-        "X-Algolia-Application-Id": yc.ALGOLIA_APP_ID,
-        "X-Algolia-API-Key": "test-secured-key",
-    }
-    assert captured["timeout"] == yc.REQUEST_TIMEOUT_SECONDS
-    assert result == {"hits": [], "nbHits": 0}
-
-
-def test_algolia_query_raises_on_non_2xx_response(monkeypatch):
-    class FakeResponse:
-        def raise_for_status(self):
-            raise requests.HTTPError("403 Forbidden")
-
-        def json(self):
-            raise AssertionError(
-                "json() must not be called after raise_for_status raises"
-            )
-
-    monkeypatch.setattr(
-        yc.requests, "post", lambda url, json, headers, timeout: FakeResponse()
+def test_fetch_returns_one_record_per_hit_across_batches():
+    connector = _FakeAlgoliaConnector(
+        batches=["Summer 2026", "Winter 2012"],
+        hits_by_batch={
+            "Summer 2026": [{"id": 531, "name": "A", "batch": "Summer 2026"}],
+            "Winter 2012": [{"id": 8, "name": "PlanGrid", "batch": "Winter 2012"}],
+        },
+        total=2,
     )
-    monkeypatch.setenv(yc.ALGOLIA_API_KEY_ENV_VAR, "test-secured-key")
 
-    try:
-        yc._algolia_query({"query": ""})
-        raise AssertionError("expected requests.HTTPError")
-    except requests.HTTPError:
-        pass
-
-
-def test_algolia_query_raises_when_api_key_missing(monkeypatch):
-    monkeypatch.delenv(yc.ALGOLIA_API_KEY_ENV_VAR, raising=False)
-
-    try:
-        yc._algolia_query({"query": ""})
-        raise AssertionError("expected RuntimeError")
-    except RuntimeError as exc:
-        assert yc.ALGOLIA_API_KEY_ENV_VAR in str(exc)
-
-
-def test_discover_batches_requests_batch_facet_with_zero_hits(monkeypatch):
-    captured = {}
-
-    def fake_algolia_query(body):
-        captured["body"] = body
-        return {"facets": {"batch": {}}}
-
-    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
-
-    yc._discover_batches()
-
-    assert captured["body"] == {
-        "query": "",
-        "facets": ["batch"],
-        "hitsPerPage": 0,
-        "maxValuesPerFacet": 1000,
-    }
-
-
-def test_discover_batches_returns_facet_keys(monkeypatch):
-    facets_response = {"facets": {"batch": {"Summer 2026": 120, "Spring 2026": 95}}}
-    monkeypatch.setattr(yc, "_algolia_query", lambda body: facets_response)
-
-    batches = yc._discover_batches()
-
-    assert set(batches) == {"Summer 2026", "Spring 2026"}
-
-
-def test_discover_batches_returns_empty_list_when_no_facet_values(monkeypatch):
-    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"facets": {"batch": {}}})
-
-    assert yc._discover_batches() == []
-
-
-def test_fetch_batch_requests_filtered_query(monkeypatch):
-    captured = {}
-
-    def fake_algolia_query(body):
-        captured["body"] = body
-        return {"hits": [{"id": 531}], "nbHits": 1}
-
-    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
-
-    yc._fetch_batch("Summer 2026")
-
-    assert captured["body"] == {
-        "query": "",
-        "facetFilters": [["batch:Summer 2026"]],
-        "hitsPerPage": yc.ALGOLIA_MAX_HITS_PER_QUERY,
-        "page": 0,
-    }
-
-
-def test_fetch_batch_handles_a_batch_value_containing_an_apostrophe(monkeypatch):
-    """facetFilters needs no quoting, unlike the old `filters: "batch:'{batch}'"`
-    string, which would have produced a malformed expression for a batch
-    value containing an apostrophe."""
-    captured = {}
-
-    def fake_algolia_query(body):
-        captured["body"] = body
-        return {"hits": [], "nbHits": 0}
-
-    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
-
-    yc._fetch_batch("Founder's Batch")
-
-    assert captured["body"]["facetFilters"] == [["batch:Founder's Batch"]]
-
-
-def test_fetch_batch_returns_raw_hits_list(monkeypatch):
-    hits = [{"id": 531, "name": "A"}, {"id": 8, "name": "PlanGrid"}]
-    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"hits": hits, "nbHits": 2})
-
-    assert yc._fetch_batch("Summer 2026") == hits
-
-
-def test_fetch_batch_returns_empty_list_when_no_hits(monkeypatch):
-    monkeypatch.setattr(yc, "_algolia_query", lambda body: {"hits": [], "nbHits": 0})
-
-    assert yc._fetch_batch("Winter 2005") == []
-
-
-def test_fetch_returns_one_record_per_hit_across_batches(monkeypatch):
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026", "Winter 2012"])
-
-    def fake_fetch_batch(batch):
-        if batch == "Summer 2026":
-            return [{"id": 531, "name": "A", "batch": batch}]
-        return [{"id": 8, "name": "PlanGrid", "batch": batch}]
-
-    monkeypatch.setattr(yc, "_fetch_batch", fake_fetch_batch)
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 2)
-
-    records = yc.YcDirectoryAdapter().fetch()
+    records = yc.YcDirectoryAdapter(algolia=connector).fetch()
 
     stable_ids = {record.stable_id for record in records}
     assert stable_ids == {"531", "8"}
 
 
-def test_fetch_payload_is_exact_raw_hit(monkeypatch):
+def test_fetch_payload_is_exact_raw_hit():
     hit = {"id": 8, "name": "PlanGrid", "objectID": "8", "batch": "Winter 2012"}
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Winter 2012"])
-    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
+    connector = _FakeAlgoliaConnector(
+        batches=["Winter 2012"], hits_by_batch={"Winter 2012": [hit]}, total=1
+    )
 
-    records = yc.YcDirectoryAdapter().fetch()
+    records = yc.YcDirectoryAdapter(algolia=connector).fetch()
 
     assert records == [RawRecord(stable_id="8", payload=hit)]
 
 
-def test_fetch_stable_id_uses_id_not_object_id(monkeypatch):
+def test_fetch_stable_id_uses_id_not_object_id():
     hit = {"id": 531, "objectID": "different-value"}
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
-    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [hit])
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
+    connector = _FakeAlgoliaConnector(
+        batches=["Summer 2026"], hits_by_batch={"Summer 2026": [hit]}, total=1
+    )
 
-    records = yc.YcDirectoryAdapter().fetch()
+    records = yc.YcDirectoryAdapter(algolia=connector).fetch()
 
     assert records[0].stable_id == "531"
 
 
-def test_fetch_returns_empty_list_when_no_batches_discovered(monkeypatch):
-    monkeypatch.setattr(yc, "_discover_batches", lambda: [])
+def test_fetch_returns_empty_list_when_no_batches_discovered():
+    connector = _FakeAlgoliaConnector(batches=[], total=0)
 
-    def _unexpected_fetch_batch(batch):
-        raise AssertionError("_fetch_batch should not be called with no batches")
-
-    monkeypatch.setattr(yc, "_fetch_batch", _unexpected_fetch_batch)
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 0)
-
-    assert yc.YcDirectoryAdapter().fetch() == []
+    assert yc.YcDirectoryAdapter(algolia=connector).fetch() == []
+    assert connector.fetch_batch_calls == []
 
 
-def test_fetch_propagates_a_genuine_batch_fetch_failure(monkeypatch):
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026", "Winter 2012"])
-
-    def fake_fetch_batch(batch):
-        if batch == "Winter 2012":
-            raise RuntimeError("simulated timeout")
-        return [{"id": 1}]
-
-    monkeypatch.setattr(yc, "_fetch_batch", fake_fetch_batch)
+def test_fetch_propagates_a_genuine_batch_fetch_failure():
+    connector = _FakeAlgoliaConnector(
+        batches=["Summer 2026", "Winter 2012"],
+        hits_by_batch={"Summer 2026": [{"id": 1}]},
+        errors={"Winter 2012": RuntimeError("simulated timeout")},
+    )
 
     try:
-        yc.YcDirectoryAdapter().fetch()
+        yc.YcDirectoryAdapter(algolia=connector).fetch()
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "simulated timeout" in str(exc)
 
 
-def test_total_hit_count_requests_zero_hits_and_returns_nb_hits(monkeypatch):
-    captured = {}
-
-    def fake_algolia_query(body):
-        captured["body"] = body
-        return {"hits": [], "nbHits": 6204}
-
-    monkeypatch.setattr(yc, "_algolia_query", fake_algolia_query)
-
-    assert yc._total_hit_count() == 6204
-    assert captured["body"] == {"query": "", "hitsPerPage": 0}
-
-
-def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(
-    monkeypatch, caplog
-):
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
-    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 6204)
+def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(caplog):
+    connector = _FakeAlgoliaConnector(
+        batches=["Summer 2026"],
+        hits_by_batch={"Summer 2026": [{"id": 531}]},
+        total=6204,
+    )
 
     with caplog.at_level(logging.WARNING, logger=yc.logger.name):
-        yc.YcDirectoryAdapter().fetch()
+        yc.YcDirectoryAdapter(algolia=connector).fetch()
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
@@ -289,15 +123,15 @@ def test_fetch_logs_warning_when_total_hit_count_does_not_match_records(
     assert "6204" in warnings[0].getMessage()
 
 
-def test_fetch_does_not_log_warning_when_total_hit_count_matches_records(
-    monkeypatch, caplog
-):
-    monkeypatch.setattr(yc, "_discover_batches", lambda: ["Summer 2026"])
-    monkeypatch.setattr(yc, "_fetch_batch", lambda batch: [{"id": 531}])
-    monkeypatch.setattr(yc, "_total_hit_count", lambda: 1)
+def test_fetch_does_not_log_warning_when_total_hit_count_matches_records(caplog):
+    connector = _FakeAlgoliaConnector(
+        batches=["Summer 2026"],
+        hits_by_batch={"Summer 2026": [{"id": 531}]},
+        total=1,
+    )
 
     with caplog.at_level(logging.WARNING, logger=yc.logger.name):
-        yc.YcDirectoryAdapter().fetch()
+        yc.YcDirectoryAdapter(algolia=connector).fetch()
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warnings == []

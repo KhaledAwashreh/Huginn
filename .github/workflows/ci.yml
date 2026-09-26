@@ -48,20 +48,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: huginn
-          POSTGRES_DB: huginn
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
@@ -73,18 +59,5 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Apply database schema
-        env:
-          PGPASSWORD: huginn
-        run: |
-          psql -h localhost -U postgres -d huginn -f db/schema/00_extensions.sql
-          psql -h localhost -U postgres -d huginn -f db/schema/ops.sql
-          psql -h localhost -U postgres -d huginn -f db/schema/bronze.sql
-          psql -h localhost -U postgres -d huginn -f db/schema/silver.sql
-          psql -h localhost -U postgres -d huginn -f db/schema/gold.sql
-          psql -h localhost -U postgres -d huginn -f db/schema/operational.sql
-
       - name: Run tests
-        env:
-          HUGINN_DATABASE_URL: postgresql://postgres:huginn@localhost:5432/huginn
         run: uv run pytest -v

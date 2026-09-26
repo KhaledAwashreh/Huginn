@@ -52,7 +52,7 @@ _TRUNCATED_SEARCH_RESULTS_HTML = """
 
 
 def _read_fixture(name: str) -> str:
-    return (_FIXTURES / name).read_text()
+    return (_FIXTURES / name).read_text(encoding="utf-8")
 
 
 def _fake_fetch_page(url: str, search_html: str, detail_html: str) -> str:

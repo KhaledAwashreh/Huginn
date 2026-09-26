@@ -53,6 +53,7 @@ https://api.opencorporates.com/v0.4/companies/search?q=barclays+bank&jurisdictio
 - `previous_names`, `alternative_names`, `alternate_registration_entities`, `previous_registration_entities`, `subsequent_registration_entities`
 - `industry_codes` (array), `identifiers` (array, e.g. tax/business numbers)
 - `branch` / `branch_status` / `home_company` (for foreign-registered branches)
+
 - `controlling_entity`, `ultimate_beneficial_owners`, `ultimate_controlling_company` (when known)
 - `officers` (array), `filings` (array), `data` (most-recent misc data items), `corporate_groupings`
 - `source` object (`publisher`, `url`, `retrieved_at` — full provenance), `registry_url` (link back to the official register), `opencorporates_url`

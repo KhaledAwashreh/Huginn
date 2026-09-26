@@ -1,0 +1,31 @@
+-- Add gold.company.eu_startups_searched_at: when the EU-Startups enrichment
+-- last reached this company, as the cursor that lets the candidate gate skip
+-- companies already searched.
+--
+-- Shipped on master as a db/schema/gold.sql edit with no ALTER, so the column
+-- existed only for fresh installs. A database created before that commit kept
+-- the old shape, and the reader in
+-- src/huginn/elt/gold/repositories/company_repository.py selects this column on
+-- every EU-Startups candidate query, so an existing deployment raises
+-- psycopg.errors.UndefinedColumn rather than returning candidates. See Jira
+-- KAN-83 and ADR-0010.
+--
+-- Nullable with no default, deliberately. A NULL means "never searched", which
+-- is what a company discovered before this column existed must mean: the
+-- candidate gate treats NULL as eligible, so backfilling would be a lie about
+-- work that was not done. Nothing writes the column yet, so today every row is
+-- NULL and the gate cannot exclude anything; that gap is ADR-0010's, tracked
+-- against the enrichment writer, and this migration does not paper over it.
+--
+-- Type 1: not in TYPE_2_TRACKED_FIELDS, no gold.company_history counterpart.
+-- A search cursor is not company state, and history would only record when the
+-- crawler last ran.
+--
+-- The declaration below is character-for-character the one in db/schema/gold.sql.
+-- tests/elt/gold/test_eu_startups_searched_at_migration.py compares the two
+-- paths directly, because a drifted ALTER leaves both self-consistent.
+--
+-- Idempotent.
+
+ALTER TABLE gold.company
+    ADD COLUMN IF NOT EXISTS eu_startups_searched_at TIMESTAMPTZ;

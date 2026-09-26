@@ -17,17 +17,24 @@ _HN_STAGING_SELECT_SQL = """
     FROM silver.hn_postings
 """
 
+# Wider than the HN select by design: only silver.yc_listings has a registry
+# status, a headcount, an industry list, a location, prior names, or a funded
+# batch, so those six columns are projected here and not there. See ADR-0001
+# on source-specific staging columns.
 _YC_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,
-           description, occurred_on, url
+           description, occurred_on, url, company_status, team_size,
+           industries, all_locations, former_names, batch
     FROM silver.yc_listings
 """
 
 _UPSERT_SQL = """
     INSERT INTO silver.resolved_signals
         (source_stable_id, source, resolved_company_key, company_name_raw,
-         signal_type, stage, description, occurred_on, url, key_derivation)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+         signal_type, stage, description, occurred_on, url, key_derivation,
+         company_status, team_size, industries, all_locations, former_names,
+         batch)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (source, source_stable_id) DO UPDATE
     SET resolved_company_key = EXCLUDED.resolved_company_key,
         company_name_raw = EXCLUDED.company_name_raw,
@@ -37,6 +44,12 @@ _UPSERT_SQL = """
         occurred_on = EXCLUDED.occurred_on,
         url = EXCLUDED.url,
         key_derivation = EXCLUDED.key_derivation,
+        company_status = EXCLUDED.company_status,
+        team_size = EXCLUDED.team_size,
+        industries = EXCLUDED.industries,
+        all_locations = EXCLUDED.all_locations,
+        former_names = EXCLUDED.former_names,
+        batch = EXCLUDED.batch,
         updated_at = now()
 """
 
@@ -51,7 +64,16 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
         description,
         occurred_on,
         url,
-    ) = row
+    ) = row[:8]
+    # A narrow row means the source's staging table has no such column at
+    # all, which is the HN case: its comments carry no registry status, no
+    # headcount, no industries, and no location. "Does not know", not a
+    # value. Widening the guard in steps keeps each source's projection
+    # independent of the others'.
+    company_status, team_size = (row[8], row[9]) if len(row) > 9 else (None, None)
+    industries, all_locations = (row[10], row[11]) if len(row) > 11 else (None, None)
+    former_names = row[12] if len(row) > 12 else None
+    batch = row[13] if len(row) > 13 else None
     return StagedSignal(
         source=source,
         stable_id=stable_id,
@@ -62,6 +84,12 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
         description=description,
         occurred_on=occurred_on,
         url=url,
+        company_status=company_status,
+        team_size=team_size,
+        industries=tuple(industries) if industries is not None else None,
+        all_locations=all_locations,
+        former_names=tuple(former_names) if former_names is not None else None,
+        batch=batch,
     )
 
 
@@ -123,5 +151,11 @@ class PostgresSignalResolutionRepository:
                 record.occurred_on,
                 record.url,
                 record.key_derivation,
+                record.company_status,
+                record.team_size,
+                list(record.industries) if record.industries is not None else None,
+                record.all_locations,
+                list(record.former_names) if record.former_names is not None else None,
+                record.batch,
             ),
         )
