@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-09-17
-Deciders: Khaled Awashreh (with Claude Sonnet 5 assisting, autonomous overnight run per explicit authorization, KAN-41)
+Deciders: Khaled Awashreh (autonomous overnight run per explicit authorization, KAN-41)
 
 ## Context and Problem Statement
 

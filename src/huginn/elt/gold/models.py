@@ -22,6 +22,17 @@ class DomainNormalizedSignal:
 
     domain: str
     company_name_raw: str
+    stage: str | None = None
+    company_status: str | None = None
+    team_size: int | None = None
+    # YC's `industries` as a list, and its `all_locations` display string.
+    # Both are the source's own shape; Gold turns them into
+    # business_sector and country/city (see gold.company.parse_all_locations).
+    industries: list[str] | None = None
+    all_locations: str | None = None
+    # YC's funded batch, e.g. 'Summer 2023', carried verbatim from Silver.
+    # Gold prefixes it to form gold.company.notes.
+    batch: str | None = None
 
 
 @dataclass(frozen=True)

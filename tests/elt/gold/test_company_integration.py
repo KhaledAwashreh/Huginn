@@ -1,41 +1,21 @@
 """Live-Postgres integration coverage for CompanyWriter.
 
-Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
+Runs against the throwaway Postgres that tests/conftest.py provisions,
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). write_all() is a
+whole-table operation, so what matters here is that the rows it reads are
+the suite's own: pointed at a populated database, every one of them gets
+rewritten.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import UTC, datetime
 
 import psycopg
-import pytest
 
 from huginn.elt.gold.company import CompanyWriter
 from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
-
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
-
-
-def _database_reachable() -> bool:
-    if not DATABASE_URL:
-        return False
-    try:
-        with (
-            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
-            conn.cursor() as cur,
-        ):
-            cur.execute("SELECT 1")
-        return True
-    except psycopg.OperationalError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="HUGINN_DATABASE_URL not set or Postgres unreachable",
-)
 
 
 def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
@@ -57,31 +37,34 @@ def _insert_resolved_signal(cur, source_stable_id: str, domain: str) -> None:
     )
 
 
-def test_write_all_creates_a_new_company_from_a_domain_normalized_signal():
+def test_write_all_creates_a_new_company_from_a_domain_normalized_signal(
+    integration_database_url: str,
+):
     """Create a Gold company from a domain-normalized Silver signal."""
     stable_id = str(uuid.uuid4().int)[:10]
     domain = f"companywritertest-{stable_id}.example"
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         _insert_resolved_signal(cur, stable_id, domain)
 
     try:
-        written = CompanyWriter(PostgresCompanyRepository(DATABASE_URL)).write_all()
+        written = CompanyWriter(
+            PostgresCompanyRepository(integration_database_url)
+        ).write_all()
 
         assert written >= 1
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT name, team_composition_signal, icp_filter_pass "
+                "SELECT name, team_composition_signal "
                 "FROM gold.company WHERE domain = %s",
                 (domain,),
             )
-            name, team_composition_signal, icp_filter_pass = cur.fetchone()
+            name, team_composition_signal = cur.fetchone()
 
         assert name == "CompanyWriterTestCo"
         assert team_composition_signal == "unknown"
-        assert icp_filter_pass is False
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM gold.company_history WHERE domain = %s",
                 (domain,),
@@ -90,7 +73,7 @@ def test_write_all_creates_a_new_company_from_a_domain_normalized_signal():
 
         assert history_count == 0
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.resolved_signals WHERE source_stable_id = %s "
                 "AND source = 'hn'",
@@ -100,10 +83,77 @@ def test_write_all_creates_a_new_company_from_a_domain_normalized_signal():
             cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
-def test_write_all_updates_an_existing_companys_name_without_writing_history():
+def test_write_all_lands_every_column_it_derives_from_a_fully_populated_signal(
+    integration_database_url: str,
+):
+    """The only other test that runs the generated statement against the
+    real table used a signal with none of stage, company_status,
+    team_size, industries, all_locations or batch set, so `new_values`
+    carried `name` alone and every other column `CompanyWriter` can derive
+    was never executed. A fully populated YC signal exercises all eight in one
+    statement, and each lands on its own column with its own value.
+    """
+    stable_id = f"derived{str(uuid.uuid4().int)[:8]}"
+    domain = f"companywritertest-{stable_id}.example"
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO silver.resolved_signals
+                (source_stable_id, source, resolved_company_key, company_name_raw,
+                 signal_type, occurred_on, url, key_derivation, stage,
+                 company_status, team_size, industries, all_locations, batch)
+            VALUES (%s, 'yc', %s, 'DerivedCo', 'hiring', %s,
+                    'https://example.invalid', 'domain_normalized',
+                    'Growth', 'Active', 700, %s, 'Markertown, Markerland',
+                    'Winter 2031')
+            """,
+            (stable_id, domain, datetime.now(UTC), ["AlphaSector", "BetaSector"]),
+        )
+
+    try:
+        CompanyWriter(PostgresCompanyRepository(integration_database_url)).write_all()
+
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT name, stage, company_status, business_sector, company_scale, "
+                "country, city, notes FROM gold.company WHERE domain = %s",
+                (domain,),
+            )
+            row = cur.fetchone()
+
+        assert row == (
+            "DerivedCo",
+            "Growth",
+            "Active",
+            ["AlphaSector", "BetaSector"],
+            "101-1000",
+            "Markerland",
+            "Markertown",
+            "YC Winter 2031",
+        )
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM silver.manual_review_queue WHERE resolved_signal_id IN "
+                "(SELECT id FROM silver.resolved_signals "
+                " WHERE source = 'yc' AND source_stable_id = %s)",
+                (stable_id,),
+            )
+            cur.execute(
+                "DELETE FROM silver.resolved_signals "
+                "WHERE source = 'yc' AND source_stable_id = %s",
+                (stable_id,),
+            )
+            cur.execute("DELETE FROM gold.company_history WHERE domain = %s", (domain,))
+            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
+
+
+def test_write_all_updates_an_existing_companys_name_without_writing_history(
+    integration_database_url: str,
+):
     stable_id = str(uuid.uuid4().int)[:10]
     domain = f"companywritertest-{stable_id}.example"
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO gold.company (domain, name) VALUES (%s, 'Old Name')",
             (domain,),
@@ -111,9 +161,9 @@ def test_write_all_updates_an_existing_companys_name_without_writing_history():
         _insert_resolved_signal(cur, stable_id, domain)
 
     try:
-        CompanyWriter(PostgresCompanyRepository(DATABASE_URL)).write_all()
+        CompanyWriter(PostgresCompanyRepository(integration_database_url)).write_all()
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute("SELECT name FROM gold.company WHERE domain = %s", (domain,))
             (name,) = cur.fetchone()
             cur.execute(
@@ -125,7 +175,7 @@ def test_write_all_updates_an_existing_companys_name_without_writing_history():
         assert name == "CompanyWriterTestCo"
         assert history_count == 0
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.resolved_signals WHERE source_stable_id = %s "
                 "AND source = 'hn'",
@@ -135,7 +185,9 @@ def test_write_all_updates_an_existing_companys_name_without_writing_history():
             cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
-def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
+def test_write_all_breaks_resolved_at_ties_deterministically_by_id(
+    integration_database_url: str,
+):
     """Regression: resolved_at defaults to Postgres's transaction-stable
     now(), so two rows inserted together share the exact same value.
     Without a secondary ORDER BY key, which one wins CompanyWriter's
@@ -145,7 +197,7 @@ def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
     stable_id_a = str(uuid.uuid4().int)[:10]
     stable_id_b = str(uuid.uuid4().int)[:10]
     domain = f"companywritertest-{stable_id_a}.example"
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO silver.resolved_signals
@@ -174,15 +226,15 @@ def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
         expected_name = cur.fetchall()[-1][0]
 
     try:
-        CompanyWriter(PostgresCompanyRepository(DATABASE_URL)).write_all()
+        CompanyWriter(PostgresCompanyRepository(integration_database_url)).write_all()
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute("SELECT name FROM gold.company WHERE domain = %s", (domain,))
             (name,) = cur.fetchone()
 
         assert name == expected_name
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.resolved_signals WHERE source_stable_id IN (%s, %s) "
                 "AND source = 'hn'",
@@ -192,11 +244,13 @@ def test_write_all_breaks_resolved_at_ties_deterministically_by_id():
             cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
 
 
-def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
+def test_write_all_ignores_a_placeholder_key_awaiting_manual_review(
+    integration_database_url: str,
+):
     """Exclude unresolved placeholder keys from Gold company writes."""
     stable_id = str(uuid.uuid4().int)[:10]
     placeholder_key = f"unresolved:hn:{stable_id}"
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO silver.resolved_signals
@@ -213,9 +267,9 @@ def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
         )
 
     try:
-        CompanyWriter(PostgresCompanyRepository(DATABASE_URL)).write_all()
+        CompanyWriter(PostgresCompanyRepository(integration_database_url)).write_all()
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM gold.company WHERE domain = %s",
                 (placeholder_key,),
@@ -224,7 +278,7 @@ def test_write_all_ignores_a_placeholder_key_awaiting_manual_review():
 
         assert count == 0
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.resolved_signals WHERE source_stable_id = %s "
                 "AND source = 'hn'",

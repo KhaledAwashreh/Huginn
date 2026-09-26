@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from huginn.elt.silver import signal_resolution
 from huginn.elt.silver.models import StagedSignal
 from huginn.elt.silver.resolution import KeyDerivation
@@ -106,7 +108,18 @@ def test_unresolved_placeholder_key_is_scoped_by_source_and_stable_id():
     )
 
 
-def _staged_signal(source: str, stable_id: str, website: str | None) -> StagedSignal:
+def _staged_signal(
+    source: str,
+    stable_id: str,
+    website: str | None,
+    *,
+    company_status: str | None = None,
+    team_size: int | None = None,
+    industries: tuple[str, ...] | None = None,
+    all_locations: str | None = None,
+    former_names: tuple[str, ...] | None = None,
+    batch: str | None = None,
+) -> StagedSignal:
     return StagedSignal(
         source=source,
         stable_id=stable_id,
@@ -117,6 +130,29 @@ def _staged_signal(source: str, stable_id: str, website: str | None) -> StagedSi
         description="",
         occurred_on=datetime.fromtimestamp(0, tz=UTC),
         url="https://example.invalid",
+        company_status=company_status,
+        team_size=team_size,
+        industries=industries,
+        all_locations=all_locations,
+        former_names=former_names,
+        batch=batch,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _reachable_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every reachability check positively unless a test says
+    otherwise.
+
+    `resolve_signal` calls `check_domain_reachable`, which opens a socket
+    (Jira KAN-62). Without this, any test whose staged signal carries a
+    derivable domain would make real network calls, so a green unit suite
+    would depend on someone else's uptime. A test that cares about the
+    reachability decision still installs its own `monkeypatch.setattr`,
+    which lands after this fixture and wins.
+    """
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
     )
 
 
@@ -375,3 +411,150 @@ def test_resolve_signal_rejects_denylisted_host_with_trailing_dot(monkeypatch):
 
     assert key == "unresolved:hn:1"
     assert confidence == KeyDerivation.UNRESOLVED
+
+
+def test_resolve_all_carries_company_status_and_team_size_into_the_upserted_record():
+    """Resolution is identity, but it is also a copy: a field the YC parser
+    read must still be there once the signal reaches resolved_signals.
+
+    The separate parser test cannot catch a drop here, because the failure
+    mode is a column parsed correctly and then silently absent from the
+    record that gets persisted, which is invisible until Gold reads it.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[
+            _staged_signal(
+                "yc",
+                "2",
+                "https://getnao.io",
+                company_status="Active",
+                team_size=50,
+            )
+        ],
+    )
+    resolver = SignalResolver(repository)
+
+    resolver.resolve_all()
+
+    record = repository.upserted[0]
+    assert record.company_status == "Active"
+    assert record.team_size == 50
+
+
+def test_resolve_all_leaves_profile_fields_none_for_a_source_that_lacks_them():
+    """HN's freeform comments carry no registry status and no headcount, so
+    resolution must pass through NULL rather than defaulting one in.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[],
+    )
+    resolver = SignalResolver(repository)
+
+    resolver.resolve_all()
+
+    record = repository.upserted[0]
+    assert record.company_status is None
+    assert record.team_size is None
+
+
+def test_resolve_all_preserves_a_zero_headcount():
+    """0 must survive as 0. Coercing it to None here would erase the only
+    signal that distinguishes a reported pre-first-hire count from a
+    genuinely unknown one, and would silently move those companies out of
+    the lowest band.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[
+            _staged_signal(
+                "yc", "2", "https://getnao.io", company_status="Active", team_size=0
+            )
+        ],
+    )
+    resolver = SignalResolver(repository)
+
+    resolver.resolve_all()
+
+    assert repository.upserted[0].team_size == 0
+
+
+def test_resolve_all_carries_industries_and_all_locations_into_the_record():
+    """Same copy-not-drop obligation as status and headcount: Gold reads
+    business_sector and country from resolved_signals and nowhere else, so
+    a drop here empties three gold.company columns at once.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[
+            _staged_signal(
+                "yc",
+                "2",
+                "https://getnao.io",
+                industries=("B2B", "Fintech"),
+                all_locations="Berlin, Germany; Remote",
+            )
+        ],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.industries == ("B2B", "Fintech")
+    assert record.all_locations == "Berlin, Germany; Remote"
+
+
+def test_resolve_all_leaves_sector_and_location_none_for_hn_rows():
+    """HN has neither, and writing anything here would be another source's
+    value landing on an HN row rather than a missing value.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.industries is None
+    assert record.all_locations is None
+
+
+def test_resolve_all_carries_former_names_and_batch_into_the_record():
+    """Both are read from staged signals by nothing yet, which is exactly
+    why a copy dropped here would go unnoticed: former_names is waiting on
+    the KAN-4 matcher and batch on nothing. Losing either is silent, so the
+    obligation is pinned here rather than left to inspection.
+    """
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[
+            _staged_signal(
+                "yc",
+                "2",
+                "https://getnao.io",
+                former_names=("ZenPayroll", "Zen Payroll"),
+                batch="Winter 2022",
+            )
+        ],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.former_names == ("ZenPayroll", "Zen Payroll")
+    assert record.batch == "Winter 2022"
+
+
+def test_resolve_all_leaves_former_names_and_batch_none_for_hn_rows():
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.former_names is None
+    assert record.batch is None

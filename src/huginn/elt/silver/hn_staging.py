@@ -26,6 +26,34 @@ _HN_ITEM_URL = "https://news.ycombinator.com/item?id={id}"
 _TAG_RE = re.compile(r"<[^>]+>")
 _HREF_RE = re.compile(r'<a\s+href="([^"]+)"', re.IGNORECASE)
 _LINK_REMOVE_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
+# Trailing YC cohort annotation, e.g. "Monumint (YC W24)". Anchored to the
+# end of the name so an identity-bearing parenthetical earlier in the
+# string is untouched.
+_YC_COHORT_SUFFIX_RE = re.compile(r"\s+\(YC\s+[SW]\d{2}\b[^)]*\)$", re.IGNORECASE)
+# Empty parens left behind when a poster wraps the website link in them
+# and the link is then removed, e.g. "Devin (<a>...</a>)" -> "Devin ( )".
+_EMPTY_PARENS_RE = re.compile(r"\s*\(\s*\)\s*$")
+
+
+def _normalise_company_name(name: str) -> str:
+    """Remove the two trailing artifacts confirmed in the live thread, and
+    nothing else.
+
+    1. A YC cohort annotation, e.g. "Monumint (YC W24)" -> "Monumint".
+    2. Empty parens left when the website link was wrapped in them and then
+       stripped, e.g. "Devin ( )".
+
+    Deliberately narrow. A blanket trailing-parenthetical strip was rejected
+    against the live corpus because it destroys parentheticals that carry
+    identity: "Chronograph (chronograph.pe)" and "Spanish National Cancer
+    Research Centre (CNIO)" would both lose real information. Poster-supplied
+    location prefixes ("Remote (US) Close") and whole-paragraph names are
+    also not addressed here; neither is separable by pattern from a
+    legitimate name, so they are tracked as a data-quality gap rather than
+    guessed at.
+    """
+    without_cohort = _YC_COHORT_SUFFIX_RE.sub("", name)
+    return _EMPTY_PARENS_RE.sub("", without_cohort).strip()
 
 
 def _clean_text(fragment: str) -> str:
@@ -64,7 +92,9 @@ def parse_hn_posting(payload: dict) -> HnPostingStaging | None:
         header, rest = text, ""
 
     fields = [field.strip() for field in header.split("|")]
-    company_name_raw = _clean_text(_LINK_REMOVE_RE.sub(" ", fields[0]))
+    company_name_raw = _normalise_company_name(
+        _clean_text(_LINK_REMOVE_RE.sub(" ", fields[0]))
+    )
 
     href_match = _HREF_RE.search(header)
     website = html.unescape(href_match.group(1)) if href_match else None

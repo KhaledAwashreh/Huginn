@@ -3,8 +3,9 @@ document section 4.3.
 
 `Company` holds exactly one row per company, always, overwritten in
 place. `CompanyHistory` gets a new row only when a Type 2 tracked field
-changes. The exact column-by-column classification beyond these three
-fields is pending the concrete schema (Jira KAN-20).
+changes. The exact column-by-column classification beyond the two fields in
+`TYPE_2_TRACKED_FIELDS` is still open (Jira KAN-20); the columns themselves
+are declared in `db/schema/gold.sql`.
 """
 
 from __future__ import annotations
@@ -14,10 +15,13 @@ from dataclasses import dataclass
 TYPE_2_TRACKED_FIELDS = (
     "business_sector",
     "team_composition_signal",
-    "icp_filter_pass",
 )
 """Fields that trigger a CompanyHistory row on change. See ADR-0002.
 Everything else on Company is Type 1: overwritten in place, no history.
+
+`icp_filter_pass` was the third member until ADR-0012 removed it. An ICP is
+per-user, so a single boolean on the shared dimension could not hold the
+verdict once a second user existed, and it had never been written non-default.
 """
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from huginn.config import Config
@@ -9,9 +11,13 @@ from huginn.elt.bronze.repositories.api_ingest_repository import (
 )
 from huginn.elt.ingestion import __main__ as main_module
 from huginn.elt.ingestion.__main__ import build_service, main
+from huginn.elt.ingestion.adapters import yc
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
+from huginn.elt.ingestion.connectors import firebase
+from huginn.elt.ingestion.connectors.algolia import AlgoliaConnector
+from huginn.elt.ingestion.connectors.firebase import FirebaseConnector
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 
@@ -44,7 +50,10 @@ def test_build_service_wires_all_three_adapters(monkeypatch):
     monkeypatch.setattr(
         main_module, "PostgresCompanyRepository", _FakeCompanyRepository
     )
-    config = Config(database_url="postgresql://example.invalid/db")
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
 
     service = build_service(config)
 
@@ -53,6 +62,43 @@ def test_build_service_wires_all_three_adapters(monkeypatch):
         YcDirectoryAdapter,
         OpenCorporatesAdapter,
     ]
+
+
+def test_build_service_injects_a_configured_algolia_connector(monkeypatch):
+    """The YC adapter receives a real AlgoliaConnector built from config."""
+    monkeypatch.setattr(
+        main_module, "PostgresCompanyRepository", _FakeCompanyRepository
+    )
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+
+    service = build_service(config)
+
+    yc_adapter = service._sources[1]
+    connector = yc_adapter._algolia
+    assert isinstance(connector, AlgoliaConnector)
+    assert connector._app_id == yc.YC_ALGOLIA_APP_ID
+    assert connector._index == yc.YC_ALGOLIA_INDEX
+    assert connector._api_key == config.yc_algolia_api_key
+
+
+def test_build_service_injects_a_firebase_connector(monkeypatch):
+    """The HN adapter receives a real FirebaseConnector."""
+    monkeypatch.setattr(
+        main_module, "PostgresCompanyRepository", _FakeCompanyRepository
+    )
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+
+    service = build_service(config)
+
+    hn_adapter = service._sources[0]
+    assert isinstance(hn_adapter._firebase, FirebaseConnector)
+    assert hn_adapter._firebase._timeout == firebase.DEFAULT_TIMEOUT_SECONDS
 
 
 def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkeypatch):
@@ -68,7 +114,10 @@ def test_build_service_wires_opencorporates_from_the_gold_unenriched_read(monkey
     monkeypatch.setattr(
         main_module, "PostgresCompanyRepository", fake_company_repository
     )
-    config = Config(database_url="postgresql://example.invalid/db")
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
 
     service = build_service(config)
 
@@ -98,7 +147,10 @@ def test_build_service_wires_postgres_backed_ports_with_the_configured_url(monke
     monkeypatch.setattr(
         main_module, "PostgresCompanyRepository", _FakeCompanyRepository
     )
-    config = Config(database_url="postgresql://example.invalid/db")
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
 
     service = build_service(config)
 
@@ -126,7 +178,10 @@ def test_main_exits_zero_when_every_source_succeeds(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "load_config",
-        lambda: Config(database_url="postgresql://example.invalid/db"),
+        lambda: Config(
+            database_url="postgresql://example.invalid/db",
+            yc_algolia_api_key="key-blob",
+        ),
     )
     monkeypatch.setattr(
         main_module, "build_service", lambda config: FakeService(failed_count=0)
@@ -139,7 +194,10 @@ def test_main_exits_non_zero_when_a_source_failed(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "load_config",
-        lambda: Config(database_url="postgresql://example.invalid/db"),
+        lambda: Config(
+            database_url="postgresql://example.invalid/db",
+            yc_algolia_api_key="key-blob",
+        ),
     )
     monkeypatch.setattr(
         main_module, "build_service", lambda config: FakeService(failed_count=1)
@@ -149,3 +207,49 @@ def test_main_exits_non_zero_when_a_source_failed(monkeypatch):
         main()
 
     assert exc_info.value.code == 1
+
+
+def test_main_logs_the_config_error_and_exits_non_zero(monkeypatch, caplog):
+    """A missing required variable is logged as ERROR and exits 1, instead
+    of surfacing as an unhandled traceback with no log record.
+
+    The entrypoint owns logging (adr/0005); `config.py` is library code and
+    only raises, so this is the layer that has to turn the raise into a
+    record. ADR-shaped rather than a `job_runs` row, because no service was
+    built and no database was reachable.
+    """
+
+    def raise_config_error():
+        raise RuntimeError(
+            "HUGINN_YC_ALGOLIA_API_KEY is not set. Copy .env.example to .env."
+        )
+
+    def unexpected_build_service(config):
+        pytest.fail("build_service must not run when config loading failed")
+
+    monkeypatch.setattr(main_module, "load_config", raise_config_error)
+    monkeypatch.setattr(main_module, "build_service", unexpected_build_service)
+    caplog.set_level(logging.ERROR)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "HUGINN_YC_ALGOLIA_API_KEY is not set" in errors[0].getMessage()
+
+
+def test_main_does_not_swallow_unexpected_load_config_errors(monkeypatch):
+    """Only the config-lookup failure is handled. A programming error inside
+    `load_config` still propagates, so widening the handler later cannot
+    quietly turn a crash into a clean exit code.
+    """
+
+    def raise_unexpected_error():
+        raise ValueError("not a config error")
+
+    monkeypatch.setattr(main_module, "load_config", raise_unexpected_error)
+
+    with pytest.raises(ValueError, match="not a config error"):
+        main()

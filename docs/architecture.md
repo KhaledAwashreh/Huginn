@@ -1,4 +1,4 @@
-Status: DRAFT. Architecture decided across a series of design sessions, September 2026. No code written yet.
+Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze/Silver/Gold ELT write path are built and live-verified; the domain, scoring, and digest layers above Gold are not yet built. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -8,7 +8,7 @@ Companion documents: [Huginn Concept Doc](https://kawashreh.atlassian.net/wiki/s
 Architecture at a glance:
 
 1. Storage: one Postgres database. Three ELT schemas (bronze, silver, gold) feed a separate operational schema.
-2. Ingestion: ports and adapters, two sources at launch, HN "Who's Hiring" and the YC directory.
+2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
 4. Scoring: two stages. v0 ranks by recency alone. The weighted composite (v1) is deferred until there is real filtered-data volume to design against.
 5. Delivery: a weekly email digest to a single user, on a data model that is multi-user from day one.
@@ -31,7 +31,7 @@ Goals for this phase:
 1. A weekly digest: a ranked shortlist of companies matching a plain-language ICP.
 2. Per company: name, site, a LinkedIn search link (not scraped data), a short description, plain-language match reasoning, and a drafted outreach opener.
 3. A domain model that's multi-user from day one, even though exactly one user exists right now. Phase 2 becomes additive, not a rebuild.
-4. Ingestion from exactly two sources: HN "Who's Hiring" and the YC directory.
+4. Ingestion from three sources: HN "Who's Hiring", the YC directory, and OpenCorporates.
 
 Non-goals for this phase:
 
@@ -152,14 +152,14 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 
 ### 4.3 Gold
 
-A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, run only on companies that already passed the ICP filter).
+A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0012, below).
 
-`Company` covers every company Silver has resolved and evaluated against the filter at least once. ICP-filter-pass is a tracked attribute on the row, not a gate on whether the row exists, so a company that later stops passing keeps its record.
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0012 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match`, whose grain is one row per user and company but which carries no unique constraint on that pair yet).
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
 1. `Company`: exactly one row per company, always, overwritten in place whenever any field changes.
-2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`, `IcpFilterPass`), holding the superseded values with a `ValidFrom`/`ValidTo` window.
+2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`), holding the superseded values with a `ValidFrom`/`ValidTo` window. ADR-0012 removed the third field, `IcpFilterPass`, because an ICP verdict is per-user.
 3. Type 1 cosmetic fields: overwrite in `Company`, no history.
 
 The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. `Company` cannot return a stale row.
@@ -189,21 +189,30 @@ flowchart TB
     end
 
     subgraph IN["Adapters, Phase 0"]
-        A1["HN: official Firebase API"]
-        A2["YC: direct Algolia search-key query"]
+        A1["HN"]
+        A2["YC"]
+    end
+
+    subgraph CONN["Connectors"]
+        C1["Firebase API"]
+        C2["Algolia index"]
     end
 
     SCH --> ISVC
     ISVC ==>|"Defines and calls"| PORT
     PS --> A1
     PS --> A2
+    A1 --> C1
+    A2 --> C2
     PR --> BR["Bronze"]
     PT --> CUR["Hash map per stable ID"]
 ```
 
-`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol and holds no ingestion policy of its own.
+`IngestionService` holds the logic that would otherwise be reimplemented per adapter: which sources to fetch, in what order, and when a run counts as complete. Each adapter owns a single protocol.
 
-Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which the adapter queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
+Each adapter reaches its external API through a connector, a thin client constructed in `build_service` and injected, so an adapter holds ingestion policy and a connector holds transport. The two are separated because a connector has no notion of what it is fetching: `FirebaseConnector` knows the URL shape of a Firebase item and nothing about what makes a thread a "Who's Hiring" thread, while `AlgoliaConnector` owns its index's request bodies and the adapter owns which records become `RawRecord`s. Both stay stateless because the adapters call them concurrently from one shared instance (ADR-0003).
+
+Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which Huginn queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
 
 Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths, neither adopted now (Jira KAN-9).
 
@@ -291,7 +300,6 @@ erDiagram
         String Domain "resolved natural key, section 6"
         String BusinessSector "Type 2 tracked"
         Enum TeamCompositionSignal "Type 2 tracked"
-        Boolean IcpFilterPass "Type 2 tracked, attribute not a gate"
     }
     CompanyHistory {
         GUID Id PK
@@ -417,4 +425,5 @@ Jira epic KAN-16 holds tech debt (tools and libraries chosen without deep review
 6. `architecture-notes/industry-references-elt-medallion.md`: Databricks, Kimball, dbt, and Fivetran primary sources this document's pipeline design is checked against.
 7. `docs/sources/*.md`: per-source access and risk findings.
 8. Jira epic KAN-16: tracked tech debt and research debt.
-9. `adr/0001-per-source-silver-staging-tables.md` and `adr/0002-gold-current-history-split.md`: decision records for the Silver and Gold layer designs above.
+9. `adr/0001-per-source-silver-staging-tables.md`, `adr/0002-gold-current-history-split.md`, and `adr/0012-icp-verdict-not-on-company-dimension.md`: decision records for the Silver and Gold layer designs above. ADR-0012 governs section 4.3's `Company` and `CompanyHistory` columns.
+10. `adr/0006-split-signal-resolver-scope-for-network-io.md`, `adr/0007-company-signal-idempotency-key.md`, and `adr/0013-gold-company-write-shapes.md`: decisions this document does not restate because they are narrower than a section. ADR-0006 holds the network call in `SignalResolver` outside any open database scope, which is why the resolver is absent from section 6 rather than described there. ADR-0007 fixes the `gold.company_signal` uniqueness that makes a re-run idempotent. ADR-0013 splits the `gold.company` write into an insert shape and an update-only shape, keyed on `name`.

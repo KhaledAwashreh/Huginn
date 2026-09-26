@@ -28,6 +28,13 @@ CREATE TABLE silver.hn_postings (
     UNIQUE (stable_id)
 );
 
+-- YC-specific columns. HN's "Who's Hiring" comments carry no registry
+-- status and no headcount, so these do not exist on silver.hn_postings.
+-- ADR-0001 anticipated exactly this: "a future source-specific staging
+-- column can be added to just that source's table, without an ALTER
+-- TABLE or a meaningless nullable column on every other table."
+-- team_size stays a raw integer here, not a band: the band vocabulary is
+-- Huginn's own, so the bucketing is Gold's job (section 4.3).
 CREATE TABLE silver.yc_listings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     stable_id TEXT NOT NULL,
@@ -35,6 +42,41 @@ CREATE TABLE silver.yc_listings (
     website TEXT,
     signal_type TEXT NOT NULL CHECK (signal_type IN ('hiring', 'funding', 'program_milestone', 'other')),
     stage TEXT,
+    company_status TEXT,
+    team_size INTEGER,
+    -- YC's `industries` verbatim: the key is present on every live row,
+    -- all 6,252 bronze.api_ingest YC payloads and all 4,349 rows here.
+    -- 4,899 of the 6,252 bronze rows report more than one entry, which
+    -- is what makes it an array rather than a scalar. Singular
+    -- `industry` is `industries[0]` on all 6,252 of those payloads, so
+    -- storing it separately would be a derived duplicate. Source's own
+    -- vocabulary, untranslated, including the literal 'Unspecified'.
+    industries TEXT[],
+    -- YC's `all_locations` verbatim, e.g. 'San Francisco, CA, USA; Remote'.
+    -- Kept as the source's display string rather than split here: it is a
+    -- human-facing field with no guaranteed structure, so the parse into
+    -- Gold's country/city is Gold's interpretation to own (section 4.3).
+    all_locations TEXT,
+    -- YC's `former_names` verbatim. Non-null on all 4,349 rows of
+    -- silver.yc_listings, of which 2,064 are an empty array. NULL and
+    -- empty are kept distinct on purpose: NULL means the source did
+    -- not report prior names at all. 3,054 is a bronze.api_ingest
+    -- count, that many of the 6,252 YC payloads carrying at least one.
+    -- Not cleaned: entries include case variants of the current name
+    -- and self-referential ones, e.g. ['Imgix', 'imgix']. Captured
+    -- because Silver owns faithful capture, and read by nothing yet:
+    -- recall needs name-based matching, which is Jira KAN-4.
+    former_names TEXT[],
+    -- YC's `batch` verbatim, e.g. 'Winter 2022': the funded batch the
+    -- company joined YC in. Deliberately not derived from occurred_on,
+    -- which carries YC's unrelated `launched_at`. 49 distinct live
+    -- values, spanning 'Summer 2006' to 'Winter 2027', of which one row
+    -- reads 'Unspecified'; bronze.api_ingest holds 51 spanning 'Summer
+    -- 2005' to 'Winter 2027', because 'Summer 2005' and 'Winter 2006'
+    -- are absent here, every one of their rows being Acquired or
+    -- Inactive. See db/schema/silver-yc-batch.sql for the evidence that
+    -- the two dates are independent.
+    batch TEXT,
     description TEXT,
     occurred_on TIMESTAMPTZ,
     url TEXT,
@@ -55,6 +97,18 @@ CREATE TABLE silver.resolved_signals (
     company_name_raw TEXT NOT NULL,
     signal_type TEXT NOT NULL CHECK (signal_type IN ('hiring', 'funding', 'program_milestone', 'other')),
     stage TEXT,
+    -- Cross-source table, so unlike the per-source staging tables these are
+    -- YC-shaped by circumstance rather than by design: an HN row has no
+    -- registry status and no headcount, so all of them are NULL for it.
+    -- Gold treats a NULL here as "this source does not know", never as a
+    -- value that clears one an earlier source supplied.
+    company_status TEXT,
+    team_size INTEGER,
+    industries TEXT[],
+    all_locations TEXT,
+    former_names TEXT[],
+    -- YC's funded batch, verbatim. See silver.yc_listings.batch.
+    batch TEXT,
     description TEXT,
     occurred_on TIMESTAMPTZ,
     url TEXT,

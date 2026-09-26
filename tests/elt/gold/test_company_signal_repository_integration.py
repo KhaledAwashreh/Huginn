@@ -1,49 +1,24 @@
 """Live-Postgres integration coverage for
 `PostgresCompanySignalRepository`.
 
-Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
-The fake-repository unit tests elsewhere (test_company_signal_repository.py)
-can't verify real SQL execution against gold.company_signal and the join
-against gold.company (column names, the key_derivation filter, the
-(source, source_stable_id) ON CONFLICT upsert); this is that verification.
-See ADR-0007.
+Runs against the throwaway Postgres that tests/conftest.py provisions,
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). The fake-repository
+unit tests elsewhere (test_company_signal_repository.py) can't verify real
+SQL execution against gold.company_signal and the join against gold.company
+(column names, the key_derivation filter, the (source, source_stable_id)
+ON CONFLICT upsert); this is that verification. See ADR-0007.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import UTC, datetime
 
 import psycopg
-import pytest
 
 from huginn.elt.gold.models import ResolvedSignalForFact
 from huginn.elt.gold.repositories.company_signal_repository import (
     PostgresCompanySignalRepository,
-)
-
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
-
-
-def _database_reachable() -> bool:
-    """Return whether the configured integration database accepts a query."""
-    if not DATABASE_URL:
-        return False
-    try:
-        with (
-            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
-            conn.cursor() as cur,
-        ):
-            cur.execute("SELECT 1")
-        return True
-    except psycopg.OperationalError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="HUGINN_DATABASE_URL not set or Postgres unreachable",
 )
 
 
@@ -87,7 +62,9 @@ def _insert_resolved_signal(
     )
 
 
-def test_read_and_upsert_signal_facts_round_trip():
+def test_read_and_upsert_signal_facts_round_trip(
+    integration_database_url: str,
+):
     """read_signal_facts joins to gold.company correctly, and upsert_signal
     is idempotent on (source, source_stable_id): calling it twice with a
     changed description leaves exactly one row with the latest content.
@@ -98,13 +75,13 @@ def test_read_and_upsert_signal_facts_round_trip():
     source_stable_id = f"companysignaltest-{suffix}"
 
     try:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             company_id = _insert_company(cur, domain, "Acme")
             _insert_resolved_signal(
                 cur, source, source_stable_id, domain, "first description"
             )
 
-        with PostgresCompanySignalRepository(DATABASE_URL) as repository:
+        with PostgresCompanySignalRepository(integration_database_url) as repository:
             facts = repository.read_signal_facts()
 
         matching = [f for f in facts if f.source_stable_id == source_stable_id]
@@ -115,7 +92,7 @@ def test_read_and_upsert_signal_facts_round_trip():
         assert fact.signal_type == "hiring"
         assert fact.description == "first description"
 
-        with PostgresCompanySignalRepository(DATABASE_URL) as repository:
+        with PostgresCompanySignalRepository(integration_database_url) as repository:
             repository.upsert_signal(fact)
 
         updated_fact = ResolvedSignalForFact(
@@ -128,10 +105,10 @@ def test_read_and_upsert_signal_facts_round_trip():
             description="second description",
             occurred_at=fact.occurred_at,
         )
-        with PostgresCompanySignalRepository(DATABASE_URL) as repository:
+        with PostgresCompanySignalRepository(integration_database_url) as repository:
             repository.upsert_signal(updated_fact)
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT description FROM gold.company_signal "
                 "WHERE source = %s AND source_stable_id = %s",
@@ -142,7 +119,7 @@ def test_read_and_upsert_signal_facts_round_trip():
         assert len(rows) == 1
         assert rows[0][0] == "second description"
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM gold.company_signal WHERE source = %s AND source_stable_id = %s",
                 (source, source_stable_id),

@@ -6,7 +6,7 @@ Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing
 
 ## Status
 
-Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver, Gold, and the scoring/digest layers are not yet built.
+Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests, but no live run has driven them yet. The scoring and digest layers are not built.
 
 ## Setup
 
@@ -22,7 +22,7 @@ uv run pytest
 ## Running ingestion
 
 ```
-uv run python -m huginn.ingestion
+uv run python -m huginn.elt.ingestion
 ```
 
 Fetches HN and YC once and writes to Bronze, recording a row per source per run in `ops.job_runs`. One source failing does not abort the other (`IngestionService`, architecture document section 5).
@@ -30,7 +30,7 @@ Fetches HN and YC once and writes to Bronze, recording a row per source per run 
 No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade past cron): schedule it with a plain crontab entry, redirecting output since library code does not configure logging itself (`adr/0005-logging-required-from-day-one.md`, the entrypoint owns that via `logging.basicConfig`):
 
 ```
-0 9 * * * cd /path/to/Huginn && /path/to/uv run python -m huginn.ingestion >> /var/log/huginn-ingestion.log 2>&1
+0 9 * * * cd /path/to/Huginn && /path/to/uv run python -m huginn.elt.ingestion >> /var/log/huginn-ingestion.log 2>&1
 ```
 
 ## Running the management foundation
@@ -46,7 +46,8 @@ KAN-72 handoff.
 
 ```
 src/huginn/
-    ingestion/       ports (ApiSourcePort, RawStorePort, StatePort), IngestionService,
+    elt/
+        ingestion/   ports (ApiSourcePort, RawStorePort, StatePort), IngestionService,
                      per-source adapters, __main__.py (CLI entrypoint)
     bronze/           content-hash watermarking, Postgres-backed RawStorePort/StatePort
     silver/           entity resolution

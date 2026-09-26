@@ -14,9 +14,12 @@ from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
 from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
+from huginn.elt.ingestion.adapters import yc
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
+from huginn.elt.ingestion.connectors.algolia import AlgoliaConnector
+from huginn.elt.ingestion.connectors.firebase import FirebaseConnector
 from huginn.elt.ingestion.service import IngestionService
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
@@ -25,6 +28,8 @@ from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 # the stateful cross-run quota tracker architecture-notes/
 # opencorporates-fetch-plan.md section 7 explicitly defers.
 OPENCORPORATES_MAX_CALLS = 50
+
+logger = logging.getLogger(__name__)
 
 
 def build_service(config: Config) -> IngestionService:
@@ -35,6 +40,10 @@ def build_service(config: Config) -> IngestionService:
     The `bronze.api_ingest` repository is built once here and injected, so
     every consumer of that table shares one implementation of its queries.
     `StatePort`/`PostgresApiIngestState` still has no caller (Jira KAN-46).
+
+    This is also where the third-party API clients are constructed and handed
+    to the adapters that use them, so the adapters never build their own
+    transport and the whole service stays constructible without a network call.
 
     Unlike `HackerNewsAdapter`/`YcDirectoryAdapter`, `OpenCorporatesAdapter`
     is not stateless: it needs a Gold read to learn which company names this
@@ -57,8 +66,14 @@ def build_service(config: Config) -> IngestionService:
 
     return IngestionService(
         sources=[
-            HackerNewsAdapter(),
-            YcDirectoryAdapter(),
+            HackerNewsAdapter(firebase=FirebaseConnector()),
+            YcDirectoryAdapter(
+                algolia=AlgoliaConnector(
+                    app_id=yc.YC_ALGOLIA_APP_ID,
+                    index=yc.YC_ALGOLIA_INDEX,
+                    api_key=config.yc_algolia_api_key,
+                )
+            ),
             OpenCorporatesAdapter(
                 company_loader=load_opencorporates_companies,
                 max_calls=OPENCORPORATES_MAX_CALLS,
@@ -83,11 +98,23 @@ def main() -> None:
     regardless of which sources fail), but the exit code is the only signal
     cron-based alerting can act on, so it must not stay 0 when a source
     genuinely failed.
+
+    A missing required variable is logged and exits 1 the same way. It
+    cannot reach `job_runs`, since no service is built when config loading
+    fails, so the log record is the whole of the available signal. The
+    handler is narrow on purpose: `config.py` raises `RuntimeError` for a
+    missing variable, and anything else it raises is a defect that should
+    keep propagating rather than exit as a clean non-zero.
     """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
-    failed_count = build_service(load_config()).run_once()
+    try:
+        config = load_config()
+    except RuntimeError as error:
+        logger.error("%s", error)
+        sys.exit(1)
+    failed_count = build_service(config).run_once()
     if failed_count:
         sys.exit(1)
 

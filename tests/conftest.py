@@ -1,117 +1,59 @@
 """Shared pytest fixtures for the whole suite. See CLAUDE.md code standard
 4 and Jira KAN-52.
+
+The integration database is provisioned here, never discovered. A suite that
+falls back to whatever the developer's environment happens to name re-runs the
+whole pipeline over real dev rows and creates scratch databases on the
+developer's own server, so the only URL an integration test ever sees is the one
+the fixture below starts.
+
+How that database gets built is not decided here. `tests/postgres_harness.py`
+owns it, because the management suite needs an identically provisioned
+Postgres and two independent answers to this question had already diverged:
+only this one stamped the database, so only this one could be checked for
+provenance. The fixture here is the ELT suite's use of that shared policy.
 """
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
-from pathlib import Path
+from collections.abc import Iterator
 
-import psycopg
+import pytest
 from dotenv import load_dotenv
 
+from tests.postgres_harness import TEST_DATABASE_STAMP, provisioned_postgres
+
 load_dotenv()
+"""Nothing here connects through the developer's URL, so the only reason to
+read .env is tests/test_integration_database_isolation.py, which needs the
+value to prove the suite is pointed somewhere else. Removing this would
+silently disarm that tripwire.
+"""
 
 logger = logging.getLogger(__name__)
 
-
-def _database_reachable(database_url: str | None) -> bool:
-    if not database_url:
-        return False
-    try:
-        with psycopg.connect(database_url, connect_timeout=2) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except psycopg.Error:
-        return False
+__all__ = ["TEST_DATABASE_STAMP", "integration_database_url"]
 
 
-_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "db" / "schema"
-_SCHEMA_FILES = (
-    "00_extensions.sql",
-    "ops.sql",
-    "bronze.sql",
-    "silver.sql",
-    "gold.sql",
-    "operational.sql",
-)
-"""Same order as .github/workflows/ci.yml's "Apply database schema" step:
-extensions before any table, then dependency order (operational
-references gold; the rest reference nothing outside their own schema).
-"""
+@pytest.fixture(scope="session")
+def integration_database_url() -> Iterator[str]:
+    """Yield a connection URL to a throwaway Postgres holding the production schema.
 
-_container = None
+    Fails rather than skips when testcontainers or Docker is unavailable.
+    Because the fixture is session-scoped and only integration tests request
+    it, that failure is confined to them: the DB-free unit tests still run and
+    still pass, and the run as a whole exits non-zero. Skipping was the wrong
+    answer for a suite whose integration tests are the point, since an
+    unreachable daemon, a Docker Hub rate limit, or a failed image pull would
+    otherwise produce a green build with every real-SQL and every migration
+    test silently absent, which reads exactly like those tests passing.
 
-
-def pytest_configure(config) -> None:
-    """Must run before collection (HUGINN_DATABASE_URL needs to already be
-    set when each integration test module's own skip check fires) and must
-    never raise: an uncaught exception here aborts the whole pytest run,
-    not just the integration tests this is meant to make optional.
+    The weaker failure this also guards against is a suite that quietly falls
+    back to a reachable database and runs against whatever the developer keeps
+    in it. Nothing here reads the environment to choose a target; the
+    provisioned database is stamped with TEST_DATABASE_STAMP and
+    tests/test_integration_database_isolation.py asserts the stamp is present.
     """
-    global _container
-    if _database_reachable(os.environ.get("HUGINN_DATABASE_URL")):
-        return
-
-    try:
-        from testcontainers.community.postgres import PostgresContainer
-    except ImportError:
-        logger.warning(
-            "testcontainers not installed (uv sync should have installed "
-            "the dev group); integration tests will skip"
-        )
-        return
-
-    container = None
-    try:
-        container = PostgresContainer(
-            "postgres:16-alpine",
-            username="postgres",
-            password="huginn",
-            dbname="huginn",
-            driver=None,
-        )
-        container.start()
-    except Exception as exc:
-        # Construction itself (not just start()) can fail, e.g. if the
-        # Docker client can't be initialized — guard the whole thing, not
-        # just start(), and only attempt cleanup if construction actually
-        # produced a container to stop.
-        if container is not None:
-            with contextlib.suppress(Exception):
-                container.stop()
-        logger.warning(
-            "testcontainers: could not start a Postgres container, "
-            "integration tests will skip: %s",
-            exc,
-        )
-        return
-
-    database_url = container.get_connection_url()
-
-    # Unlike the container-start step above, a failure here is not treated
-    # as "fall back to skip": by this point Docker and Postgres have both
-    # already proven themselves working (the container started and accepted
-    # a connection), so an exception applying db/schema/*.sql means the SQL
-    # itself is broken, not that the environment is unavailable. Swallowing
-    # that into a quiet skip would hide a real schema bug behind a false
-    # "tests skipped" result instead of a loud failure.
-    try:
-        with psycopg.connect(database_url, autocommit=True) as conn:
-            for filename in _SCHEMA_FILES:
-                conn.execute((_SCHEMA_DIR / filename).read_text())
-    except Exception:
-        with contextlib.suppress(Exception):
-            container.stop()
-        raise
-
-    _container = container
-    os.environ["HUGINN_DATABASE_URL"] = database_url
-
-
-def pytest_unconfigure(config) -> None:
-    if _container is not None:
-        with contextlib.suppress(Exception):
-            _container.stop()
+    with provisioned_postgres("huginn") as database_url:
+        yield database_url

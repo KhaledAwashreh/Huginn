@@ -1,18 +1,7 @@
-from pathlib import Path
-
 import psycopg
 
 from huginn.management.database import PostgresReadiness
-
-SCHEMA_DIR = Path(__file__).resolve().parents[2] / "db" / "schema"
-SCHEMA_FILES = (
-    "00_extensions.sql",
-    "ops.sql",
-    "bronze.sql",
-    "silver.sql",
-    "gold.sql",
-    "operational.sql",
-)
+from tests.postgres_harness import SCHEMA_DIR, SCHEMA_FILES
 
 
 def test_ready_requires_bootstrapped_tables(

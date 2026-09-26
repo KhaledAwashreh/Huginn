@@ -56,16 +56,19 @@ Current state only. One row per company, always. Overwritten in place when any f
 - Id: GUID
 - Domain: String (durable natural key from entity resolution)
 - Name: String
-- BusinessSector: String (Type 2 tracked, see CompanyHistory)
-- CompanyType: Enum (Enterprise, Startup, SME)
-- Country: String
-- City: String
+- Stage: String (source's own funding/development classification, free text; Type 1)
+- CompanyStatus: String (registry lifecycle as the source spells it, free text. YC's vocabulary is Active/Inactive/Acquired/Public, but Acquired and Inactive are filtered out before Silver, so in practice this holds `Active`, `Public`, or NULL for a company only an HN signal knows about; Type 1)
+- BusinessSector: List of Strings (multi-valued; YC's `industries` verbatim, order preserved, no Huginn-side taxonomy mapping, and the source's own `Unspecified` kept as-is; Type 2 tracked, see CompanyHistory)
+- CompanyScale: Enum (0-10, 11-100, 101-1000, 1001+) (headcount bands derived from YC's `team_size`; Huginn's own vocabulary, not a source's, which is why the schema constrains it. Type 1)
+- LegalForm: String (legal form, free text and jurisdiction specific, e.g. "Private Limited Company", "LLC", "C Corp". Renamed from CompanyType, which did not say what the column holds and sat among `company_`-prefixed columns on three unrelated axes. A different axis from CompanyScale; see architecture-notes/opencorporates-fetch-plan.md section 4)
+- Country: String (parsed in Gold from YC's `all_locations` display string, first location's last comma segment; a bare `Remote` or an empty string yields no value rather than a guess; Type 1)
+- City: String (parsed in Gold from YC's `all_locations`, first location's first comma segment; left null when a location names no city of its own, e.g. `Singapore, Singapore`; Type 1)
+- Notes: String (nullable; free text about the company, each value opening with the source that supplied it, e.g. `YC Summer 2023`. One column rather than one per source per fact, because a second portal's batch, founding year, or registry field is inevitable, and the prefix keeps a reader able to tell whose statement it is while YC is the only source writing one: the prefix is hardcoded and is a label, not a merge key, so a second portal's value would overwrite this one and be labelled YC. Composed in Gold, not captured in Silver, because the prefix is Huginn's vocabulary. Type 1 with no `CompanyHistory` counterpart: a note is descriptive, so a change in wording is not a recorded attribute change)
 - Address: String
 - PhoneNumber: String
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
-- IcpFilterPass: Boolean (Type 2 tracked, see CompanyHistory)
-- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010)
+- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. Nothing writes it yet, so it is NULL for every row today and the ADR-0010 candidate gate cannot yet exclude an already-searched company)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
@@ -75,9 +78,8 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 - Id: GUID
 - CompanyId: GUID
 - Domain: String (denormalized for convenience)
-- BusinessSector: String
+- BusinessSector: List of Strings
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes)
-- IcpFilterPass: Boolean
 - ValidFrom: DateTimeOffset
 - ValidTo: DateTimeOffset
 
@@ -178,7 +180,7 @@ Per-source staging tables, one per source, all sharing this shape — conformed 
 - Id: GUID
 - StableId: String
 - CompanyNameRaw: String
-- Website: String (nullable — ~11% of sampled HN posts have no extractable URL)
+- Website: String (nullable; 178 of the 273 live `silver.hn_postings` rows carry no extractable URL, 65%)
 - SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
 - Stage: String (nullable)
 - Description: String
@@ -188,17 +190,38 @@ Per-source staging tables, one per source, all sharing this shape — conformed 
 - UpdatedOn: DateTimeOffset
 
 ## YcListingStaging (silver.yc_listings)
+Holds only companies this tool can act on. A company whose YC `status` is `Acquired` or `Inactive` is landed in Bronze exactly as fetched and stays there, but the Silver parser declines to promote it, so a company first seen in an excluded state never reaches this table or anywhere downstream. `Public` is kept: a listed company is also not a prospect, but the rule is "no longer operating independently", not "not Active". A missing `status` is kept too, because absent means the source did not say, which is not the same claim as acquired.
+
+The exclusion gates promotion and does not retract it. A company staged while `Active` and later reported `Acquired` keeps its existing row, because the loader skips the same `stable_id` and writes nothing for it; that row is removed only by a full Silver rebuild or an explicit delete, neither of which the current pipeline performs on every run. Live counts: 4,349 of 6,252 YC rows are staged, 1,903 skipped.
+
+A second, distinct skip reason declines a hit: an absent or null `launched_at`. `OccurredOn` is the signal's own date and no layer invents a substitute for it, so a listing YC reports no launch date for cannot be dated and is not promoted. This is a source-side data gap rather than a business rule, and the loader reports it under its own count rather than folding it into the excluded one, so a rise in undated listings is visible as a data problem instead of hiding behind a deliberate exclusion. A hit that is both acquired and undated is counted once, as not a prospect, because the status check runs first.
+
+The not-a-prospect bucket is deliberately count-only, with no per-row warning: 1,903 of 6,252 live rows are excluded by design, so naming each one would bury the summary and the genuinely surprising buckets. The undated bucket does name each listing, because a rise in it is a source-side problem worth chasing to a specific YC `id`. A row too malformed to parse is counted as rejected and logged with its `id` and the exception type, since bronze is the as-fetched record and that `id` is the only handle back to the offending payload. A fifth bucket catches a skip reason the summary does not name, so a reason added later cannot be filed silently under a business rule. All five counts account for every bronze row read, so a row lost to a missing bucket shows up as a total that does not add up.
+
+A missing optional field is not a reason to decline a row, only to make it thinner, and the two policies differ on purpose. `Description` is NULL when neither `long_description` nor `one_liner` is present, `""` when both are present and empty, and the `one_liner` fallback otherwise, which is why 386 live rows carrying an empty `long_description` keep their tagline text. NULL and `""` stay distinct for the same reason `Industries` and `FormerNames` keep them distinct.
 - Id: GUID
 - StableId: String
 - CompanyNameRaw: String
 - Website: String (nullable)
 - SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
 - Stage: String (nullable)
+- CompanyStatus: String (nullable; YC's registry lifecycle. Only `Active` or `Public` can appear here: `Acquired` and `Inactive` never reach Silver, see above)
+- TeamSize: Integer (nullable; YC's headcount as an integer, *not* a band, see Company.CompanyScale)
+- Industries: List of Strings (nullable; YC's `industries` verbatim and in source order. The singular `industry` key is not stored: it is `industries[0]` on every one of the 6,252 live `bronze.api_ingest` YC payloads, so it would be a derived duplicate. The plural key is present on all 6,252 of those payloads and on all 4,349 live `silver.yc_listings` rows, and not one of them is an empty array. NULL when the source omits the key, which is distinct from an empty list)
+- AllLocations: String (nullable; YC's human-facing location display string, kept unparsed. Splitting it into Country and City is Gold's interpretation to own, the same reason `team_size` stays raw here and becomes `company_scale` there)
+- FormerNames: List of Strings (nullable; YC's prior names, verbatim and not cleaned up, e.g. a self-referential `Leaders In Tech (formerly InnerSpace)` is kept as-is. Captured but not yet read by anything: recall needs name-based matching, which is KAN-4. On `silver.yc_listings` the column is non-null on all 4,349 live rows and 2,064 of those are an empty array rather than a list of names. NULL and empty stay distinct on purpose, NULL meaning the key was absent, which `_as_str_tuple` in `src/huginn/elt/silver/yc_staging.py` documents and why. 3,054 is a Bronze count, not a Silver one: that many of the 6,252 live `bronze.api_ingest` YC payloads carry at least one name)
+- Batch: String (nullable; the funded batch the company joined YC in, as YC spells it, e.g. `Winter 2022`. 49 distinct live values in `silver.yc_listings`, spanning `Summer 2006` to `Winter 2027`, and 51 in `bronze.api_ingest`, spanning `Summer 2005` to `Winter 2027`. `Summer 2005` and `Winter 2006` are absent from Silver because every one of their rows is Acquired or Inactive and the parser declines those, so the two counts differ by exactly those batches. No live row in either table has a NULL batch, and exactly one, YC's own directory entry, reads `Unspecified`. That literal is one of the counts above rather than an addition to them, and it is stored as given rather than folded into null because the source stating it has no batch is a different claim from the key being absent.
+
+  This is not `OccurredOn`, and the two are not interchangeable. `OccurredOn` carries YC's `launched_at`, which is when YC published the company, and the two dates are largely independent: the 90-company `Fall 2026` batch has 90 distinct `launched_at` values spanning 19 months, and every one of the eleven `silver.yc_listings` batches from `Summer 2006` to `Winter 2011` has its earliest `launched_at` on exactly 2012-01-17. Read the same range on `bronze.api_ingest`, which holds thirteen such batches, and one of them breaks the pattern: `Summer 2008`'s earliest is 2010-01-17, one row of that batch's 22, the other 21 sitting on 2012-01-17, and that one row is `Inactive`, which is why Silver never sees the exception. Airbnb's documented case is founded August 2008, batch `W09`, `launched_at` 2012-01-17. Three separate dates.
+
+  No founding date exists on this source at all: YC's API payload carries none. The YC profile page does publish `year_founded`, but reaching it means a `web_scrape` of `ycombinator.com/companies/<slug>`, a different ingestion mechanism, not a column here)
 - Description: String
 - OccurredOn: DateTimeOffset (nullable)
 - Url: String
 - IngestedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
+
+These six are YC-only: `CompanyStatus`, `TeamSize`, `Industries`, `AllLocations`, `FormerNames`, `Batch`. HN's freeform comments carry none of them, so these columns exist on this table alone rather than as nullable columns on every source's table (ADR-0001 anticipated exactly this case), and all six are NULL on every HN row of `silver.resolved_signals`. `HnPostingStaging` has the same shape minus these six.
 
 (Additional per-source staging tables follow this same shape as sources are added.)
 
@@ -211,6 +234,12 @@ Fed by all staging tables together. Still event grain — one row per original s
 - CompanyNameRaw: String
 - SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
 - Stage: String (nullable)
+- CompanyStatus: String (nullable; NULL for every HN row, which has no registry status)
+- TeamSize: Integer (nullable; NULL for every HN row, which has no headcount)
+- Industries: List of Strings (nullable; carried through from `YcListingStaging`, NULL for every HN row)
+- AllLocations: String (nullable; carried through from `YcListingStaging` unparsed, NULL for every HN row)
+- FormerNames: List of Strings (nullable; carried through from `YcListingStaging`, NULL for every HN row)
+- Batch: String (nullable; carried through from `YcListingStaging`, NULL for every HN row)
 - Description: String
 - OccurredOn: DateTimeOffset (nullable)
 - Url: String

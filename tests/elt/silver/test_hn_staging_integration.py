@@ -1,11 +1,11 @@
 """Live-Postgres integration coverage for HnStagingLoader.load().
 
-Skipped automatically when HUGINN_DATABASE_URL is unset or unreachable.
+Runs against the throwaway Postgres that tests/conftest.py provisions,
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why).
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import psycopg
@@ -16,33 +16,13 @@ from huginn.elt.silver.repositories.hn_staging_repository import (
     PostgresHnStagingRepository,
 )
 
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
 
-
-def _database_reachable() -> bool:
-    if not DATABASE_URL:
-        return False
-    try:
-        with (
-            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
-            conn.cursor() as cur,
-        ):
-            cur.execute("SELECT 1")
-        return True
-    except psycopg.OperationalError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="HUGINN_DATABASE_URL not set or Postgres unreachable",
-)
-
-
-def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
+def test_load_upserts_bronze_hn_comments_into_silver_hn_postings(
+    integration_database_url: str,
+):
     stable_id = str(uuid.uuid4().int)[:10]
     run_id = str(uuid.uuid4())
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO bronze.api_ingest (source, stable_id, payload, content_hash, run_id)
@@ -63,12 +43,12 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
         )
 
     try:
-        loader = HnStagingLoader(PostgresHnStagingRepository(DATABASE_URL))
+        loader = HnStagingLoader(PostgresHnStagingRepository(integration_database_url))
         written = loader.load()
 
         assert written >= 1
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT company_name_raw, description FROM silver.hn_postings WHERE stable_id = %s",
                 (stable_id,),
@@ -80,14 +60,14 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
 
         # Second load: same bronze row, must upsert in place, not duplicate.
         loader.load()
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM silver.hn_postings WHERE stable_id = %s",
                 (stable_id,),
             )
             assert cur.fetchone()[0] == 1
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.hn_postings WHERE stable_id = %s", (stable_id,)
             )
@@ -97,7 +77,9 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings():
             )
 
 
-def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
+def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch(
+    integration_database_url: str,
+):
     """The batch is one transaction, so a bronze row that fails must undo
     the rows already written alongside it.
 
@@ -122,9 +104,10 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
     # serves it from the UNIQUE (source, stable_id) index, so rows arrive in
     # bronze stable_id order. Two equal-length all-digit ids compare the same
     # under every collation, so sorting them here fixes the order; the '9'
-    # prefix also puts both after the real 8-digit HN ids, so genuine rows
-    # are written into the transaction ahead of the failure too. The
-    # precondition below re-checks this rather than trusting it.
+    # prefix also puts both after any 8-digit HN id another test in the same
+    # session left behind, so that row is written into the transaction ahead of
+    # the failure too. The precondition below re-checks this rather than
+    # trusting it.
     good_stable_id, bad_stable_id = sorted(
         ("9" + str(uuid.uuid4().int)[:9], "9" + str(uuid.uuid4().int)[:9])
     )
@@ -145,7 +128,7 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
         "text": "BadTestCo | Backend | Remote<p>Never written.",
     }
 
-    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+    with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO bronze.api_ingest (source, stable_id, payload, content_hash, run_id)
@@ -163,13 +146,13 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
         )
 
     try:
-        loader = HnStagingLoader(PostgresHnStagingRepository(DATABASE_URL))
+        loader = HnStagingLoader(PostgresHnStagingRepository(integration_database_url))
 
         # Precondition, not the assertion under test: if the read ever came
         # back with the bad row first, nothing would have been written
         # before the failure and the rollback assertion below would pass
         # for the wrong reason. Fail loudly instead of silently passing.
-        with PostgresHnStagingRepository(DATABASE_URL) as repository:
+        with PostgresHnStagingRepository(integration_database_url) as repository:
             read_ids = [str(payload.get("id")) for payload in repository.read("hn")]
         assert read_ids.index(str(good_payload["id"])) < read_ids.index(
             str(bad_payload["id"])
@@ -181,7 +164,7 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
         with pytest.raises(KeyError):
             loader.load()
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM silver.hn_postings WHERE stable_id = ANY(%s)",
                 ([good_stable_id, bad_stable_id],),
@@ -190,7 +173,7 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch():
 
         assert row_count == 0
     finally:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM silver.hn_postings WHERE stable_id = ANY(%s)",
                 ([good_stable_id, bad_stable_id],),
