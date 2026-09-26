@@ -141,8 +141,8 @@ def provisioned_postgres(dbname: str, *, apply_schema: bool = True) -> Iterator[
     about whether the schema was applied.
     """
     container = _start_container(dbname)
-    database_url = container.get_connection_url()
     try:
+        database_url = container.get_connection_url()
         with psycopg.connect(database_url, autocommit=True) as conn:
             if apply_schema:
                 for filename in SCHEMA_FILES:

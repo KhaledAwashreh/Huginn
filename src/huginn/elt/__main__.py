@@ -8,13 +8,14 @@ dependency-aware skip-on-failure policy this module implements.
 
 Scoped to HN and YC today. OpenCorporates and EU-Startups are deferred
 (user directive, not yet wired to Silver/Gold regardless): this module's
-own ingestion stage constructs a narrower HN+YC-only `IngestionService`
-rather than importing
-`huginn.elt.ingestion.__main__.build_service`, so running this entrypoint
-never needs `HUGINN_OPENCORPORATES_API_TOKEN` and never depends on Gold
-already holding rows (which `build_service`'s OpenCorporates wiring does,
-to pick candidate company names). `python -m huginn.elt.ingestion` keeps
-working unchanged for ingestion-only, OpenCorporates included.
+own ingestion stage builds its `IngestionService` from
+`huginn.elt.ingestion.__main__.build_hn_yc_sources`, the HN+YC-only
+subset `build_service` also uses, rather than `build_service` itself, so
+running this entrypoint never needs `HUGINN_OPENCORPORATES_API_TOKEN` and
+never depends on Gold already holding rows (which `build_service`'s
+OpenCorporates wiring does, to pick candidate company names).
+`python -m huginn.elt.ingestion` keeps working unchanged for
+ingestion-only, OpenCorporates included.
 """
 
 from __future__ import annotations
@@ -36,11 +37,7 @@ from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepos
 from huginn.elt.gold.repositories.company_signal_repository import (
     PostgresCompanySignalRepository,
 )
-from huginn.elt.ingestion.adapters import yc
-from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
-from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
-from huginn.elt.ingestion.connectors.algolia import AlgoliaConnector
-from huginn.elt.ingestion.connectors.firebase import FirebaseConnector
+from huginn.elt.ingestion.__main__ import build_hn_yc_sources
 from huginn.elt.ingestion.service import IngestionService
 from huginn.elt.silver.hn_staging import HnStagingLoader
 from huginn.elt.silver.manual_review import ManualReviewQueuer
@@ -104,16 +101,7 @@ def _run_ingestion(config: Config) -> int:
     skipped rather than running against a run that did not complete.
     """
     service = IngestionService(
-        sources=[
-            HackerNewsAdapter(firebase=FirebaseConnector()),
-            YcDirectoryAdapter(
-                algolia=AlgoliaConnector(
-                    app_id=yc.YC_ALGOLIA_APP_ID,
-                    index=yc.YC_ALGOLIA_INDEX,
-                    api_key=config.yc_algolia_api_key,
-                )
-            ),
-        ],
+        sources=build_hn_yc_sources(config),
         raw_store=PostgresApiIngestStore(
             PostgresApiIngestRepository(config.database_url)
         ),

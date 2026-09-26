@@ -26,7 +26,7 @@ CREATE TABLE ops.job_runs (
     source TEXT NOT NULL,
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     finished_at TIMESTAMPTZ,
-    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'succeeded', 'failed', 'skipped')),
+    status TEXT NOT NULL DEFAULT 'running' CONSTRAINT job_runs_status_check CHECK (status IN ('running', 'succeeded', 'failed', 'skipped')),
     rows_written INTEGER NOT NULL DEFAULT 0,
     error TEXT
 );

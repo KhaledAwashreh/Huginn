@@ -32,6 +32,28 @@ OPENCORPORATES_MAX_CALLS = 50
 logger = logging.getLogger(__name__)
 
 
+def build_hn_yc_sources(config: Config) -> list[YcDirectoryAdapter | HackerNewsAdapter]:
+    """Construct the HN and YC adapters, wired to their real connectors.
+
+    Shared by `build_service` below and
+    `huginn.elt.__main__._run_ingestion`, so the two entrypoints' HN/YC
+    wiring cannot drift apart. Limited to these two sources on purpose:
+    OpenCorporates needs a Gold read and its own token, which is why
+    `huginn.elt.__main__`'s pipeline entrypoint does not include it (see
+    that module's own docstring).
+    """
+    return [
+        HackerNewsAdapter(firebase=FirebaseConnector()),
+        YcDirectoryAdapter(
+            algolia=AlgoliaConnector(
+                app_id=yc.YC_ALGOLIA_APP_ID,
+                index=yc.YC_ALGOLIA_INDEX,
+                api_key=config.yc_algolia_api_key,
+            )
+        ),
+    ]
+
+
 def build_service(config: Config) -> IngestionService:
     """Construct IngestionService with the real adapters and Postgres-backed
     ports. Separated from `main()` so the wiring is testable without a live
@@ -66,14 +88,7 @@ def build_service(config: Config) -> IngestionService:
 
     return IngestionService(
         sources=[
-            HackerNewsAdapter(firebase=FirebaseConnector()),
-            YcDirectoryAdapter(
-                algolia=AlgoliaConnector(
-                    app_id=yc.YC_ALGOLIA_APP_ID,
-                    index=yc.YC_ALGOLIA_INDEX,
-                    api_key=config.yc_algolia_api_key,
-                )
-            ),
+            *build_hn_yc_sources(config),
             OpenCorporatesAdapter(
                 company_loader=load_opencorporates_companies,
                 max_calls=OPENCORPORATES_MAX_CALLS,
