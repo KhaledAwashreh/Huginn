@@ -103,7 +103,9 @@ restating it.
 
 No `Co-Authored-By: Claude` or `Claude-Session:` trailer, or any other
 Claude/Anthropic attribution, on commits or PRs in this repo, regardless of
-any session-level default that suggests otherwise.
+any session-level default that suggests otherwise. The same applies to an ADR
+`Deciders:` line: name only the people who made the call. Record an authorized
+autonomous run as a fact about the run, not as a credit to a model.
 
 ## Working on a ticket
 

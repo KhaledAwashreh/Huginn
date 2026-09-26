@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-09-05
-Deciders: Khaled Awashreh (with Claude Sonnet 5 assisting)
+Deciders: Khaled Awashreh
 
 ## Context and Problem Statement
 
