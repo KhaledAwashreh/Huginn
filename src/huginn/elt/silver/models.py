@@ -35,7 +35,7 @@ class YcListingStaging:
     website: str | None
     signal_type: str
     stage: str | None
-    description: str
+    description: str | None
     occurred_on: datetime
     url: str
     # YC-only staging columns. HN's freeform comments have neither a
@@ -89,7 +89,7 @@ class StagedSignal:
     website: str | None
     signal_type: str
     stage: str | None
-    description: str
+    description: str | None
     occurred_on: datetime
     url: str
     # YC-shaped by circumstance, not by design: this is the cross-source
@@ -119,7 +119,7 @@ class ResolvedSignalRecord:
     company_name_raw: str
     signal_type: str
     stage: str | None
-    description: str
+    description: str | None
     occurred_on: datetime
     url: str
     key_derivation: str
