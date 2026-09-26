@@ -1,43 +1,43 @@
-from pathlib import Path
+"""Database fixtures for the management suite.
 
-import psycopg
+The provisioning itself is `tests/postgres_harness.provisioned_postgres`, the
+same policy tests/conftest.py uses for the ELT suite. This file existed
+separately and rebuilt the container and the schema-file list inline, which
+meant the two suites had two answers to "how does a test get a database" and
+only one of them stamped what it created, so only one could be checked for
+provenance. See tests/postgres_harness.py.
+
+Two databases, because two different starting states are needed:
+
+1. `management_database_url` has the schema applied, for the tests that
+   exercise real operational tables.
+2. `empty_management_database_url` has none, for the tests that assert what
+   the readiness probe makes of a database that was never bootstrapped.
+
+The second stays function-scoped. It is not merely unused, it must be unused,
+so making it session-scoped to save container starts would let the first test
+that creates a table decide what every later test sees, and
+test_ready_detects_missing_required_column would stop meaning anything.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
 import pytest
-from testcontainers.community.postgres import PostgresContainer
 
-SCHEMA_DIR = Path(__file__).resolve().parents[2] / "db" / "schema"
-SCHEMA_FILES = (
-    "00_extensions.sql",
-    "ops.sql",
-    "bronze.sql",
-    "silver.sql",
-    "gold.sql",
-    "operational.sql",
-)
+from tests.postgres_harness import provisioned_postgres
 
 
 @pytest.fixture(scope="session")
-def management_database_url():
-    with PostgresContainer(
-        "postgres:16-alpine",
-        username="postgres",
-        password="huginn",
-        dbname="huginn_management_test",
-        driver=None,
-    ) as container:
-        database_url = container.get_connection_url()
-        with psycopg.connect(database_url, autocommit=True) as conn:
-            for filename in SCHEMA_FILES:
-                conn.execute((SCHEMA_DIR / filename).read_text())
+def management_database_url() -> Iterator[str]:
+    with provisioned_postgres("huginn_management_test") as database_url:
         yield database_url
 
 
 @pytest.fixture
-def empty_management_database_url():
-    with PostgresContainer(
-        "postgres:16-alpine",
-        username="postgres",
-        password="huginn",
-        dbname="huginn_management_empty_test",
-        driver=None,
-    ) as container:
-        yield container.get_connection_url()
+def empty_management_database_url() -> Iterator[str]:
+    with provisioned_postgres(
+        "huginn_management_empty_test", apply_schema=False
+    ) as database_url:
+        yield database_url
