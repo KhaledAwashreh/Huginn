@@ -23,6 +23,35 @@ logger = logging.getLogger(__name__)
 
 _HN_ITEM_URL = "https://news.ycombinator.com/item?id={id}"
 
+# The exception types a malformed Firebase item can produce. Dict indexing
+# gives KeyError, and `datetime.fromtimestamp` gives TypeError for a
+# non-number, then three distinct out-of-range bands as the magnitude
+# grows: ValueError first, for a timestamp the calendar cannot represent,
+# then OverflowError past the platform's `time_t`, then OSError with errno
+# 75 where the C library refuses the value outright. The last two are not
+# ValueError subclasses and the order is not obvious, so all three are
+# named and all three are tested. Per BEST_PRACTICES.md:197-200, catch the
+# narrowest type actually expected rather than bare `Exception`, so a bug
+# of an unexpected class still propagates.
+_UNPARSEABLE_PAYLOAD_ERRORS = (
+    KeyError,
+    TypeError,
+    ValueError,
+    OverflowError,
+    OSError,
+)
+
+
+def _item_field(payload: object, field: str) -> object:
+    """Read one payload field for a log line, or None when not readable.
+
+    The `isinstance` guard rather than a bare `payload.get` because this
+    runs on the rejection path, where the payload may be the very thing
+    that failed to parse.
+    """
+    return payload.get(field) if isinstance(payload, dict) else None
+
+
 _TAG_RE = re.compile(r"<[^>]+>")
 _HREF_RE = re.compile(r'<a\s+href="([^"]+)"', re.IGNORECASE)
 _LINK_REMOVE_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
@@ -130,25 +159,59 @@ class HnStagingLoader:
 
     def load(self) -> int:
         """Parse and upsert every current HN bronze row, returning the
-        count of rows upserted (always equals the count of parseable
-        bronze rows, excluding skipped non-comment/deleted ones; the
-        write executes on every row even when nothing changed).
+        count of rows upserted (equals the count of parseable, comment-type
+        bronze rows; the write executes on every row even when nothing
+        changed).
+
+        An unparseable item is caught rather than allowed to escape because
+        bronze is immutable and re-read whole every run, so an escaping
+        error is not one lost run but a permanent outage for the table.
+        `huginn.elt.silver.ports` owns why the batch shares one transaction.
+
+        `_UNPARSEABLE_PAYLOAD_ERRORS` cannot by itself tell bad source data
+        from a bug here, because KeyError, TypeError and ValueError are what
+        both raise. That is the accepted cost of not catching bare
+        `Exception`, per BEST_PRACTICES.md:197-200: a defect of one of those
+        classes surfaces as a rising rejected count and a per-row record
+        naming the id, not as a traceback. A defect of any other class still
+        propagates. An exception from `upsert` is deliberately not caught,
+        since a SQL error aborts the transaction and swallowing it would
+        hide a real failure without recovering the batch.
+
+        A rejected item is logged with `logger.warning`, not the
+        `logger.exception` ADR-0005 asks for at the point handling a
+        failure: a decline is an expected, counted outcome of untrusted
+        input rather than a fault, and a traceback per bad row would bury
+        the batch summary that is the actual report.
         """
         # See huginn.elt.silver.ports's module docstring for why this whole
         # method shares one `with self._repository:` scope.
         with self._repository:
             payloads = self._repository.read("hn")
             written = 0
+            rejected = 0
             for payload in payloads:
-                staging_row = parse_hn_posting(payload)
+                try:
+                    staging_row = parse_hn_posting(payload)
+                except _UNPARSEABLE_PAYLOAD_ERRORS as error:
+                    rejected += 1
+                    logger.warning(
+                        "silver.hn_postings: rejected unparseable item id=%r (%s: %s)",
+                        _item_field(payload, "id"),
+                        type(error).__name__,
+                        error,
+                    )
+                    continue
                 if staging_row is None:
                     continue
                 self._repository.upsert(staging_row)
                 written += 1
 
         logger.info(
-            "silver.hn_postings load: %d written (of %d bronze rows)",
+            "silver.hn_postings load: %d written, %d rejected as unparseable "
+            "(of %d bronze rows)",
             written,
+            rejected,
             len(payloads),
         )
         return written

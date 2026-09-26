@@ -9,7 +9,6 @@ from __future__ import annotations
 import uuid
 
 import psycopg
-import pytest
 
 from huginn.elt.silver.hn_staging import HnStagingLoader
 from huginn.elt.silver.repositories.hn_staging_repository import (
@@ -77,27 +76,30 @@ def test_load_upserts_bronze_hn_comments_into_silver_hn_postings(
             )
 
 
-def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch(
+def test_a_client_side_parse_failure_does_not_roll_back_the_good_row_in_that_batch(
     integration_database_url: str,
 ):
-    """The batch is one transaction, so a bronze row that fails must undo
-    the rows already written alongside it.
+    """A bronze row that fails to parse must not undo the rows already
+    written alongside it in the same batch, on a real database.
 
-    Guards PostgresHnStagingRepository.__exit__'s rollback branch, which
-    unit tests cannot reach: a fake writer has no transaction to roll back,
-    so only a real database can show that the good row's upsert did not
-    survive the bad row's failure. Without the rollback this test finds one
-    committed row instead of none.
+    Guards `HnStagingLoader.load`'s narrow catch against
+    `PostgresHnStagingRepository.__exit__`'s rollback branch, which a unit
+    test cannot reach: a fake writer has no transaction to roll back, so
+    only a real database can show that the good row's upsert survives a
+    later client-side failure in the same connection scope. Before the fix
+    this test guards, a mid-batch `KeyError` escaped `load()` entirely, and
+    `__exit__` rolled the whole transaction back, losing the good row too.
+    Bronze is immutable and re-read whole every run, so that was a
+    permanent outage for the table, not one bad run: a single malformed
+    payload could wedge the entire source forever.
 
     The failure has to be raised client-side, before anything reaches the
     server, or the test proves nothing: a server-side error aborts the
-    transaction, and COMMIT on an aborted transaction succeeds by rolling
-    back, so a broken `__exit__` that always commits would still leave zero
-    rows. A payload with no `time` therefore fails inside
-    `parse_hn_posting`, mid-loop, with the connection's transaction still
-    healthy and the good row's insert pending inside it. If the parser is
-    ever hardened to tolerate a missing `time`, this test needs a different
-    client-side mid-loop failure, not a server-side one.
+    transaction regardless of any catch in Python. A payload with no `time`
+    fails inside `parse_hn_posting`, mid-loop, with the connection's
+    transaction still healthy and the good row's insert already pending
+    inside it, which is exactly the scenario the fix's `_UNPARSEABLE_PAYLOAD_ERRORS`
+    catch (`KeyError` among them) is meant to isolate.
     """
     # Read order decides whether the good row is written before the bad one
     # fails, and the bronze SELECT has no ORDER BY: Postgres
@@ -161,17 +163,21 @@ def test_a_failure_mid_batch_rolls_back_every_row_in_that_batch(
             "good row written before the failure to mean anything"
         )
 
-        with pytest.raises(KeyError):
-            loader.load()
+        written = loader.load()
+
+        assert written == 1
 
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT count(*) FROM silver.hn_postings WHERE stable_id = ANY(%s)",
+                "SELECT stable_id FROM silver.hn_postings WHERE stable_id = ANY(%s)",
                 ([good_stable_id, bad_stable_id],),
             )
-            (row_count,) = cur.fetchone()
+            surviving_ids = {row[0] for row in cur.fetchall()}
 
-        assert row_count == 0
+        assert surviving_ids == {good_stable_id}, (
+            "the good row must survive the bad row's rejection in the same "
+            "batch, and the bad row must never be written"
+        )
     finally:
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
