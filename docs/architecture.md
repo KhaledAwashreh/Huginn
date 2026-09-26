@@ -152,14 +152,14 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 
 ### 4.3 Gold
 
-A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0008, below).
+A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0012, below).
 
-`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0008 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match`, whose grain is one row per user and company but which carries no unique constraint on that pair yet).
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0012 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match`, whose grain is one row per user and company but which carries no unique constraint on that pair yet).
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
 1. `Company`: exactly one row per company, always, overwritten in place whenever any field changes.
-2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`), holding the superseded values with a `ValidFrom`/`ValidTo` window. ADR-0008 removed the third field, `IcpFilterPass`, because an ICP verdict is per-user.
+2. `CompanyHistory`: a new row only when a Type 2 tracked field changes (`BusinessSector`, `TeamCompositionSignal`), holding the superseded values with a `ValidFrom`/`ValidTo` window. ADR-0012 removed the third field, `IcpFilterPass`, because an ICP verdict is per-user.
 3. Type 1 cosmetic fields: overwrite in `Company`, no history.
 
 The reason for the split: every scoring read needs current state, and a single Type 2 table makes that read depend on remembering an `IsCurrent` filter every time. `Company` cannot return a stale row.
@@ -425,4 +425,4 @@ Jira epic KAN-16 holds tech debt (tools and libraries chosen without deep review
 6. `architecture-notes/industry-references-elt-medallion.md`: Databricks, Kimball, dbt, and Fivetran primary sources this document's pipeline design is checked against.
 7. `docs/sources/*.md`: per-source access and risk findings.
 8. Jira epic KAN-16: tracked tech debt and research debt.
-9. `adr/0001-per-source-silver-staging-tables.md`, `adr/0002-gold-current-history-split.md`, and `adr/0008-icp-verdict-not-on-company-dimension.md`: decision records for the Silver and Gold layer designs above. ADR-0008 governs section 4.3's `Company` and `CompanyHistory` columns.
+9. `adr/0001-per-source-silver-staging-tables.md`, `adr/0002-gold-current-history-split.md`, and `adr/0012-icp-verdict-not-on-company-dimension.md`: decision records for the Silver and Gold layer designs above. ADR-0012 governs section 4.3's `Company` and `CompanyHistory` columns.

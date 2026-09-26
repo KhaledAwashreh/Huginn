@@ -40,7 +40,7 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `silver-yc-batch.sql` | `silver.yc_listings.batch` and its `resolved_signals` counterpart, the funded batch a company joined YC in |
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
-| `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0008 |
+| `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
 | `gold-rename-company-type-to-legal-form.sql` | `gold.company.company_type` renamed to `legal_form`, the axis the column actually holds |
 
 All thirteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:

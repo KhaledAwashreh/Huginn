@@ -27,7 +27,7 @@ def test_build_upsert_query_includes_only_columns_present_in_new_values():
 
 
 def test_build_upsert_query_updates_only_when_new_values_omits_name():
-    """The other shape, and the one `name` decides. Regression, ADR-0009: a
+    """The other shape, and the one `name` decides. Regression, ADR-0013: a
     Type-2-only write used to build an INSERT with no `name` in its column
     list, and because Postgres validates NOT NULL before ON CONFLICT is
     considered, that failed with NotNullViolation even when the row existed

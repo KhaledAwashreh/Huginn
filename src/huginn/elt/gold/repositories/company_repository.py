@@ -141,7 +141,7 @@ def build_upsert_query(
 ) -> tuple[str, tuple]:
     """Parameterized write over "domain" plus whichever `_COMPANY_COLUMNS`
     are present in `new_values`, in one of two shapes, chosen by whether
-    "name" is a key (ADR-0009, which records why a single statement cannot
+    "name" is a key (ADR-0013, which records why a single statement cannot
     cover both).
 
     With "name", one `INSERT ... ON CONFLICT (domain) DO UPDATE`: a new domain

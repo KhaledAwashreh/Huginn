@@ -1,6 +1,6 @@
 -- gold.company and gold.company_history lose icp_filter_pass.
 --
--- Why (ADR-0008): an ICP is one user's description of who they want to sell
+-- Why (ADR-0012): an ICP is one user's description of who they want to sell
 -- to, so the filter verdict is per-user, while gold.company is a shared
 -- dimension that the ELT pipeline writes without knowing anything about
 -- users. A single un-namespaced boolean cannot hold that verdict once a second

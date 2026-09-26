@@ -184,7 +184,7 @@ class CompanyWriter:
         entirely, so gold.company keeps whatever an earlier run wrote
         rather than being reset to NULL. Which columns are mergeable this
         way, and which instead need a null to clear them, is the open column
-        classification in Jira KAN-20. ADR-0008 removed the one column that
+        classification in Jira KAN-20. ADR-0012 removed the one column that
         had been named there, icp_filter_pass, because an ICP verdict is
         per-user and does not belong on a shared dimension.
         """

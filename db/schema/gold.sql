@@ -4,7 +4,7 @@
 -- Company holds exactly one row per company, always, overwritten in
 -- place. CompanyHistory gets a new row only when a Type 2 tracked field
 -- changes (business_sector and team_composition_signal; see
--- src/huginn/gold/dimensional.py TYPE_2_TRACKED_FIELDS, and ADR-0008 for the
+-- src/huginn/elt/gold/dimensional.py TYPE_2_TRACKED_FIELDS, and ADR-0012 for the
 -- third field this list used to have). This is a
 -- current-plus-history split, not a single SCD Type 2 table (ADR-0002):
 -- every scoring read needs current state, and this design removes the

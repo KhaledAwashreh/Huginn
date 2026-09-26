@@ -71,7 +71,7 @@ class CompanyRepositoryPort(Protocol):
 
         A `new_values` carrying "name" inserts or updates. Without it the
         write is update-only, and raises ValueError if it matched no row,
-        rather than reporting a company that was not written (ADR-0009, and
+        rather than reporting a company that was not written (ADR-0013, and
         `huginn.elt.gold.repositories.company_repository.build_upsert_query`).
         """
         ...

@@ -19,7 +19,7 @@ TYPE_2_TRACKED_FIELDS = (
 """Fields that trigger a CompanyHistory row on change. See ADR-0002.
 Everything else on Company is Type 1: overwritten in place, no history.
 
-`icp_filter_pass` was the third member until ADR-0008 removed it. An ICP is
+`icp_filter_pass` was the third member until ADR-0012 removed it. An ICP is
 per-user, so a single boolean on the shared dimension could not hold the
 verdict once a second user existed, and it had never been written non-default.
 """
