@@ -1,7 +1,7 @@
 """Live-Postgres integration coverage for PostgresJobRunWriter.write().
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. No DB-free unit test
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). No DB-free unit test
 exists alongside this one: unlike PostgresApiIngestStore's hash-compare
 decision, write() has no separable pure logic, it is a single parameterized
 upsert with nothing to decide (CLAUDE.md code standard 4, "wherever

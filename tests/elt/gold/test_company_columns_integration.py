@@ -3,7 +3,7 @@ database: every name Gold can bind into gold.company is a real column of the
 real table, and the generated statement for the whole set of them executes.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable.
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why).
 `tests/elt/gold/test_company.py` guards the writer against the repository's
 `_COMPANY_COLUMNS` allowlist, but both sides of that comparison are code, so
 a name wrong in db/schema/gold.sql and wrong in `_COMPANY_COLUMNS` the same

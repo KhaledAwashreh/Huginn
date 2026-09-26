@@ -15,7 +15,7 @@ from tests/conftest.py, so a stray CREATE or DROP cannot reach a
 developer's own server.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable.
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why).
 """
 
 from __future__ import annotations

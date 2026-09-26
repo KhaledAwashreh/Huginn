@@ -1,7 +1,7 @@
 """Live-Postgres integration coverage for PostgresApiIngestStore.write().
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. See
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). See
 docs/superpowers/plans/2026-09-08-kan-32-raw-store-port.md Task 4 and
 Global Constraint 8: the fake-cursor unit tests in test_api_ingest_store.py
 cannot verify real SQL execution against bronze.api_ingest (column names,

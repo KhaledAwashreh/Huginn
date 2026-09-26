@@ -1,7 +1,7 @@
 """Live-Postgres integration coverage for PostgresApiIngestState.last_hash().
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. See
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). See
 docs/superpowers/plans/2026-09-08-kan-33-state-port.md Task 2 and
 Global Constraint 6: the fake-cursor unit tests in
 test_api_ingest_state.py cannot verify real SQL execution against

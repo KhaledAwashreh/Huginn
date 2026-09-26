@@ -1,7 +1,7 @@
 """Live-Postgres integration coverage for CompanyWriter.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. write_all() is a
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). write_all() is a
 whole-table operation, so what matters here is that the rows it reads are
 the suite's own: pointed at a populated database, every one of them gets
 rewritten.

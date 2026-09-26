@@ -93,8 +93,8 @@ class StagedSignal:
     occurred_on: datetime
     url: str
     # YC-shaped by circumstance, not by design: this is the cross-source
-    # read shape, so an HN staged signal has None for both. Mirrors the
-    # nullable columns on silver.resolved_signals.
+    # read shape, so an HN staged signal has None for all six of these.
+    # Mirrors the nullable columns on silver.resolved_signals.
     company_status: str | None = None
     team_size: int | None = None
     industries: tuple[str, ...] | None = None

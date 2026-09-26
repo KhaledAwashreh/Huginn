@@ -4,7 +4,7 @@
 read, and the `upsert_company` write.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. The fake-repository
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). The fake-repository
 unit tests elsewhere (e.g. test_company.py) can't verify real SQL execution
 against gold.company (column names, the `business_sector IS NULL` filter,
 `created_at` ordering, the `LIMIT` bind, and which of the two write shapes

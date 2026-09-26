@@ -1,7 +1,7 @@
 """Live-Postgres integration coverage for ManualReviewQueuer.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable.
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why).
 """
 
 from __future__ import annotations

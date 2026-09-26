@@ -2,7 +2,7 @@
 `PostgresCompanySignalRepository`.
 
 Runs against the throwaway Postgres that tests/conftest.py provisions,
-skipped when testcontainers or Docker is unavailable. The fake-repository
+fails rather than skips when testcontainers or Docker is unavailable (tests/conftest.py explains why). The fake-repository
 unit tests elsewhere (test_company_signal_repository.py) can't verify real
 SQL execution against gold.company_signal and the join against gold.company
 (column names, the key_derivation filter, the (source, source_stable_id)
