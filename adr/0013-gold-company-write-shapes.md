@@ -1,4 +1,4 @@
-# 0009: The gold.company write has two shapes, and `name` decides which
+# 0013: The gold.company write has two shapes, and `name` decides which
 
 Status: Accepted
 Date: 2026-09-26
@@ -15,7 +15,8 @@ for a reason having nothing to do with the data it was handed.
 
 None of it is accidental, and none of it is visible at the call site. The
 constraint is that `name` is `gold.company`'s only NOT NULL column besides
-`domain` and has no default (`db/schema/gold.sql` lines 17 to 18). Postgres
+`domain` and has no default (the `name` and `domain` columns in
+`db/schema/gold.sql`). Postgres
 validates NOT NULL before `ON CONFLICT` is considered, so one statement cannot
 both insert a row and skip a column the caller does not have. Any single
 statement that inserts must supply a name.
@@ -59,8 +60,8 @@ reporting a success that wrote nothing.
    never seen.
 2. Good: the insert path keeps the race-free single-statement upsert.
 3. Good: `bump_current_since` stays unobservable on insert, because a fresh row
-   already receives `current_since = now()` from the column default
-   (`db/schema/gold.sql` line 96).
+   already receives `current_since = now()` from the `current_since` column
+   default (`db/schema/gold.sql`).
 4. Bad: the method named `upsert_company` has a mode in which it does not
    upsert. The name understates it.
 5. Bad: the failure mode is a `ValueError` at runtime rather than a type or
@@ -102,7 +103,7 @@ reporting a success that wrote nothing.
 1. `docs/architecture.md` section 4.3, the Gold layer.
 2. ADR-0002, the current-plus-history split that `current_since` and
    `bump_current_since` belong to.
-3. `db/schema/gold.sql` lines 17 to 18 and line 96, the `name` and `domain`
+3. `db/schema/gold.sql`, the `name` and `domain`
    NOT NULL columns and the `current_since` default.
 4. Jira KAN-43, the enrichment writer that is the intended caller of the
    update-only shape.

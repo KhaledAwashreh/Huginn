@@ -1,4 +1,4 @@
-# 0008: The ICP filter verdict does not belong on the shared company dimension
+# 0012: The ICP filter verdict does not belong on the shared company dimension
 
 Status: Accepted
 Date: 2026-09-25

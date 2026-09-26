@@ -6,7 +6,7 @@ Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing
 
 ## Status
 
-Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver, Gold, and the scoring/digest layers are not yet built.
+Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests, but no live run has driven them yet. The scoring and digest layers are not built.
 
 ## Setup
 
