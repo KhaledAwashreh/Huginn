@@ -48,7 +48,7 @@ All fourteen are idempotent: re-running one on a database it has already been ap
 
 1. Three of the fourteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
 2. The other eleven have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/conftest.py` applies the six base files listed above and none of the fourteen `ALTER` files, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
+3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/postgres_harness.py` applies the six base files listed above and none of the fourteen `ALTER` files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:
