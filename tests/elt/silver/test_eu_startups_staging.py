@@ -27,7 +27,7 @@ def _payload(html_name: str, url: str, lastmod: object = _BRIGHTROOM_LASTMOD) ->
     huginn.elt.ingestion.adapters.eu_startups.EuStartupsDiscoveryAdapter.fetch)."""
     return {
         "url": url,
-        "html": (_FIXTURES / html_name).read_text(),
+        "html": (_FIXTURES / html_name).read_text(encoding="utf-8"),
         "lastmod": lastmod,
     }
 
@@ -197,7 +197,7 @@ def test_parse_eu_startups_listing_returns_none_when_lastmod_has_no_timezone():
 def test_parse_eu_startups_listing_returns_none_when_title_is_missing():
     html = (
         (_FIXTURES / "listing_brightroom.html")
-        .read_text()
+        .read_text(encoding="utf-8")
         .replace("<title>Brightroom | EU-Startups</title>", "")
     )
 

@@ -147,10 +147,10 @@ def test_no_test_module_derives_its_connection_from_the_environment():
     point is the name appearing, not which expression consumes it.
     """
     offenders = sorted(
-        f"{path.relative_to(_TESTS_DIR)} ({variable})"
+        f"{path.relative_to(_TESTS_DIR).as_posix()} ({variable})"
         for path in _TESTS_DIR.rglob("*.py")
-        if str(path.relative_to(_TESTS_DIR)) not in _GUARD_FILES
-        and str(path.relative_to(_TESTS_DIR)) not in _ALLOWED_FILES
+        if path.relative_to(_TESTS_DIR).as_posix() not in _GUARD_FILES
+        and path.relative_to(_TESTS_DIR).as_posix() not in _ALLOWED_FILES
         for variable in _ENVIRONMENT_URL_VARIABLES
         if variable in path.read_text()
     )
