@@ -2,10 +2,17 @@
 and 5, which name cron plus a `job_runs` table as the orchestration
 mechanism, and Jira KAN-27.
 
-This module is the data model and writer contract. `IngestionService`
-(Jira KAN-28) calls `start_job_run`/`finish_job_run` and writes a row per
-source per run through `PostgresJobRunWriter` (Jira KAN-45), the concrete
-`JobRunWriterPort` implementation.
+`source` names a pipeline unit, not only an ingestion source, per
+adr/0014-pipeline-entry-point-and-stage-failure-policy.md: an ingestion
+source (`"hn"`, `"yc"`) when `IngestionService` (Jira KAN-28) writes the
+row, or a pipeline stage label (`"silver.hn_staging"`, `"gold.company"`,
+and so on) when `src/huginn/elt/__main__.py`'s `run_stages` writes it. No
+schema change accompanies this widened meaning: the column already held a
+short, freeform string.
+
+This module is the data model and writer contract. Both callers write a
+row per unit per run through `PostgresJobRunWriter` (Jira KAN-45), the
+concrete `JobRunWriterPort` implementation.
 """
 
 from __future__ import annotations
@@ -19,11 +26,20 @@ from typing import Protocol
 class JobRunStatus:
     """The lifecycle states of a `job_runs` row. See architecture document
     sections 3 and 5.
+
+    `SKIPPED` is distinct from `FAILED`: a stage that never ran because a
+    dependency did not succeed is not itself a fault, per
+    adr/0014-pipeline-entry-point-and-stage-failure-policy.md's
+    dependency-aware skip-on-failure policy. `src/huginn/elt/__main__.py`
+    is the only writer of `SKIPPED` today; `IngestionService` (Jira KAN-28)
+    never produces it, since ingestion isolates per-source failures rather
+    than modeling sources as a dependency chain.
     """
 
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 @dataclass(frozen=True)

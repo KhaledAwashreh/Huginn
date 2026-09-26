@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze/Silver/Gold ELT write path are built and live-verified; the domain, scoring, and digest layers above Gold are not yet built. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion (HN, YC, OpenCorporates) and the Bronze write path are built and live-verified. Silver and Gold are built and live-verified end to end for HN and YC via `python -m huginn.elt`; OpenCorporates and EU-Startups reach Bronze but are not yet wired into Silver/Gold. The domain, scoring, and digest layers above Gold are not yet built. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -214,7 +214,7 @@ Each adapter reaches its external API through a connector, a thin client constru
 
 Both Phase 0 sources are API-shaped, not scraped HTML. HN's official Firebase API needs no auth and has no rate limit. YC's directory has no official API but exposes a public, search-only Algolia key in its frontend, which Huginn queries directly rather than parsing rendered pages. `StatePort` holds the content-hash map from section 4 in place of a source-provided cursor.
 
-Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths, neither adopted now (Jira KAN-9).
+Orchestration is cron plus a `job_runs` table, the confirmed default at this scale. Prefect (self-hosted OSS) and GitHub Actions `schedule:` triggers are named upgrade paths, neither adopted now (Jira KAN-9). `python -m huginn.elt` is the pipeline entry point: Ingestion through Bronze, Silver staging and resolution, and Gold, run in dependency order and each recorded as its own `job_runs` row. `python -m huginn.elt.ingestion` remains available for an ingestion-only run. See adr/0014-pipeline-entry-point-and-stage-failure-policy.md for the entry point, the stage order and its dependency argument, and the dependency-aware skip-on-failure policy: a stage runs only if every stage it depends on succeeded, so one stage's failure does not block an unrelated stage.
 
 One risk is carried forward unresolved rather than quietly assumed: YC's Terms of Service explicitly prohibit scraping and data-mining, while its `robots.txt` says nothing about querying the Algolia backend directly. YC is locked as a Phase 0 source, but the legal exposure underneath that choice has not been closed out (Jira KAN-7).
 

@@ -26,6 +26,16 @@ from huginn.elt.silver.resolution import (
 
 logger = logging.getLogger(__name__)
 
+# How often resolve_all() logs progress at INFO, in rows processed. See
+# adr/0014's Context section: this stage's real network round trips per
+# row can add up to 30+ minutes with no database write until the end, so
+# a periodic, named progress line is what turns a long run into a visible
+# advance instead of an indistinguishable-from-a-hang wait. 100 balances
+# that against not flooding the log at real project volume (~6,000+
+# rows), yielding on the order of dozens of lines per run rather than
+# thousands.
+_PROGRESS_LOG_INTERVAL = 100
+
 
 _NON_COMPANY_HOSTS = frozenset(
     {
@@ -128,6 +138,21 @@ class SignalResolver:
         ADR-0006 for why this deviates from `huginn.elt.silver.ports`'s
         stated one-scope-per-orchestrator pattern, and why that's not a
         correctness loss for this orchestrator specifically.
+
+        This is the pipeline's longest stage by far: one `resolve_signal`
+        call per staged row, each doing a real network round trip via
+        `check_domain_reachable`, sequentially (Jira KAN-62, not
+        concurrent; see `adr/0014-pipeline-entry-point-and-stage-failure-policy.md`'s
+        Context section for why this run's actual behavior was traced
+        before deciding that stage's failure policy). At real project
+        volume this can run 30 minutes or more with no database write
+        until the very end, so progress is logged periodically at INFO,
+        naming the row last processed, precisely so a long run is
+        visibly advancing rather than indistinguishable from a hang.
+        Per-row detail beyond that stays at DEBUG
+        (`huginn.elt.silver.resolution.check_domain_reachable`'s own
+        docstring already explains why: naming every one of ~6,000+ checks
+        at INFO would flood the log).
         """
         with self._repository:
             staged_signals = (
@@ -135,11 +160,21 @@ class SignalResolver:
                 + self._repository.read_yc_listings()
             )
 
+        total = len(staged_signals)
         resolved_records = []
-        for signal in staged_signals:
+        for processed, signal in enumerate(staged_signals, start=1):
             resolved_company_key, key_derivation = resolve_signal(
                 signal.source, signal.stable_id, signal.website
             )
+            if processed % _PROGRESS_LOG_INTERVAL == 0 or processed == total:
+                logger.info(
+                    "silver.resolved_signals resolve_all: processed %d of %d "
+                    "(last: source=%s stable_id=%s)",
+                    processed,
+                    total,
+                    signal.source,
+                    signal.stable_id,
+                )
             resolved_records.append(
                 ResolvedSignalRecord(
                     source=signal.source,

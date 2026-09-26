@@ -6,7 +6,7 @@ Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing
 
 ## Status
 
-Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests, but no live run has driven them yet. The scoring and digest layers are not built.
+Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented, covered by unit and integration tests, and live-verified end to end for HN and YC via the pipeline entrypoint below. OpenCorporates and EU-Startups are ingested into Bronze but not yet wired into Silver/Gold through that entrypoint. The scoring and digest layers are not built.
 
 ## Setup
 
@@ -19,19 +19,27 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/00_extensions.sql -f db/schema/ops.sql 
 uv run pytest
 ```
 
-## Running ingestion
+## Running the pipeline
+
+```
+uv run python -m huginn.elt
+```
+
+Runs the full pipeline once: Ingestion (HN + YC) through Bronze, Silver staging and resolution, and Gold, in dependency order, recording one row per stage per run in `ops.job_runs` (`adr/0014-pipeline-entry-point-and-stage-failure-policy.md`). A stage runs only if every stage it depends on succeeded; an unrelated stage's failure does not block it (dependency-aware skip-on-failure, same default as dbt's `dbt run`/`dbt build` and Airflow's `all_success` trigger rule). OpenCorporates and EU-Startups are not included in this entrypoint's ingestion stage yet.
+
+No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade past cron): schedule it with a plain crontab entry, redirecting output since library code does not configure logging itself (`adr/0005-logging-required-from-day-one.md`, the entrypoint owns that via `logging.basicConfig`):
+
+```
+0 9 * * * cd /path/to/Huginn && /path/to/uv run python -m huginn.elt >> /var/log/huginn-pipeline.log 2>&1
+```
+
+## Running ingestion only
 
 ```
 uv run python -m huginn.elt.ingestion
 ```
 
-Fetches HN and YC once and writes to Bronze, recording a row per source per run in `ops.job_runs`. One source failing does not abort the other (`IngestionService`, architecture document section 5).
-
-No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade past cron): schedule it with a plain crontab entry, redirecting output since library code does not configure logging itself (`adr/0005-logging-required-from-day-one.md`, the entrypoint owns that via `logging.basicConfig`):
-
-```
-0 9 * * * cd /path/to/Huginn && /path/to/uv run python -m huginn.elt.ingestion >> /var/log/huginn-ingestion.log 2>&1
-```
+Fetches HN, YC, and OpenCorporates once and writes to Bronze only, recording a row per source per run in `ops.job_runs`. One source failing does not abort the others (`IngestionService`, architecture document section 5). Use this instead of the full pipeline above when only a fresh Bronze fetch is wanted, for example while OpenCorporates/EU-Startups are not yet wired into Silver/Gold.
 
 ## Running the management foundation
 
@@ -47,8 +55,9 @@ KAN-72 handoff.
 ```
 src/huginn/
     elt/
+        __main__.py   CLI entrypoint for the full pipeline (`python -m huginn.elt`)
         ingestion/   ports (ApiSourcePort, RawStorePort, StatePort), IngestionService,
-                     per-source adapters, __main__.py (CLI entrypoint)
+                     per-source adapters, __main__.py (ingestion-only CLI entrypoint)
     bronze/           content-hash watermarking, Postgres-backed RawStorePort/StatePort
     silver/           entity resolution
     gold/             Company/CompanyHistory current-plus-history update logic
