@@ -38,6 +38,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from psycopg import sql
 
 TEST_DATABASE_STAMP = "huginn-testcontainer"
 """Written to the provisioned database's own COMMENT, and asserted by
@@ -146,7 +147,11 @@ def provisioned_postgres(dbname: str, *, apply_schema: bool = True) -> Iterator[
             if apply_schema:
                 for filename in SCHEMA_FILES:
                     conn.execute((SCHEMA_DIR / filename).read_text())
-            conn.execute(f"COMMENT ON DATABASE {dbname} IS '{TEST_DATABASE_STAMP}'")
+            conn.execute(
+                sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                    sql.Identifier(dbname), sql.Literal(TEST_DATABASE_STAMP)
+                )
+            )
     except Exception:
         with contextlib.suppress(Exception):
             container.stop()

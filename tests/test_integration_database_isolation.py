@@ -90,10 +90,11 @@ available routes, so naming none of the three is enough to show the file cannot
 reach a database.
 
 The management fixtures are deliberately absent. Naming
-`management_database_url` appears in two allowlisted files only inside their own
-test function names, which would make this check fire on a rename rather than on
-a real capability. The management suite's provenance is covered by the stronger
-positive check instead: the stamp assertion above it, which asks the database
+`management_database_url` appears in one allowlisted file only, inside its
+own test function names, which would make this check fire on a rename
+rather than on a real capability. The management suite's provenance is
+covered by the stronger positive check instead: the stamp assertion in
+tests/management/test_database_isolation.py, which asks the database
 whether the suite provisioned it."""
 
 _ENVIRONMENT_URL_VARIABLES = ("HUGINN_DATABASE_URL", "HUGINN_MANAGEMENT_DATABASE_URL")
