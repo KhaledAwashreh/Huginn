@@ -42,12 +42,13 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
 | `gold-rename-company-type-to-legal-form.sql` | `gold.company.company_type` renamed to `legal_form`, the axis the column actually holds |
+| `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 
-All thirteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
+All fourteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
 
-1. Two of the thirteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, and `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`.
+1. Three of the fourteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
 2. The other eleven have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/conftest.py` applies the six base files listed above and none of the thirteen `ALTER` files, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
+3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/conftest.py` applies the six base files listed above and none of the fourteen `ALTER` files, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:
