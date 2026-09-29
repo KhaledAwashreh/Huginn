@@ -14,20 +14,20 @@ Implemented and verified the raw-store path for `bronze.web_scrape_ingest`:
 The `eu-startups-discovery` CLI command wires the EU discovery adapter through
 its dedicated transactional runner.
 
-## Next: atomic discovery checkpoint
+## 2026-09-30: Atomic discovery checkpoint
 
-Do not persist `DiscoveryWatermarkPort.save_watermark()` as currently called
-by `EuStartupsDiscoveryAdapter.fetch()`: it advances before the raw records
-are stored. Redesign the discovery result and orchestration boundary so Bronze
-writes, retry state, and watermark advancement commit atomically.
+1. EU discovery returns a `DiscoveryBatch` containing successful raw records,
+   an advisory proposed watermark, and failed listing outcomes.
+2. `PostgresEuStartupsDiscoveryRepository.commit_batch()` persists Bronze
+   rows, retry state, and the durable watermark in one transaction.
+3. A transaction-scoped advisory lock serializes overlapping discovery commits.
+4. Durable retry rows replay independently of the watermark, so later
+   successful listings can advance the checkpoint without losing failed URLs.
 
-Selected implementation boundary: EU discovery returns an explicit
-`DiscoveryBatch`, containing successful raw records, the proposed watermark,
-and failed URL outcomes. A dedicated EU discovery repository reads the prior
-watermark and persists the batch in one transaction. It owns three concerns:
-`bronze.web_scrape_ingest`, the source watermark, and per-URL failure state.
-This deliberately does not change the shared `IngestionService` contract;
-HN, YC, and OpenCorporates remain on `SourcePort.fetch() -> list[RawRecord]`.
+The dedicated repository owns `bronze.web_scrape_ingest`, the source
+watermark, and per-URL failure state. This deliberately does not change the
+shared `IngestionService` contract; HN, YC, and OpenCorporates remain on
+`SourcePort.fetch() -> list[RawRecord]`.
 
 Confirmed terminal-failure policy:
 
