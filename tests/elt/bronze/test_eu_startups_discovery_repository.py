@@ -141,6 +141,12 @@ def test_successful_listing_lastmod_lookup_uses_fixed_source_literal(monkeypatch
     ) in connection.cursor_instance.executed
 
 
+def test_record_upsert_allows_repairing_a_missing_stored_lastmod():
+    assert "payload ->> 'lastmod' IS NULL" in (
+        eu_startups_discovery_repository._WRITE_RECORD_SQL
+    )
+
+
 def test_commit_batch_rolls_back_and_closes_when_a_statement_fails(monkeypatch):
     class FailingCursor:
         def __init__(self):

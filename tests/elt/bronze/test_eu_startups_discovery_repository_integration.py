@@ -14,6 +14,7 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.types.json import Jsonb
 
 from huginn.elt.bronze.repositories import eu_startups_discovery_repository
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
@@ -316,6 +317,50 @@ def test_commit_batch_atomically_persists_row_and_watermark():
         _restore_eu_discovery_state([stable_id], [], previous_state)
 
 
+def test_commit_batch_repairs_legacy_record_without_lastmod():
+    repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
+    stable_id = f"task2-legacy-null-lastmod-{uuid.uuid4()}"
+    lastmod = "2026-09-05T12:00:00+00:00"
+    record = _record(stable_id, lastmod)
+    previous_state = _isolate_eu_discovery_state([stable_id], [])
+
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                "INSERT INTO bronze.web_scrape_ingest "
+                "(source, stable_id, payload, content_hash, run_id) "
+                "VALUES ('eu_startups', %s, %s, 'legacy-hash', %s::uuid)",
+                (
+                    stable_id,
+                    Jsonb(
+                        {
+                            "url": record.payload["url"],
+                            "html": "<main>legacy</main>",
+                        }
+                    ),
+                    str(uuid.uuid4()),
+                ),
+            )
+
+        assert (
+            repository.commit_batch(
+                DiscoveryBatch((record,), lastmod, ()), str(uuid.uuid4())
+            )
+            == 1
+        )
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            stored_payload = conn.execute(
+                "SELECT payload FROM bronze.web_scrape_ingest "
+                "WHERE source = 'eu_startups' AND stable_id = %s",
+                (stable_id,),
+            ).fetchone()[0]
+
+        assert stored_payload == record.payload
+    finally:
+        _restore_eu_discovery_state([stable_id], [], previous_state)
+
+
 def test_failed_commit_rolls_back_bronze_row_and_watermark_together():
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     baseline_id = f"task2-baseline-{uuid.uuid4()}"
@@ -373,8 +418,9 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
     stable_id = f"task3-stale-success-{uuid.uuid4()}"
     url = f"https://www.eu-startups.com/directory/{stable_id}/"
     newer_lastmod = "2026-09-10T00:00:00+00:00"
+    newer_failure_lastmod = "2026-09-11T00:00:00+00:00"
     stale_lastmod = "2026-09-05T00:00:00+00:00"
-    failure_proposed_watermark = "2026-09-09T23:59:59+00:00"
+    failure_proposed_watermark = "2026-09-10T23:59:59+00:00"
     stale_batch_proposed_watermark = "2026-09-20T00:00:00+00:00"
     previous_state = _isolate_eu_discovery_state([stable_id], [url])
 
@@ -391,7 +437,7 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
                 ("2026-09-01T00:00:00+00:00",),
             )
 
-        newer_failure = FailedListingOutcome(url, newer_lastmod, 503)
+        newer_failure = FailedListingOutcome(url, newer_failure_lastmod, 503)
         repository.commit_batch(
             DiscoveryBatch((), failure_proposed_watermark, (newer_failure,)),
             str(uuid.uuid4()),

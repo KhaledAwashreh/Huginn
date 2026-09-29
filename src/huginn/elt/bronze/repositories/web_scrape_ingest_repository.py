@@ -21,6 +21,15 @@ _WRITE_SQL = """
         run_id = EXCLUDED.run_id,
         fetched_at = now(),
         last_checked_at = now()
+    WHERE EXCLUDED.source <> 'eu_startups'
+       OR (
+            EXCLUDED.payload ->> 'lastmod' IS NOT NULL
+            AND (
+                bronze.web_scrape_ingest.payload ->> 'lastmod' IS NULL
+                OR (bronze.web_scrape_ingest.payload ->> 'lastmod')::timestamptz
+                   <= (EXCLUDED.payload ->> 'lastmod')::timestamptz
+            )
+       )
 """
 
 _TOUCH_SQL = """

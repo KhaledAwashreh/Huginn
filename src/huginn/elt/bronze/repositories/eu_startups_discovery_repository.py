@@ -44,7 +44,8 @@ _WRITE_RECORD_SQL = """
         run_id = EXCLUDED.run_id,
         fetched_at = now(),
         last_checked_at = now()
-    WHERE (bronze.web_scrape_ingest.payload ->> 'lastmod')::timestamptz
+    WHERE bronze.web_scrape_ingest.payload ->> 'lastmod' IS NULL
+       OR (bronze.web_scrape_ingest.payload ->> 'lastmod')::timestamptz
           <= (EXCLUDED.payload ->> 'lastmod')::timestamptz
 """
 

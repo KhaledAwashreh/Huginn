@@ -13,6 +13,8 @@ from huginn.elt.ingestion.models import RawRecord
 
 logger = logging.getLogger(__name__)
 
+_ATOMIC_DISCOVERY_SOURCES = frozenset({"eu_startups"})
+
 
 class PostgresWebScrapeIngestStore:
     """`RawStorePort` implementation for web-scrape Bronze rows only."""
@@ -41,6 +43,10 @@ class PostgresWebScrapeIngestStore:
                 "PostgresWebScrapeIngestStore only writes "
                 "bronze.web_scrape_ingest ('web_scrape' mechanism); "
                 f"got mechanism={mechanism!r}."
+            )
+        if source in _ATOMIC_DISCOVERY_SOURCES:
+            raise ValueError(
+                f"source {source!r} requires its dedicated atomic discovery runner"
             )
 
         try:

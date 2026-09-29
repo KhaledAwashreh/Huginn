@@ -50,16 +50,16 @@ def test_write_inserts_new_web_scrape_record():
     run_id = "11111111-1111-1111-1111-111111111111"
 
     written = store.write(
-        "eu_startups",
+        "directory_source",
         "web_scrape",
         [RawRecord(stable_id="brightroom", payload=payload)],
         run_id,
     )
 
-    assert repository.calls[0] == ("lookup_hash", "eu_startups", "brightroom")
+    assert repository.calls[0] == ("lookup_hash", "directory_source", "brightroom")
     assert repository.calls[1][:4] == (
         "write",
-        "eu_startups",
+        "directory_source",
         "brightroom",
         payload,
     )
@@ -77,11 +77,11 @@ def test_write_uses_presence_aware_configured_stable_fields():
     repository = _FakeWebScrapeIngestRepository([None])
     store = PostgresWebScrapeIngestStore(
         repository,
-        stable_fields_by_source={"eu_startups": stable_fields},
+        stable_fields_by_source={"directory_source": stable_fields},
     )
 
     store.write(
-        "eu_startups",
+        "directory_source",
         "web_scrape",
         [RawRecord(stable_id="brightroom", payload=payload)],
         "11111111-1111-1111-1111-111111111111",
@@ -101,7 +101,7 @@ def test_write_touches_matching_record_and_writes_changed_record_in_one_batch():
     store = PostgresWebScrapeIngestStore(repository)
 
     written = store.write(
-        "eu_startups",
+        "directory_source",
         "web_scrape",
         [
             RawRecord(stable_id="unchanged", payload=unchanged),
@@ -110,7 +110,7 @@ def test_write_touches_matching_record_and_writes_changed_record_in_one_batch():
         "11111111-1111-1111-1111-111111111111",
     )
 
-    assert repository.calls[1] == ("touch", "eu_startups", "unchanged")
+    assert repository.calls[1] == ("touch", "directory_source", "unchanged")
     assert repository.calls[3][0] == "write"
     assert written == 1
     assert repository.enter_count == 1
@@ -123,8 +123,24 @@ def test_write_rejects_non_web_scrape_mechanism_before_repository_io():
 
     with pytest.raises(NotImplementedError):
         store.write(
-            "eu_startups",
+            "directory_source",
             "api",
+            [RawRecord(stable_id="brightroom", payload={})],
+            "11111111-1111-1111-1111-111111111111",
+        )
+
+    assert repository.enter_count == 0
+    assert repository.calls == []
+
+
+def test_write_rejects_source_owned_by_atomic_discovery_runner():
+    repository = _FakeWebScrapeIngestRepository([])
+    store = PostgresWebScrapeIngestStore(repository)
+
+    with pytest.raises(ValueError, match="dedicated atomic discovery runner"):
+        store.write(
+            "eu_startups",
+            "web_scrape",
             [RawRecord(stable_id="brightroom", payload={})],
             "11111111-1111-1111-1111-111111111111",
         )
@@ -139,7 +155,7 @@ def test_write_rejects_invalid_run_id_before_repository_io():
 
     with pytest.raises(ValueError):
         store.write(
-            "eu_startups",
+            "directory_source",
             "web_scrape",
             [RawRecord(stable_id="brightroom", payload={})],
             "not-a-uuid",
@@ -157,7 +173,7 @@ def test_write_logs_written_and_skipped_counts(caplog):
 
     with caplog.at_level(logging.INFO):
         store.write(
-            "eu_startups",
+            "directory_source",
             "web_scrape",
             [
                 RawRecord(stable_id="new", payload={"html": "new"}),

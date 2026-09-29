@@ -23,12 +23,13 @@ def test_build_write_query_parameterizes_jsonb_and_uuid_run_id():
         "eu_startups", "brightroom", payload, "hash123", "run-uuid-1"
     )
 
-    assert "eu_startups" not in sql
     assert "brightroom" not in sql
     assert "hash123" not in sql
     assert "run-uuid-1" not in sql
     assert "bronze.web_scrape_ingest" in sql
     assert "ON CONFLICT" in sql
+    assert "EXCLUDED.source <> 'eu_startups'" in sql
+    assert "payload ->> 'lastmod' IS NULL" in sql
     assert "%s::uuid" in sql
     assert params[:2] == ("eu_startups", "brightroom")
     assert isinstance(params[2], Jsonb)
