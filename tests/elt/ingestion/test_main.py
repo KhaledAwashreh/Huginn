@@ -189,6 +189,8 @@ def test_build_eu_startups_discovery_runner_wires_real_dependencies():
     assert isinstance(runner._adapter, EuStartupsDiscoveryAdapter)
     assert isinstance(runner._repository, PostgresEuStartupsDiscoveryRepository)
     assert runner._repository._database_url == config.database_url
+    assert isinstance(runner._job_run_writer, PostgresJobRunWriter)
+    assert runner._job_run_writer._database_url == config.database_url
 
 
 class FakeService:

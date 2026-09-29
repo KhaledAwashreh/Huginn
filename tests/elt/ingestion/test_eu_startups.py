@@ -511,7 +511,7 @@ def test_fetch_skips_invalid_persisted_retry_and_processes_valid_candidate(
     retryable_listings = (
         FailedListingOutcome(
             url=invalid_retry_url,
-            lastmod="2026-09-08T00:00:00+00:00",
+            lastmod="not-a-timestamp",
             status_code=503,
         ),
         FailedListingOutcome(
@@ -580,3 +580,115 @@ def test_fetch_uses_newest_lastmod_for_duplicate_url_independent_of_order(
     assert len(batch.records) == 1
     assert batch.records[0].payload["lastmod"] == "2026-09-10T00:00:00+00:00"
     assert batch.proposed_watermark == "2026-09-10T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    ("sitemap_lastmods", "retry_lastmod", "watermark", "expected_lastmod"),
+    [
+        (
+            ("2026-09-09T00:00:00+00:00", "2026-09-08T00:00:00+00:00"),
+            "2026-09-05T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+            "2026-09-09T00:00:00+00:00",
+        ),
+        (
+            ("2026-09-08T00:00:00+00:00", "2026-09-09T00:00:00+00:00"),
+            "2026-09-05T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+            "2026-09-09T00:00:00+00:00",
+        ),
+        (
+            ("2026-09-10T00:00:00+00:00", "2026-09-09T00:00:00+00:00"),
+            "2026-09-05T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+        ),
+        (
+            ("2026-09-11T00:00:00+00:00", "2026-09-09T00:00:00+00:00"),
+            "2026-09-05T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+            "2026-09-11T00:00:00+00:00",
+        ),
+        (
+            ("2026-09-10T00:00:00+00:00", "2026-09-09T00:00:00+00:00"),
+            "2026-09-11T00:00:00+00:00",
+            "2026-09-10T00:00:00+00:00",
+            "2026-09-11T00:00:00+00:00",
+        ),
+    ],
+)
+def test_fetch_merges_durable_retries_with_the_maximum_sitemap_lastmod(
+    monkeypatch, sitemap_lastmods, retry_lastmod, watermark, expected_lastmod
+):
+    listing_url = "https://www.eu-startups.com/directory/durable-retry/"
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    listing_sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>{listing_url}</loc><lastmod>{sitemap_lastmods[0]}</lastmod></url>
+<url><loc>{listing_url}</loc><lastmod>{sitemap_lastmods[1]}</lastmod></url>
+</urlset>"""
+    detail_urls = []
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        detail_urls.append(url)
+        return "<main>durable retry</main>"
+
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    batch = adapter.fetch(
+        watermark,
+        (
+            FailedListingOutcome(
+                url=listing_url,
+                lastmod=retry_lastmod,
+                status_code=503,
+            ),
+        ),
+    )
+
+    assert detail_urls == [listing_url]
+    assert len(batch.records) == 1
+    assert batch.records[0].payload["lastmod"] == expected_lastmod
+
+
+def test_fetch_applies_the_watermark_to_sitemap_only_urls(monkeypatch):
+    sitemap_index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://www.eu-startups.com/wpbdp_listing-sitemap-test.xml</loc></sitemap>
+</sitemapindex>"""
+    older_url = "https://www.eu-startups.com/directory/sitemap-older/"
+    at_watermark_url = "https://www.eu-startups.com/directory/sitemap-at-watermark/"
+    newer_url = "https://www.eu-startups.com/directory/sitemap-newer/"
+    listing_sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>{older_url}</loc><lastmod>2026-09-09T00:00:00+00:00</lastmod></url>
+<url><loc>{at_watermark_url}</loc><lastmod>2026-09-10T00:00:00+00:00</lastmod></url>
+<url><loc>{newer_url}</loc><lastmod>2026-09-11T00:00:00+00:00</lastmod></url>
+</urlset>"""
+    detail_urls = []
+
+    def fake_fetch_page(url: str) -> str:
+        if "sitemap_index" in url:
+            return sitemap_index_xml
+        if "wpbdp_listing-sitemap" in url:
+            return listing_sitemap_xml
+        detail_urls.append(url)
+        return "<main>sitemap only</main>"
+
+    adapter = EuStartupsDiscoveryAdapter()
+    monkeypatch.setattr(adapter, "fetch_page", fake_fetch_page)
+
+    batch = adapter.fetch("2026-09-10T00:00:00+00:00")
+
+    assert detail_urls == [newer_url]
+    assert [record.payload["lastmod"] for record in batch.records] == [
+        "2026-09-11T00:00:00+00:00"
+    ]

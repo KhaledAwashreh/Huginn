@@ -422,13 +422,16 @@ def test_stale_success_cannot_clear_newer_retry_or_overwrite_newer_bronze_record
 
 
 @pytest.mark.parametrize("status_code", [None, 503])
+@pytest.mark.parametrize(
+    "stale_lastmod",
+    ["2026-09-05T00:00:00+00:00", "2026-09-10T00:00:00+00:00"],
+)
 def test_stale_failure_after_newer_success_leaves_durable_state_unchanged(
-    status_code,
+    status_code, stale_lastmod
 ):
     repository = PostgresEuStartupsDiscoveryRepository(DATABASE_URL)
     stable_id = f"final-review-stale-failure-{uuid.uuid4()}"
     url = f"https://www.eu-startups.com/directory/{stable_id}/"
-    stale_lastmod = "2026-09-05T00:00:00+00:00"
     successful_lastmod = "2026-09-10T00:00:00+00:00"
     record = _record(stable_id, successful_lastmod, html="<main>new</main>")
     previous_state = _isolate_eu_discovery_state([stable_id], [url])

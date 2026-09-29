@@ -239,7 +239,7 @@ class PostgresEuStartupsDiscoveryRepository:
                 successful_lastmod = cursor.fetchone()[0]
                 if (
                     successful_lastmod is not None
-                    and failure_lastmod < successful_lastmod
+                    and failure_lastmod <= successful_lastmod
                 ):
                     logger.info(
                         "Ignoring stale EU-Startups failure for %s at %s; "

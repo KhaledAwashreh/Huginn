@@ -13,7 +13,7 @@ share one query rather than each carrying their own copy.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from huginn.elt.ingestion.models import (
     DiscoveryBatch,
@@ -130,3 +130,14 @@ class ApiIngestRepositoryPort(Protocol):
         `content_hash` untouched, for a hash-match skip.
         """
         ...
+
+
+class WebScrapeIngestRepositoryPort(ApiIngestRepositoryPort, Protocol):
+    """Persistence boundary for `bronze.web_scrape_ingest`.
+
+    Web-scrape Bronze rows have the same shape and transaction semantics as
+    API Bronze rows, but use a separate table and repository implementation.
+    The inherited operations are valid only inside the repository context.
+    """
+
+    bronze_table: Literal["web_scrape_ingest"]

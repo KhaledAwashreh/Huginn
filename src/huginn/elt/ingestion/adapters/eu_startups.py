@@ -291,13 +291,13 @@ class EuStartupsDiscoveryAdapter:
         for sitemap_url in sitemap_urls:
             entries.extend(_parse_listing_sitemap(self.fetch_page(sitemap_url)))
 
-        pending_by_url: dict[str, datetime] = {}
+        candidate_by_url: dict[str, datetime] = {}
         for loc, lastmod in entries:
-            if parsed_watermark is not None and lastmod <= parsed_watermark:
-                continue
-            existing_lastmod = pending_by_url.get(loc)
+            existing_lastmod = candidate_by_url.get(loc)
             if existing_lastmod is None or lastmod > existing_lastmod:
-                pending_by_url[loc] = lastmod
+                candidate_by_url[loc] = lastmod
+
+        retry_urls: set[str] = set()
         for retryable_listing in retryable_listings:
             if not _is_listing_detail_url(retryable_listing.url):
                 logger.warning(
@@ -306,11 +306,18 @@ class EuStartupsDiscoveryAdapter:
                 )
                 continue
             retry_lastmod = datetime.fromisoformat(retryable_listing.lastmod)
-            existing_lastmod = pending_by_url.get(retryable_listing.url)
+            retry_urls.add(retryable_listing.url)
+            existing_lastmod = candidate_by_url.get(retryable_listing.url)
             if existing_lastmod is None or retry_lastmod > existing_lastmod:
-                pending_by_url[retryable_listing.url] = retry_lastmod
+                candidate_by_url[retryable_listing.url] = retry_lastmod
 
-        pending = list(pending_by_url.items())
+        pending = [
+            (loc, lastmod)
+            for loc, lastmod in candidate_by_url.items()
+            if loc in retry_urls
+            or parsed_watermark is None
+            or lastmod > parsed_watermark
+        ]
         logger.info(
             "eu_startups fetch: %d of %d listings pending past the watermark "
             "(%d durable retries)",

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from huginn.elt.bronze.ports import EuStartupsDiscoveryRepositoryPort
 from huginn.elt.ingestion.adapters.eu_startups import EuStartupsDiscoveryAdapter
+from huginn.ops.job_runs import (
+    JobRun,
+    JobRunStatus,
+    JobRunWriterPort,
+    finish_job_run,
+    start_job_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +28,53 @@ class EuStartupsDiscoveryRunner:
         self,
         adapter: EuStartupsDiscoveryAdapter,
         repository: EuStartupsDiscoveryRepositoryPort,
+        job_run_writer: JobRunWriterPort,
     ) -> None:
         self._adapter = adapter
         self._repository = repository
+        self._job_run_writer = job_run_writer
 
-    def run(self, run_id: str | None = None) -> int:
+    def run(self) -> int:
         """Fetch a batch from durable state and atomically persist it."""
-        watermark = self._repository.read_watermark()
-        retryable_listings = self._repository.list_retryable_listings()
-        batch = self._adapter.fetch(watermark, retryable_listings)
-        written = self._repository.commit_batch(batch, run_id or str(uuid.uuid4()))
+        job_run = start_job_run(self._adapter.source)
+        self._safe_write_job_run(job_run)
+        try:
+            watermark = self._repository.read_watermark()
+            retryable_listings = self._repository.list_retryable_listings()
+            batch = self._adapter.fetch(watermark, retryable_listings)
+            written = self._repository.commit_batch(batch, job_run.id)
+        except Exception as exc:
+            logger.exception("EU-Startups discovery failed")
+            self._safe_write_job_run(
+                finish_job_run(
+                    job_run,
+                    JobRunStatus.FAILED,
+                    error=str(exc) or repr(exc),
+                )
+            )
+            raise
+
+        self._safe_write_job_run(
+            finish_job_run(
+                job_run,
+                JobRunStatus.SUCCEEDED,
+                rows_written=written,
+            )
+        )
         logger.info(
             "EU-Startups discovery succeeded: %d written, %d failed",
             written,
             len(batch.failed_listings),
         )
         return written
+
+    def _safe_write_job_run(self, job_run: JobRun) -> None:
+        try:
+            self._job_run_writer.write(job_run)
+        except Exception:
+            logger.exception(
+                "EU-Startups discovery failed to persist job_run state "
+                "(id=%s, status=%s)",
+                job_run.id,
+                job_run.status,
+            )

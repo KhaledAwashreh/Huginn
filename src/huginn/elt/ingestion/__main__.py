@@ -119,6 +119,7 @@ def build_eu_startups_discovery_runner(config: Config) -> EuStartupsDiscoveryRun
     return EuStartupsDiscoveryRunner(
         adapter=EuStartupsDiscoveryAdapter(),
         repository=PostgresEuStartupsDiscoveryRepository(config.database_url),
+        job_run_writer=PostgresJobRunWriter(config.database_url),
     )
 
 
