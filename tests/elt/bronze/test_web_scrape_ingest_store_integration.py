@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import psycopg
@@ -14,27 +13,13 @@ from huginn.elt.bronze.repositories.web_scrape_ingest_repository import (
 from huginn.elt.bronze.web_scrape_ingest_store import PostgresWebScrapeIngestStore
 from huginn.elt.ingestion.models import RawRecord
 
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
+DATABASE_URL = ""
 
 
-def _database_reachable() -> bool:
-    if not DATABASE_URL:
-        return False
-    try:
-        with (
-            psycopg.connect(DATABASE_URL, connect_timeout=2) as conn,
-            conn.cursor() as cur,
-        ):
-            cur.execute("SELECT 1")
-        return True
-    except psycopg.OperationalError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="HUGINN_DATABASE_URL not set or Postgres unreachable",
-)
+@pytest.fixture(scope="module", autouse=True)
+def _use_integration_database(integration_database_url: str) -> None:
+    global DATABASE_URL
+    DATABASE_URL = integration_database_url
 
 
 def test_insert_touch_and_changed_payload_upsert_round_trip():

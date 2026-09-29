@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import psycopg
@@ -19,24 +18,13 @@ from huginn.elt.ingestion.models import (
 )
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
+DATABASE_URL = ""
 
 
-def _database_reachable() -> bool:
-    if not DATABASE_URL:
-        return False
-    try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except psycopg.Error:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="Docker/Testcontainers unavailable and no reachable Postgres configured",
-)
+@pytest.fixture(scope="module", autouse=True)
+def _use_integration_database(integration_database_url: str) -> None:
+    global DATABASE_URL
+    DATABASE_URL = integration_database_url
 
 
 class StaticAdapter:

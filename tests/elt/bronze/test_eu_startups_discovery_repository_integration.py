@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -28,27 +27,16 @@ from huginn.elt.ingestion.models import (
     RawRecord,
 )
 
-DATABASE_URL = os.environ.get("HUGINN_DATABASE_URL")
+DATABASE_URL = ""
 _SCHEMA_DIR = Path(__file__).resolve().parents[3] / "db" / "schema"
 _KAN_83_UPGRADE = _SCHEMA_DIR / "kan-83-eu-startups-discovery.sql"
 _PRE_KAN_83_SCHEMA_FILES = ("00_extensions.sql", "bronze.sql")
 
 
-def _database_reachable() -> bool:
-    if not DATABASE_URL:
-        return False
-    try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except psycopg.Error:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason="Docker/Testcontainers unavailable and no reachable Postgres configured",
-)
+@pytest.fixture(scope="module", autouse=True)
+def _use_integration_database(integration_database_url: str) -> None:
+    global DATABASE_URL
+    DATABASE_URL = integration_database_url
 
 
 def _record(stable_id: str, lastmod: str, html: object = "<main>ok</main>"):
