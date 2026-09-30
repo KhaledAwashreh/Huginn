@@ -158,6 +158,7 @@ class SignalResolver:
             staged_signals = (
                 self._repository.read_hn_postings()
                 + self._repository.read_yc_listings()
+                + self._repository.read_eu_startups_listings()
             )
 
         total = len(staged_signals)

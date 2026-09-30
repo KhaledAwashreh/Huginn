@@ -20,12 +20,13 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-tra
 
 ## Existing Pre-KAN-83 Databases
 
-KAN-83 has one idempotent additive upgrade for a database with the prior
-Bronze schema. It creates only the EU-Startups discovery state/retry tables
-and their supporting indexes; it does not alter or remove existing data:
+KAN-83 has two idempotent additive upgrades for a database with the prior
+Bronze and Silver schemas. They add the EU-Startups discovery state/retry
+tables, supporting indexes, and per-source Silver staging table; they do not
+alter or remove existing data:
 
 ```bash
-rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql
+rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver-eu-startups-listings.sql
 ```
 
 Run it once before invoking `python -m huginn.elt.ingestion eu-startups-discovery`
@@ -53,6 +54,7 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-business-sector-array.sql` | `gold.company.business_sector` widens TEXT to TEXT[] in both `company` and `company_history` |
 | `silver-yc-former-names.sql` | `silver.yc_listings.former_names` and its `resolved_signals` counterpart, captured for the KAN-4 matcher |
 | `silver-yc-batch.sql` | `silver.yc_listings.batch` and its `resolved_signals` counterpart, the funded batch a company joined YC in |
+| `silver-eu-startups-listings.sql` | `silver.eu_startups_listings`, the per-source staging table for EU-Startups directory listings |
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
@@ -60,11 +62,11 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-All fifteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
+All sixteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
 
-1. Three of the fifteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
-2. The other eleven have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them, and `ops-job-runs-skipped-status.sql` (fifteenth, added after this count) has none either.
-3. The fresh-install rebuild in CI is not a substitute for the missing eleven. `tests/postgres_harness.py` applies the seven base files listed above and none of the fourteen `ALTER` files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an `ALTER` script.
+1. Three of the sixteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
+2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
+3. The fresh-install rebuild in CI is not a substitute for the missing thirteen. `tests/postgres_harness.py` applies the seven base files listed above and none of the sixteen additive upgrade files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an upgrade script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:

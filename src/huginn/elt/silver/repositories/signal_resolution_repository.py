@@ -28,6 +28,12 @@ _YC_STAGING_SELECT_SQL = """
     FROM silver.yc_listings
 """
 
+_EU_STARTUPS_STAGING_SELECT_SQL = """
+    SELECT stable_id, company_name_raw, website, signal_type, stage,
+           description, occurred_on, url
+    FROM silver.eu_startups_listings
+"""
+
 _UPSERT_SQL = """
     INSERT INTO silver.resolved_signals
         (source_stable_id, source, resolved_company_key, company_name_raw,
@@ -129,6 +135,9 @@ class PostgresSignalResolutionRepository:
 
     def read_yc_listings(self) -> list[StagedSignal]:
         return self._read("yc", _YC_STAGING_SELECT_SQL)
+
+    def read_eu_startups_listings(self) -> list[StagedSignal]:
+        return self._read("eu_startups", _EU_STARTUPS_STAGING_SELECT_SQL)
 
     def _read(self, source: str, select_sql: str) -> list[StagedSignal]:
         self._scope.cursor.execute(select_sql)

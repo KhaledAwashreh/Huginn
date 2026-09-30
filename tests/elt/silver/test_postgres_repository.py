@@ -3,7 +3,33 @@ from __future__ import annotations
 import pytest
 
 from huginn.elt.silver.repositories import postgres_repository
-from huginn.elt.silver.repositories.postgres_repository import PostgresConnectionScope
+from huginn.elt.silver.repositories.postgres_repository import (
+    PostgresConnectionScope,
+    read_web_scrape_payloads,
+)
+
+
+class _FakePayloadCursor:
+    def __init__(self):
+        self.executed = None
+
+    def execute(self, query, params):
+        self.executed = (query, params)
+
+    def fetchall(self):
+        return [("payload-one",), ("payload-two",)]
+
+
+def test_read_web_scrape_payloads_selects_payloads_for_source():
+    cursor = _FakePayloadCursor()
+
+    payloads = read_web_scrape_payloads(cursor, "eu_startups")
+
+    assert cursor.executed == (
+        "SELECT payload FROM bronze.web_scrape_ingest WHERE source = %s",
+        ("eu_startups",),
+    )
+    assert payloads == ["payload-one", "payload-two"]
 
 
 class _FakeConnectionThatFailsToOpenACursor:

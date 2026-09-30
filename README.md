@@ -6,7 +6,7 @@ Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing
 
 ## Status
 
-Ingestion (HN, YC) and the Bronze write path are implemented and live-verified end to end. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented, covered by unit and integration tests, and live-verified end to end for HN and YC via the pipeline entrypoint below. OpenCorporates and EU-Startups are ingested into Bronze but not yet wired into Silver/Gold through that entrypoint. The scoring and digest layers are not built.
+Ingestion and the Bronze write path are implemented for HN, YC, OpenCorporates, and EU-Startups. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests for HN, YC, and EU-Startups through the pipeline entrypoint below. OpenCorporates is not yet wired into Silver/Gold. The scoring and digest layers are not built.
 
 ## Setup
 
@@ -25,7 +25,7 @@ uv run pytest
 uv run python -m huginn.elt
 ```
 
-Runs the full pipeline once: Ingestion (HN + YC) through Bronze, Silver staging and resolution, and Gold, in dependency order, recording one row per stage per run in `ops.job_runs` (`adr/0014-pipeline-entry-point-and-stage-failure-policy.md`). A stage runs only if every stage it depends on succeeded; an unrelated stage's failure does not block it (dependency-aware skip-on-failure, same default as dbt's `dbt run`/`dbt build` and Airflow's `all_success` trigger rule). OpenCorporates and EU-Startups are not included in this entrypoint's ingestion stage yet.
+Runs the full pipeline once: HN, YC, and EU-Startups ingestion through Bronze, Silver staging and resolution, and Gold, in dependency order, recording one row per stage per run in `ops.job_runs` (`adr/0014-pipeline-entry-point-and-stage-failure-policy.md`). A stage runs only if every stage it depends on succeeded; an unrelated stage's failure does not block it (dependency-aware skip-on-failure, same default as dbt's `dbt run`/`dbt build` and Airflow's `all_success` trigger rule). OpenCorporates is not included in this entrypoint yet.
 
 No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade past cron): schedule it with a plain crontab entry, redirecting output since library code does not configure logging itself (`adr/0005-logging-required-from-day-one.md`, the entrypoint owns that via `logging.basicConfig`):
 
@@ -39,7 +39,7 @@ No orchestration framework at this scale (Jira KAN-9 tracks any future upgrade p
 uv run python -m huginn.elt.ingestion
 ```
 
-Fetches HN, YC, and OpenCorporates once and writes to Bronze only, recording a row per source per run in `ops.job_runs`. One source failing does not abort the others (`IngestionService`, architecture document section 5). Use this instead of the full pipeline above when only a fresh Bronze fetch is wanted, for example while OpenCorporates/EU-Startups are not yet wired into Silver/Gold.
+Fetches HN, YC, and OpenCorporates once and writes to Bronze only, recording a row per source per run in `ops.job_runs`. One source failing does not abort the others (`IngestionService`, architecture document section 5). EU-Startups uses its source-specific discovery command: `uv run python -m huginn.elt.ingestion eu-startups-discovery`.
 
 ## Running the management foundation
 

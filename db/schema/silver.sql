@@ -85,6 +85,25 @@ CREATE TABLE silver.yc_listings (
     UNIQUE (stable_id)
 );
 
+-- EU-Startups directory listings are discovered into
+-- bronze.web_scrape_ingest and parsed into the shared staging shape before
+-- cross-source resolution. Source-specific fields that are not yet consumed
+-- by matching remain in the raw Bronze payload.
+CREATE TABLE silver.eu_startups_listings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stable_id TEXT NOT NULL,
+    company_name_raw TEXT NOT NULL,
+    website TEXT,
+    signal_type TEXT NOT NULL CHECK (signal_type IN ('hiring', 'funding', 'program_milestone', 'other')),
+    stage TEXT,
+    description TEXT,
+    occurred_on TIMESTAMPTZ,
+    url TEXT,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (stable_id)
+);
+
 -- Fed by all staging tables together. resolved_company_key is a plain
 -- resolved identity value (normalized domain, or a fuzzy-match fallback
 -- key), not a foreign key into a materialized company table: Gold builds

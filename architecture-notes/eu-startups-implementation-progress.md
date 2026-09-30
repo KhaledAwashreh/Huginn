@@ -36,5 +36,19 @@ Confirmed terminal-failure policy:
 2. A newer `lastmod` resets the attempt cycle.
 3. Transient network and server failures remain retryable.
 
-After that: implement the Silver EU table/repository/loader, then wire the
-discovery and enrichment workflows into an executable composition root.
+## 2026-09-30: Silver-to-Gold pipeline wiring
+
+1. `silver.eu_startups_listings` and its Postgres repository load parsed
+   directory listings from `bronze.web_scrape_ingest`.
+2. Cross-source resolution reads EU-Startups alongside HN and YC; the generic
+   Gold writers materialize resolved listings into `gold.company` and
+   `gold.company_signal`.
+3. `python -m huginn.elt` runs EU discovery, staging, resolution, and Gold in
+   dependency order.
+
+The discovery-to-Gold wiring is complete. The separate company-name enrichment
+path remains open:
+
+1. Wire `EuStartupsEnrichmentAdapter` into an executable workflow with Gold
+   candidate loading, Bronze persistence, and `eu_startups_searched_at` cursor
+   updates.

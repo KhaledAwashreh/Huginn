@@ -7,9 +7,13 @@ from huginn.elt.silver.eu_startups_staging import (
     EuStartupsStagingLoader,
     parse_eu_startups_listing,
 )
+from huginn.elt.silver.models import EuStartupsListingStaging
 from huginn.elt.silver.ports import (
     EuStartupsStagingRepositoryPort,
     WebScrapeBronzeReaderPort,
+)
+from huginn.elt.silver.repositories.eu_startups_staging_repository import (
+    build_upsert_query,
 )
 
 _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "eu_startups"
@@ -250,6 +254,35 @@ def test_parse_eu_startups_listing_returns_none_when_title_is_only_site_suffix()
 
 def test_eu_startups_repository_port_reads_web_scrape_bronze():
     assert WebScrapeBronzeReaderPort in EuStartupsStagingRepositoryPort.__mro__
+
+
+def test_build_upsert_query_maps_every_eu_startups_staging_field():
+    occurred_on = datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC)
+    row = EuStartupsListingStaging(
+        stable_id="brightroom",
+        company_name_raw="Brightroom",
+        website="https://thebrightroom.de",
+        signal_type="other",
+        stage=None,
+        description="A product description.",
+        occurred_on=occurred_on,
+        url="https://www.eu-startups.com/directory/brightroom/",
+    )
+
+    query, params = build_upsert_query(row)
+
+    assert "INSERT INTO silver.eu_startups_listings" in query
+    assert "ON CONFLICT (stable_id) DO UPDATE" in query
+    assert params == (
+        "brightroom",
+        "Brightroom",
+        "https://thebrightroom.de",
+        "other",
+        None,
+        "A product description.",
+        occurred_on,
+        "https://www.eu-startups.com/directory/brightroom/",
+    )
 
 
 class FakeEuStartupsStagingRepository:

@@ -6,9 +6,8 @@ adr/0014-pipeline-entry-point-and-stage-failure-policy.md for the entry
 point shape, the stage order and its dependency argument, and the
 dependency-aware skip-on-failure policy this module implements.
 
-Scoped to HN and YC today. OpenCorporates and EU-Startups are deferred
-(user directive, not yet wired to Silver/Gold regardless): this module's
-own ingestion stage builds its `IngestionService` from
+Scoped to HN, YC, and EU-Startups today. OpenCorporates remains deferred:
+this module's API ingestion stage builds its `IngestionService` from
 `huginn.elt.ingestion.__main__.build_hn_yc_sources`, the HN+YC-only
 subset `build_service` also uses, rather than `build_service` itself, so
 running this entrypoint never needs `HUGINN_OPENCORPORATES_API_TOKEN` and
@@ -37,10 +36,17 @@ from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepos
 from huginn.elt.gold.repositories.company_signal_repository import (
     PostgresCompanySignalRepository,
 )
-from huginn.elt.ingestion.__main__ import build_hn_yc_sources
+from huginn.elt.ingestion.__main__ import (
+    build_eu_startups_discovery_runner,
+    build_hn_yc_sources,
+)
 from huginn.elt.ingestion.service import IngestionService
+from huginn.elt.silver.eu_startups_staging import EuStartupsStagingLoader
 from huginn.elt.silver.hn_staging import HnStagingLoader
 from huginn.elt.silver.manual_review import ManualReviewQueuer
+from huginn.elt.silver.repositories.eu_startups_staging_repository import (
+    PostgresEuStartupsStagingRepository,
+)
 from huginn.elt.silver.repositories.hn_staging_repository import (
     PostgresHnStagingRepository,
 )
@@ -129,6 +135,10 @@ def build_stages(config: Config) -> list[Stage]:
     yc_staging_loader = YcStagingLoader(
         PostgresYcStagingRepository(config.database_url)
     )
+    eu_startups_discovery_runner = build_eu_startups_discovery_runner(config)
+    eu_startups_staging_loader = EuStartupsStagingLoader(
+        PostgresEuStartupsStagingRepository(config.database_url)
+    )
     signal_resolver = SignalResolver(
         PostgresSignalResolutionRepository(config.database_url)
     )
@@ -143,6 +153,14 @@ def build_stages(config: Config) -> list[Stage]:
     return [
         Stage(name="ingestion", run=lambda: _run_ingestion(config)),
         Stage(
+            name="ingestion.eu_startups",
+            # The runner records the source transaction as `eu_startups`;
+            # run_stages records this orchestration boundary separately as
+            # `ingestion.eu_startups`, matching the aggregate `ingestion`
+            # stage plus its per-source HN/YC records.
+            run=eu_startups_discovery_runner.run,
+        ),
+        Stage(
             name="silver.hn_staging",
             run=hn_staging_loader.load,
             depends_on=("ingestion",),
@@ -153,9 +171,22 @@ def build_stages(config: Config) -> list[Stage]:
             depends_on=("ingestion",),
         ),
         Stage(
+            name="silver.eu_startups_staging",
+            run=eu_startups_staging_loader.load,
+            depends_on=("ingestion.eu_startups",),
+        ),
+        Stage(
             name="silver.signal_resolution",
             run=signal_resolver.resolve_all,
-            depends_on=("silver.hn_staging", "silver.yc_staging"),
+            # resolve_all reads all three staging tables in one batch. Until
+            # resolution is split into per-source stages, each loader is a
+            # direct dependency; running after one fails would consume that
+            # source's stale Silver rows.
+            depends_on=(
+                "silver.hn_staging",
+                "silver.yc_staging",
+                "silver.eu_startups_staging",
+            ),
         ),
         Stage(
             name="silver.manual_review",

@@ -98,9 +98,7 @@ class YcStagingRepositoryPort(BronzeReaderPort, Protocol):
 
 class EuStartupsStagingRepositoryPort(WebScrapeBronzeReaderPort, Protocol):
     """Reads Bronze rows for source="eu_startups" and upserts
-    silver.eu_startups_listings. Jira KAN-64. No concrete implementation
-    yet (KAN-64 plan Global Constraint 11): follow-up debt is tracked
-    under Jira epic KAN-16.
+    silver.eu_startups_listings. Jira KAN-64.
     """
 
     def upsert(self, row: EuStartupsListingStaging) -> None: ...
@@ -120,6 +118,8 @@ class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
     def read_hn_postings(self) -> list[StagedSignal]: ...
 
     def read_yc_listings(self) -> list[StagedSignal]: ...
+
+    def read_eu_startups_listings(self) -> list[StagedSignal]: ...
 
     def upsert(self, record: ResolvedSignalRecord) -> None: ...
 
