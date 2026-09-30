@@ -49,6 +49,9 @@ def test_parse_eu_startups_listing_maps_every_confirmed_field():
     assert row.website == "https://thebrightroom.de"
     assert row.url == "https://www.eu-startups.com/directory/brightroom/"
     assert row.occurred_on == datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC)
+    assert row.founded == "2024"
+    assert row.total_funding == "No funding announced yet"
+    assert row.company_status == "Active"
 
 
 def test_parse_eu_startups_listing_stable_id_excludes_query_and_fragment():
@@ -267,6 +270,9 @@ def test_build_upsert_query_maps_every_eu_startups_staging_field():
         description="A product description.",
         occurred_on=occurred_on,
         url="https://www.eu-startups.com/directory/brightroom/",
+        founded="2024",
+        total_funding="Between €500K-€ 1 million",
+        company_status="Active",
     )
 
     query, params = build_upsert_query(row)
@@ -282,6 +288,9 @@ def test_build_upsert_query_maps_every_eu_startups_staging_field():
         "A product description.",
         occurred_on,
         "https://www.eu-startups.com/directory/brightroom/",
+        "2024",
+        "Between €500K-€ 1 million",
+        "Active",
     )
 
 

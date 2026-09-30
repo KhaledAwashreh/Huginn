@@ -22,8 +22,15 @@ from datetime import UTC, datetime
 import pytest
 
 from huginn.elt.silver.models import (
+    EuStartupsListingStaging,
     ResolvedSignalRecord,
     YcListingStaging,
+)
+from huginn.elt.silver.repositories.eu_startups_staging_repository import (
+    _UPSERT_SQL as EU_STAGING_UPSERT_SQL,
+)
+from huginn.elt.silver.repositories.eu_startups_staging_repository import (
+    build_upsert_query as build_eu_staging_upsert_query,
 )
 from huginn.elt.silver.repositories.signal_resolution_repository import (
     _UPSERT_SQL as RESOLVED_UPSERT_SQL,
@@ -60,8 +67,8 @@ def _placeholder_count(sql: str) -> int:
 
 @pytest.mark.parametrize(
     "sql",
-    [STAGING_UPSERT_SQL, RESOLVED_UPSERT_SQL],
-    ids=["yc_listings", "resolved_signals"],
+    [STAGING_UPSERT_SQL, EU_STAGING_UPSERT_SQL, RESOLVED_UPSERT_SQL],
+    ids=["yc_listings", "eu_startups_listings", "resolved_signals"],
 )
 def test_insert_column_count_matches_the_values_placeholder_count(sql: str):
     assert _placeholder_count(sql) == _column_count(sql)
@@ -72,7 +79,7 @@ def test_upsert_sets_every_inserted_column_on_conflict():
     writes once and then silently freezes at whatever the first ingest said,
     which for a re-run of the same source is a value that can only be wrong.
     """
-    for sql in (STAGING_UPSERT_SQL, RESOLVED_UPSERT_SQL):
+    for sql in (STAGING_UPSERT_SQL, EU_STAGING_UPSERT_SQL, RESOLVED_UPSERT_SQL):
         update_set = sql.split("DO UPDATE", 1)[1]
         for column in _INSERT_COLUMNS.search(sql).group("columns").split(","):
             column = column.strip()
@@ -100,6 +107,25 @@ def test_staging_builder_supplies_one_parameter_per_placeholder():
     assert len(params) == _placeholder_count(STAGING_UPSERT_SQL)
 
 
+def test_eu_staging_builder_supplies_one_parameter_per_placeholder():
+    _, params = build_eu_staging_upsert_query(
+        EuStartupsListingStaging(
+            stable_id="brightroom",
+            company_name_raw="Brightroom",
+            website="https://thebrightroom.de",
+            signal_type="other",
+            stage=None,
+            description="",
+            occurred_on=datetime.now(UTC),
+            url="https://www.eu-startups.com/directory/brightroom/",
+            founded="2024",
+            total_funding="No funding announced yet",
+            company_status="Active",
+        )
+    )
+    assert len(params) == _placeholder_count(EU_STAGING_UPSERT_SQL)
+
+
 def _record_field_names(record_type: type) -> set[str]:
     return {field.name for field in fields(record_type)}
 
@@ -119,6 +145,9 @@ def test_upsert_binds_exactly_the_fields_the_record_declares():
     record field, including the ON CONFLICT target, is a real column.
     """
     assert _insert_columns(STAGING_UPSERT_SQL) == _record_field_names(YcListingStaging)
+    assert _insert_columns(EU_STAGING_UPSERT_SQL) == _record_field_names(
+        EuStartupsListingStaging
+    )
     assert _insert_columns(RESOLVED_UPSERT_SQL) == _record_field_names(
         ResolvedSignalRecord
     )

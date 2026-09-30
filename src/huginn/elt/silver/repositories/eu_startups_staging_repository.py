@@ -13,8 +13,8 @@ from huginn.elt.silver.repositories.postgres_repository import (
 _UPSERT_SQL = """
     INSERT INTO silver.eu_startups_listings
         (stable_id, company_name_raw, website, signal_type, stage,
-         description, occurred_on, url)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+         description, occurred_on, url, founded, total_funding, company_status)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (stable_id) DO UPDATE
     SET company_name_raw = EXCLUDED.company_name_raw,
         website = EXCLUDED.website,
@@ -23,6 +23,9 @@ _UPSERT_SQL = """
         description = EXCLUDED.description,
         occurred_on = EXCLUDED.occurred_on,
         url = EXCLUDED.url,
+        founded = EXCLUDED.founded,
+        total_funding = EXCLUDED.total_funding,
+        company_status = EXCLUDED.company_status,
         updated_at = now()
 """
 
@@ -38,6 +41,9 @@ def build_upsert_query(row: EuStartupsListingStaging) -> tuple[str, tuple]:
         row.description,
         row.occurred_on,
         row.url,
+        row.founded,
+        row.total_funding,
+        row.company_status,
     )
 
 

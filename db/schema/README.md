@@ -20,24 +20,28 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-tra
 
 ## Existing Pre-KAN-83 Databases
 
-KAN-83 has two idempotent additive upgrades for a database with the prior
-Bronze and Silver schemas. They add the EU-Startups discovery state/retry
-tables, supporting indexes, and per-source Silver staging table; they do not
-alter or remove existing data:
+The initial KAN-83 rollout has two idempotent additive upgrades for a
+database with the prior Bronze and Silver schemas. They add the EU-Startups
+discovery state/retry tables, supporting indexes, and per-source Silver
+staging table; they do not alter or remove existing data:
 
 ```bash
-rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver-eu-startups-listings.sql
+rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver-eu-startups-listings.sql -f db/schema/silver-eu-startups-tracking-fields.sql
 ```
 
 Run it once before invoking `python -m huginn.elt.ingestion eu-startups-discovery`
 against a pre-KAN-83 database. The SQL is safe to rerun and preserves existing
 data.
 
+The initial rollout used the first two files. The third, tracking-fields file
+was added later and follows the staging-table creation in the combined command
+above; it adds the raw EU fields and their cross-source resolution columns.
+
 These match `docs/entities.md`, the [management foundation](../../docs/management-foundation.md), and the architecture document as of ADR-0002 and ADR-0011. Column-by-column Type 1/Type 2 classification beyond the two fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/elt/gold/dimensional.py` together when that lands.
 
 ## Upgrading a database that already exists
 
-The seven files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, once each. Order among them does not matter: each is idempotent and guards on the state it finds. The superseded pair is the one case worth knowing about, because it is why that holds: `gold-company-yc-batch.sql` can add `yc_batch` and `gold-company-notes.sql` is what removes it, so whichever of the two runs last decides the outcome unless the successor creates `notes` unconditionally, which it does. The pair converges on `notes` in either order:
+The seven files above are the fresh-install path. A schema change made after a database was created needs an `ALTER` file as well, or the change exists only for new installs and every existing deployment keeps the old shape. Apply the relevant `ALTER` files to an existing database, once each. They are idempotent and most are order-independent; `silver-eu-startups-tracking-fields.sql` requires `silver-eu-startups-listings.sql` to have created its table first. The superseded pair is another ordering case worth knowing about: `gold-company-yc-batch.sql` can add `yc_batch` and `gold-company-notes.sql` is what removes it, so whichever of the two runs last decides the outcome unless the successor creates `notes` unconditionally, which it does. The pair converges on `notes` in either order:
 
 ```
 psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
@@ -55,6 +59,7 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `silver-yc-former-names.sql` | `silver.yc_listings.former_names` and its `resolved_signals` counterpart, captured for the KAN-4 matcher |
 | `silver-yc-batch.sql` | `silver.yc_listings.batch` and its `resolved_signals` counterpart, the funded batch a company joined YC in |
 | `silver-eu-startups-listings.sql` | `silver.eu_startups_listings`, the per-source staging table for EU-Startups directory listings |
+| `silver-eu-startups-tracking-fields.sql` | EU-Startups raw `founded`, `total_funding`, and `company_status` fields plus `founded` / `total_funding` on `silver.resolved_signals` |
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
@@ -62,11 +67,11 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-All sixteen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
+All seventeen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
 
-1. Three of the sixteen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, and `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`.
+1. Four of the seventeen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, and `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`.
 2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing thirteen. `tests/postgres_harness.py` applies the seven base files listed above and none of the sixteen additive upgrade files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an upgrade script.
+3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files listed above and none of the seventeen additive upgrade files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an upgrade script.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:

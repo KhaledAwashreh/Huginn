@@ -119,6 +119,8 @@ def _staged_signal(
     all_locations: str | None = None,
     former_names: tuple[str, ...] | None = None,
     batch: str | None = None,
+    founded: str | None = None,
+    total_funding: str | None = None,
 ) -> StagedSignal:
     return StagedSignal(
         source=source,
@@ -136,6 +138,8 @@ def _staged_signal(
         all_locations=all_locations,
         former_names=former_names,
         batch=batch,
+        founded=founded,
+        total_funding=total_funding,
     )
 
 
@@ -559,6 +563,30 @@ def test_resolve_all_carries_former_names_and_batch_into_the_record():
     record = repository.upserted[0]
     assert record.former_names == ("ZenPayroll", "Zen Payroll")
     assert record.batch == "Winter 2022"
+
+
+def test_resolve_all_carries_eu_tracking_values_and_company_status():
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[],
+        eu_startups_listings=[
+            _staged_signal(
+                "eu_startups",
+                "brightroom",
+                "https://thebrightroom.de",
+                company_status="Active",
+                founded="2024",
+                total_funding="No funding announced yet",
+            )
+        ],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.company_status == "Active"
+    assert record.founded == "2024"
+    assert record.total_funding == "No funding announced yet"
 
 
 def test_resolve_all_leaves_former_names_and_batch_none_for_hn_rows():

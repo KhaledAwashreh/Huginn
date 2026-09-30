@@ -145,6 +145,9 @@ def parse_eu_startups_listing(payload: dict) -> EuStartupsListingStaging | None:
         description=fields["business_description"] or "",
         occurred_on=occurred_on,
         url=url,
+        founded=fields["founded"],
+        total_funding=fields["total_funding"],
+        company_status=fields["company_status"],
     )
 
 

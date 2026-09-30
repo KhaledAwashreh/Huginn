@@ -194,6 +194,8 @@ class SignalResolver:
                     all_locations=signal.all_locations,
                     former_names=signal.former_names,
                     batch=signal.batch,
+                    founded=signal.founded,
+                    total_funding=signal.total_funding,
                 )
             )
 

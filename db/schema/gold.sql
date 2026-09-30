@@ -66,18 +66,15 @@ CREATE TABLE gold.company (
     -- convention gold-company-signal-source-stable-id.sql already follows.
     company_scale TEXT CONSTRAINT company_scale_check
         CHECK (company_scale IN ('0-10', '11-100', '101-1000', '1001+')),
-    -- Free-text notes about the company, each opening with the source that
-    -- supplied the value, e.g. 'YC Summer 2023'. One column rather
-    -- than one per source per fact: a second portal's batch, founding year,
-    -- or registry field is inevitable, and a column per fact per source does
-    -- not scale. The prefix is what keeps a reader able to tell whose
-    -- statement it is, as long as YC is the only source writing one: the
-    -- prefix is hardcoded and is a label, not a merge key, so a second
-    -- portal's value would take the same last-non-null merge, overwrite
-    -- this one, and be labelled YC. See gold.company.CompanyWriter. Type 1, no company_history counterpart: a note is
-    -- descriptive, so a change in wording is not a recorded attribute
-    -- change. Values are composed in Gold, not captured in Silver, because
-    -- the prefix is Huginn's vocabulary (section 4.3).
+    -- Free-text notes attributed to their source. Gold composes them in a
+    -- fixed order: YC's batch as 'YC {batch}', then EU-Startups' founded
+    -- year and funding text as 'EU Startups Founded {founded}' and
+    -- 'EU Startups Funding {total_funding}' when present. Combining these
+    -- values preserves notes when sources resolve to one domain. Prefixes
+    -- are Gold vocabulary; Silver retains the raw source values. See
+    -- gold.company.CompanyWriter. Type 1, no company_history counterpart: a
+    -- note is descriptive, so a wording change is not a recorded attribute
+    -- change.
     notes TEXT,
     -- Legal form, free text: "Private Limited Company", "LLC", "C Corp".
     -- Deliberately NOT the same axis as company_scale. OpenCorporates

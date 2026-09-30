@@ -56,10 +56,14 @@ def _signal(
     industries: list[str] | None = None,
     all_locations: str | None = None,
     batch: str | None = None,
+    source: str = "yc",
+    founded: str | None = None,
+    total_funding: str | None = None,
 ) -> DomainNormalizedSignal:
     """Build the Gold input shape used by CompanyWriter tests."""
     return DomainNormalizedSignal(
         domain=domain,
+        source=source,
         company_name_raw=name,
         stage=stage,
         company_status=company_status,
@@ -67,6 +71,8 @@ def _signal(
         industries=industries,
         all_locations=all_locations,
         batch=batch,
+        founded=founded,
+        total_funding=total_funding,
     )
 
 
@@ -352,7 +358,7 @@ def test_write_all_keeps_a_known_note_when_a_later_signal_has_none():
     repo = FakeCompanyRepository(
         signals=[
             _signal("acme.com", "Acme", batch="Summer 2023"),
-            _signal("acme.com", "Acme", batch=None),
+            _signal("acme.com", "Acme", batch=None, source="hn"),
         ]
     )
     writer = CompanyWriter(repo)
@@ -362,6 +368,63 @@ def test_write_all_keeps_a_known_note_when_a_later_signal_has_none():
     assert written == 1
     assert repo.upserted == [
         ("acme.com", {"name": "Acme", "notes": "YC Summer 2023"}, False)
+    ]
+
+
+def test_write_all_composes_yc_and_eu_notes_in_stable_order():
+    repo = FakeCompanyRepository(
+        signals=[
+            _signal(
+                "acme.com",
+                "Acme",
+                source="eu_startups",
+                founded="2024",
+                total_funding="Between €500K-€ 1 million",
+            ),
+            _signal("acme.com", "Acme", batch="Winter 2022"),
+        ]
+    )
+
+    CompanyWriter(repo).write_all()
+
+    assert repo.upserted == [
+        (
+            "acme.com",
+            {
+                "name": "Acme",
+                "notes": "YC Winter 2022; EU Startups Founded 2024; "
+                "EU Startups Funding Between €500K-€ 1 million",
+            },
+            False,
+        )
+    ]
+
+
+def test_write_all_composes_eu_notes_when_no_yc_batch_exists():
+    repo = FakeCompanyRepository(
+        signals=[
+            _signal(
+                "acme.com",
+                "Acme",
+                source="eu_startups",
+                founded="2024",
+                total_funding="No funding announced yet",
+            )
+        ]
+    )
+
+    CompanyWriter(repo).write_all()
+
+    assert repo.upserted == [
+        (
+            "acme.com",
+            {
+                "name": "Acme",
+                "notes": "EU Startups Founded 2024; "
+                "EU Startups Funding No funding announced yet",
+            },
+            False,
+        )
     ]
 
 

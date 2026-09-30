@@ -51,7 +51,7 @@ def test_load_round_trips_eu_startups_bronze_payload_into_silver(
             cur.execute(
                 """
                 SELECT company_name_raw, website, signal_type, stage, description,
-                       occurred_on, url
+                       occurred_on, url, founded, total_funding, company_status
                 FROM silver.eu_startups_listings
                 WHERE stable_id = %s
                 """,
@@ -65,6 +65,9 @@ def test_load_round_trips_eu_startups_bronze_payload_into_silver(
                 parse_eu_startups_listing(payload).description,
                 datetime(2026, 9, 1, 7, 37, 16, tzinfo=UTC),
                 payload["url"],
+                "2024",
+                "No funding announced yet",
+                "Active",
             )
 
         changed = EuStartupsListingStaging(
@@ -76,6 +79,9 @@ def test_load_round_trips_eu_startups_bronze_payload_into_silver(
             description="Updated description.",
             occurred_on=datetime(2026, 9, 2, 8, 0, tzinfo=UTC),
             url=payload["url"],
+            founded="2025",
+            total_funding="Between €1M-€ 2 million",
+            company_status="Acquired",
         )
         with PostgresEuStartupsStagingRepository(integration_database_url) as repo:
             repo.upsert(changed)
@@ -83,10 +89,12 @@ def test_load_round_trips_eu_startups_bronze_payload_into_silver(
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT count(*), company_name_raw, website, description, occurred_on
-                FROM silver.eu_startups_listings
-                WHERE stable_id = %s
-                GROUP BY company_name_raw, website, description, occurred_on
+                    SELECT count(*), company_name_raw, website, description, occurred_on,
+                           founded, total_funding, company_status
+                    FROM silver.eu_startups_listings
+                    WHERE stable_id = %s
+                    GROUP BY company_name_raw, website, description, occurred_on,
+                             founded, total_funding, company_status
                 """,
                 (stable_id,),
             )
@@ -96,6 +104,9 @@ def test_load_round_trips_eu_startups_bronze_payload_into_silver(
                 "https://updated.example",
                 "Updated description.",
                 datetime(2026, 9, 2, 8, 0, tzinfo=UTC),
+                "2025",
+                "Between €1M-€ 2 million",
+                "Acquired",
             )
     finally:
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:

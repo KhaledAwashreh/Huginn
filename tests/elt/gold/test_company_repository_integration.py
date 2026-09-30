@@ -336,16 +336,14 @@ def test_read_unenriched_company_names_respects_the_limit(
             )
 
 
-def test_read_domain_normalized_signals_maps_every_column_to_its_own_field(
+def test_read_domain_normalized_signals_maps_yc_fields_to_their_own_fields(
     integration_database_url: str,
 ):
-    """The read is positional (`row[0]`..`row[7]`), so a column reordered in
-    the SELECT lands a neighbouring column's value in the wrong dataclass
-    field with no error anywhere. Seeding one row whose every field holds a
-    distinct, recognizable value is the only way to catch that: swapping
-    `all_locations` and `batch`, or `country`-producing text with the batch
-    label, would otherwise pass every other test and write garbage into
-    gold.company.
+    """YC's positional source projection must keep distinct markers aligned.
+
+    A column reordered in the SELECT lands a neighbouring value in the
+    wrong dataclass field without raising, so each projected field gets a
+    recognizable, distinct marker.
     """
     suffix = str(uuid.uuid4().int)[:10]
     stable_id = f"goldmap{suffix}"
@@ -359,11 +357,12 @@ def test_read_domain_normalized_signals_maps_every_column_to_its_own_field(
                     (source_stable_id, source, resolved_company_key,
                      company_name_raw, signal_type, occurred_on, url,
                      key_derivation, stage, company_status, team_size,
-                     industries, all_locations, batch)
+                     industries, all_locations, batch, founded, total_funding)
                 VALUES (%s, 'yc', %s, 'GoldMapCo', 'hiring', %s,
                         'https://example.invalid', 'domain_normalized',
                         'GrowthStageMarker', 'ActiveStatusMarker', 4321,
-                        %s, 'LocationMarker City, Markerland', 'BatchMarker 2031')
+                        %s, 'Berlin, Germany; Remote', 'BatchMarker 2031',
+                        NULL, NULL)
                 """,
                 (
                     stable_id,
@@ -379,13 +378,16 @@ def test_read_domain_normalized_signals_maps_every_column_to_its_own_field(
         mine = [s for s in signals if s.domain == domain]
         assert len(mine) == 1
         signal = mine[0]
+        assert signal.source == "yc"
         assert signal.company_name_raw == "GoldMapCo"
         assert signal.stage == "GrowthStageMarker"
         assert signal.company_status == "ActiveStatusMarker"
         assert signal.team_size == 4321
         assert signal.industries == ["IndustryOneMarker", "IndustryTwoMarker"]
-        assert signal.all_locations == "LocationMarker City, Markerland"
+        assert signal.all_locations == "Berlin, Germany; Remote"
         assert signal.batch == "BatchMarker 2031"
+        assert signal.founded is None
+        assert signal.total_funding is None
     finally:
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             cur.execute(
@@ -397,6 +399,59 @@ def test_read_domain_normalized_signals_maps_every_column_to_its_own_field(
             cur.execute(
                 "DELETE FROM silver.resolved_signals "
                 "WHERE source = 'yc' AND source_stable_id = %s",
+                (stable_id,),
+            )
+
+
+def test_read_domain_normalized_signals_maps_eu_tracking_fields(
+    integration_database_url: str,
+):
+    suffix = str(uuid.uuid4().int)[:10]
+    stable_id = f"eugoldmap{suffix}"
+    domain = f"eugoldmaptest-{suffix}.example"
+
+    try:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO silver.resolved_signals
+                    (source_stable_id, source, resolved_company_key,
+                     company_name_raw, signal_type, occurred_on, url,
+                     key_derivation, company_status, founded, total_funding)
+                VALUES (%s, 'eu_startups', %s, 'EuGoldMapCo', 'other', %s,
+                        'https://example.invalid', 'domain_normalized',
+                        'ActiveStatusMarker', 'FoundedMarker 2032',
+                        'FundingMarker €2M')
+                """,
+                (stable_id, domain, _EPOCH),
+            )
+
+        with PostgresCompanyRepository(integration_database_url) as repository:
+            signals = repository.read_domain_normalized_signals()
+
+        mine = [s for s in signals if s.domain == domain]
+        assert len(mine) == 1
+        signal = mine[0]
+        assert signal.source == "eu_startups"
+        assert signal.company_name_raw == "EuGoldMapCo"
+        assert signal.company_status == "ActiveStatusMarker"
+        assert signal.founded == "FoundedMarker 2032"
+        assert signal.total_funding == "FundingMarker €2M"
+        assert signal.team_size is None
+        assert signal.industries is None
+        assert signal.all_locations is None
+        assert signal.batch is None
+    finally:
+        with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM silver.manual_review_queue WHERE resolved_signal_id IN "
+                "(SELECT id FROM silver.resolved_signals "
+                " WHERE source = 'eu_startups' AND source_stable_id = %s)",
+                (stable_id,),
+            )
+            cur.execute(
+                "DELETE FROM silver.resolved_signals "
+                "WHERE source = 'eu_startups' AND source_stable_id = %s",
                 (stable_id,),
             )
 

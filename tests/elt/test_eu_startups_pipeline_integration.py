@@ -99,29 +99,49 @@ def test_eu_startups_listing_flows_from_bronze_through_gold(
 
         with psycopg.connect(database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT company_name_raw, website FROM silver.eu_startups_listings "
+                "SELECT company_name_raw, website, founded, total_funding, "
+                "company_status FROM silver.eu_startups_listings "
                 "WHERE stable_id = %s",
                 (stable_id,),
             )
-            assert cur.fetchone() == (company_name, f"https://{domain}")
+            assert cur.fetchone() == (
+                company_name,
+                f"https://{domain}",
+                "2024",
+                "No funding announced yet",
+                "Active",
+            )
 
             cur.execute(
-                "SELECT resolved_company_key, key_derivation "
+                "SELECT resolved_company_key, key_derivation, company_status, "
+                "founded, total_funding "
                 "FROM silver.resolved_signals "
                 "WHERE source = 'eu_startups' AND source_stable_id = %s",
                 (stable_id,),
             )
-            assert cur.fetchone() == (domain, "domain_normalized")
+            assert cur.fetchone() == (
+                domain,
+                "domain_normalized",
+                "Active",
+                "2024",
+                "No funding announced yet",
+            )
 
             cur.execute(
-                "SELECT c.name, cs.source_url "
+                "SELECT c.name, c.company_status, c.notes, cs.source_url "
                 "FROM gold.company c "
                 "JOIN gold.company_signal cs ON cs.company_id = c.id "
                 "WHERE c.domain = %s AND cs.source = 'eu_startups' "
                 "AND cs.source_stable_id = %s",
                 (domain, stable_id),
             )
-            assert cur.fetchone() == (company_name, listing_url)
+            assert cur.fetchone() == (
+                company_name,
+                "Active",
+                "EU Startups Founded 2024; EU Startups Funding "
+                "No funding announced yet",
+                listing_url,
+            )
     finally:
         with psycopg.connect(database_url) as conn, conn.cursor() as cur:
             cur.execute(
