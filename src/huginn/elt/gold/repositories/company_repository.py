@@ -30,8 +30,9 @@ from huginn.elt.gold.models import DomainNormalizedSignal
 # one non-NULL value per source-shaped field; the secondary key matters once
 # a third source can supply competing values for the same field.
 _READ_DOMAIN_NORMALIZED_SQL = """
-    SELECT resolved_company_key, company_name_raw, stage,
-           company_status, team_size, industries, all_locations, batch
+    SELECT resolved_company_key, source, company_name_raw, stage,
+           company_status, team_size, industries, all_locations, batch,
+           founded, total_funding
     FROM silver.resolved_signals
     WHERE key_derivation = 'domain_normalized'
     ORDER BY resolved_at, id
@@ -234,13 +235,16 @@ class PostgresCompanyRepository:
         return [
             DomainNormalizedSignal(
                 domain=row[0],
-                company_name_raw=row[1],
-                stage=row[2],
-                company_status=row[3],
-                team_size=row[4],
-                industries=list(row[5]) if row[5] is not None else None,
-                all_locations=row[6],
-                batch=row[7],
+                source=row[1],
+                company_name_raw=row[2],
+                stage=row[3],
+                company_status=row[4],
+                team_size=row[5],
+                industries=list(row[6]) if row[6] is not None else None,
+                all_locations=row[7],
+                batch=row[8],
+                founded=row[9],
+                total_funding=row[10],
             )
             for row in self._cur.fetchall()
         ]

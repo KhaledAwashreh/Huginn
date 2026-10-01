@@ -21,6 +21,7 @@ class DomainNormalizedSignal:
     """
 
     domain: str
+    source: str
     company_name_raw: str
     stage: str | None = None
     company_status: str | None = None
@@ -33,6 +34,8 @@ class DomainNormalizedSignal:
     # YC's funded batch, e.g. 'Summer 2023', carried verbatim from Silver.
     # Gold prefixes it to form gold.company.notes.
     batch: str | None = None
+    founded: str | None = None
+    total_funding: str | None = None
 
 
 @dataclass(frozen=True)

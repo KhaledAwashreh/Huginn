@@ -148,11 +148,11 @@ Run from the worktree:
 ```bash
 rtk proxy createdb huginn_management
 export HUGINN_MANAGEMENT_DATABASE_URL='postgresql://localhost:5432/huginn_management'
-rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
 rtk uv run --python 3.14 python -m huginn.management
 ```
 
-`export` is a shell builtin, so it is not wrapped with `rtk`. The six-file
+`export` is a shell builtin, so it is not wrapped with `rtk`. The seven-file
 bootstrap is required because retained operational tables reference Gold.
 
 With the local development server running, use a separate terminal:

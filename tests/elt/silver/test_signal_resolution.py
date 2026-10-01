@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -119,6 +120,8 @@ def _staged_signal(
     all_locations: str | None = None,
     former_names: tuple[str, ...] | None = None,
     batch: str | None = None,
+    founded: str | None = None,
+    total_funding: str | None = None,
 ) -> StagedSignal:
     return StagedSignal(
         source=source,
@@ -136,6 +139,8 @@ def _staged_signal(
         all_locations=all_locations,
         former_names=former_names,
         batch=batch,
+        founded=founded,
+        total_funding=total_funding,
     )
 
 
@@ -158,10 +163,14 @@ def _reachable_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class FakeSignalResolutionRepository:
     def __init__(
-        self, hn_postings: list[StagedSignal], yc_listings: list[StagedSignal]
+        self,
+        hn_postings: list[StagedSignal],
+        yc_listings: list[StagedSignal],
+        eu_startups_listings: list[StagedSignal] | None = None,
     ) -> None:
         self._hn_postings = hn_postings
         self._yc_listings = yc_listings
+        self._eu_startups_listings = eu_startups_listings or []
         self.upserted = []
         self.enter_count = 0
         self.exit_count = 0
@@ -184,12 +193,16 @@ class FakeSignalResolutionRepository:
         self.calls.append("read_yc")
         return self._yc_listings
 
+    def read_eu_startups_listings(self) -> list[StagedSignal]:
+        self.calls.append("read_eu_startups")
+        return self._eu_startups_listings
+
     def upsert(self, record) -> None:
         self.calls.append("upsert")
         self.upserted.append(record)
 
 
-def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count(
+def test_resolve_all_combines_all_staged_sources_into_the_upsert_count(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -202,12 +215,18 @@ def test_resolve_all_combines_hn_and_yc_staged_signals_into_the_upsert_count(
             _staged_signal("yc", "2", "https://getnao.io"),
             _staged_signal("yc", "3", None),
         ],
+        eu_startups_listings=[
+            _staged_signal("eu_startups", "brightroom", "https://thebrightroom.de")
+        ],
     )
     resolver = SignalResolver(repository)
 
     resolver.resolve_all()
 
-    assert len(repository.upserted) == 3
+    assert len(repository.upserted) == 4
+    eu_record = repository.upserted[-1]
+    assert eu_record.source == "eu_startups"
+    assert eu_record.resolved_company_key == "thebrightroom.de"
 
 
 def test_resolve_all_upserts_a_record_wired_to_what_resolve_signal_computed(
@@ -303,6 +322,38 @@ def test_resolve_all_completes_every_read_before_opening_the_write_scope(monkeyp
     ]
     assert all(index < second_enter_index for index in read_indices)
     assert all(index > second_enter_index for index in upsert_indices)
+
+
+def test_resolve_eu_startups_reads_and_upserts_only_eu_signals_with_progress(
+    caplog,
+):
+    eu_signals = [
+        _staged_signal(
+            "eu_startups",
+            f"listing-{index}",
+            f"https://company-{index}.example",
+        )
+        for index in range(101)
+    ]
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "hn-1", "https://hn.example")],
+        yc_listings=[_staged_signal("yc", "yc-1", "https://yc.example")],
+        eu_startups_listings=eu_signals,
+    )
+    resolver = SignalResolver(repository)
+    caplog.set_level(logging.INFO, logger=signal_resolution.logger.name)
+
+    written = resolver.resolve_eu_startups()
+
+    assert written == 101
+    assert repository.calls.count("read_eu_startups") == 1
+    assert "read_hn" not in repository.calls
+    assert "read_yc" not in repository.calls
+    assert len(repository.upserted) == 101
+    assert {record.source for record in repository.upserted} == {"eu_startups"}
+    assert "processed 100 of 101" in caplog.text
+    assert "processed 101 of 101" in caplog.text
+    assert "resolve_eu_startups: 101 written" in caplog.text
 
 
 def test_resolve_all_runs_every_reachability_check_with_no_scope_open(monkeypatch):
@@ -545,6 +596,30 @@ def test_resolve_all_carries_former_names_and_batch_into_the_record():
     record = repository.upserted[0]
     assert record.former_names == ("ZenPayroll", "Zen Payroll")
     assert record.batch == "Winter 2022"
+
+
+def test_resolve_all_carries_eu_tracking_values_and_company_status():
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[],
+        yc_listings=[],
+        eu_startups_listings=[
+            _staged_signal(
+                "eu_startups",
+                "brightroom",
+                "https://thebrightroom.de",
+                company_status="Active",
+                founded="2024",
+                total_funding="No funding announced yet",
+            )
+        ],
+    )
+
+    SignalResolver(repository).resolve_all()
+
+    record = repository.upserted[0]
+    assert record.company_status == "Active"
+    assert record.founded == "2024"
+    assert record.total_funding == "No funding announced yet"
 
 
 def test_resolve_all_leaves_former_names_and_batch_none_for_hn_rows():

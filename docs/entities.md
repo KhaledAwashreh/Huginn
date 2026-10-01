@@ -63,12 +63,12 @@ Current state only. One row per company, always. Overwritten in place when any f
 - LegalForm: String (legal form, free text and jurisdiction specific, e.g. "Private Limited Company", "LLC", "C Corp". Renamed from CompanyType, which did not say what the column holds and sat among `company_`-prefixed columns on three unrelated axes. A different axis from CompanyScale; see architecture-notes/opencorporates-fetch-plan.md section 4)
 - Country: String (parsed in Gold from YC's `all_locations` display string, first location's last comma segment; a bare `Remote` or an empty string yields no value rather than a guess; Type 1)
 - City: String (parsed in Gold from YC's `all_locations`, first location's first comma segment; left null when a location names no city of its own, e.g. `Singapore, Singapore`; Type 1)
-- Notes: String (nullable; free text about the company, each value opening with the source that supplied it, e.g. `YC Summer 2023`. One column rather than one per source per fact, because a second portal's batch, founding year, or registry field is inevitable, and the prefix keeps a reader able to tell whose statement it is while YC is the only source writing one: the prefix is hardcoded and is a label, not a merge key, so a second portal's value would overwrite this one and be labelled YC. Composed in Gold, not captured in Silver, because the prefix is Huginn's vocabulary. Type 1 with no `CompanyHistory` counterpart: a note is descriptive, so a change in wording is not a recorded attribute change)
+- Notes: String (nullable; free text about the company, with each value attributed to its source, e.g. `YC Summer 2023` or `EU Startups Founded 2024`. Gold composes notes from source values in a fixed order so multiple sources remain visible. Prefixes are Gold vocabulary; Silver stores source values raw. Type 1 with no `CompanyHistory` counterpart: a note is descriptive, so a change in wording is not a recorded attribute change)
 - Address: String
 - PhoneNumber: String
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
-- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. Nothing writes it yet, so it is NULL for every row today and the ADR-0010 candidate gate cannot yet exclude an already-searched company)
+- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. The enrichment writer sets it transactionally only for definitive search outcomes; retryable outcomes do not advance it, so a never-definitively-searched company keeps NULL and remains eligible for retry)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
@@ -221,7 +221,16 @@ A missing optional field is not a reason to decline a row, only to make it thinn
 - IngestedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
 
-These six are YC-only: `CompanyStatus`, `TeamSize`, `Industries`, `AllLocations`, `FormerNames`, `Batch`. HN's freeform comments carry none of them, so these columns exist on this table alone rather than as nullable columns on every source's table (ADR-0001 anticipated exactly this case), and all six are NULL on every HN row of `silver.resolved_signals`. `HnPostingStaging` has the same shape minus these six.
+These are YC-specific staging fields. HN's freeform comments carry none of them, so they stay on the YC table instead of adding meaningless nullable fields to HN (ADR-0001).
+
+## EuStartupsListingStaging (silver.eu_startups_listings)
+EU-Startups directory listings are read from Bronze and retained in a source-specific Silver table before cross-source resolution. Tracking values remain raw here; Gold supplies their note labels.
+- Founded: String (nullable; source's founding year kept as text; the inspected live Bronze data had four-digit years on all 98 rows)
+- TotalFunding: String (nullable; source text, which may be a range or a statement such as `No funding announced yet`)
+- CompanyStatus: String (nullable; source lifecycle label; present on 94 of the 98 inspected live rows)
+- Description: String
+- OccurredOn: DateTimeOffset (nullable; sitemap last-modified timestamp, not a founding date)
+- Url: String
 
 (Additional per-source staging tables follow this same shape as sources are added.)
 
@@ -234,12 +243,14 @@ Fed by all staging tables together. Still event grain — one row per original s
 - CompanyNameRaw: String
 - SignalType: Enum (Hiring, Funding, ProgramMilestone, Other)
 - Stage: String (nullable)
-- CompanyStatus: String (nullable; NULL for every HN row, which has no registry status)
+- CompanyStatus: String (nullable; source-reported lifecycle status, NULL when that source has none)
 - TeamSize: Integer (nullable; NULL for every HN row, which has no headcount)
 - Industries: List of Strings (nullable; carried through from `YcListingStaging`, NULL for every HN row)
 - AllLocations: String (nullable; carried through from `YcListingStaging` unparsed, NULL for every HN row)
 - FormerNames: List of Strings (nullable; carried through from `YcListingStaging`, NULL for every HN row)
 - Batch: String (nullable; carried through from `YcListingStaging`, NULL for every HN row)
+- Founded: String (nullable; carried through from EU-Startups Silver, NULL for HN/YC rows)
+- TotalFunding: String (nullable; carried through from EU-Startups Silver, NULL for HN/YC rows)
 - Description: String
 - OccurredOn: DateTimeOffset (nullable)
 - Url: String

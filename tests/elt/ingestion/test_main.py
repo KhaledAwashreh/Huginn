@@ -9,15 +9,36 @@ from huginn.elt.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
+from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
+    PostgresEuStartupsDiscoveryRepository,
+)
+from huginn.elt.bronze.repositories.eu_startups_enrichment_repository import (
+    PostgresEuStartupsEnrichmentRepository,
+)
 from huginn.elt.ingestion import __main__ as main_module
-from huginn.elt.ingestion.__main__ import build_service, main
+from huginn.elt.ingestion.__main__ import (
+    build_eu_startups_discovery_runner,
+    build_service,
+    main,
+)
 from huginn.elt.ingestion.adapters import yc
+from huginn.elt.ingestion.adapters.eu_startups import EuStartupsDiscoveryAdapter
+from huginn.elt.ingestion.adapters.eu_startups_enrichment import (
+    EuStartupsEnrichmentAdapter,
+)
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
 from huginn.elt.ingestion.connectors import firebase
 from huginn.elt.ingestion.connectors.algolia import AlgoliaConnector
 from huginn.elt.ingestion.connectors.firebase import FirebaseConnector
+from huginn.elt.ingestion.eu_startups_discovery_runner import (
+    EuStartupsDiscoveryRunner,
+)
+from huginn.elt.ingestion.eu_startups_enrichment_runner import (
+    EuStartupsEnrichmentRunner,
+)
+from huginn.elt.stage_runner import Stage
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 
@@ -166,12 +187,340 @@ def test_build_service_wires_postgres_backed_ports_with_the_configured_url(monke
     assert service._job_run_writer._database_url == config.database_url
 
 
+def test_build_eu_startups_discovery_runner_wires_real_dependencies():
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+
+    runner = build_eu_startups_discovery_runner(config)
+
+    assert isinstance(runner, EuStartupsDiscoveryRunner)
+    assert isinstance(runner._adapter, EuStartupsDiscoveryAdapter)
+    assert isinstance(runner._repository, PostgresEuStartupsDiscoveryRepository)
+    assert runner._repository._database_url == config.database_url
+    assert isinstance(runner._job_run_writer, PostgresJobRunWriter)
+    assert runner._job_run_writer._database_url == config.database_url
+
+
+def test_build_eu_startups_enrichment_runner_wires_real_dependencies():
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+
+    runner = main_module.build_eu_startups_enrichment_runner(config)
+
+    assert isinstance(runner, EuStartupsEnrichmentRunner)
+    assert isinstance(runner._adapter, EuStartupsEnrichmentAdapter)
+    assert runner._adapter._max_calls == main_module.EU_STARTUPS_ENRICHMENT_MAX_CALLS
+    assert isinstance(runner._repository, PostgresEuStartupsEnrichmentRepository)
+    assert runner._repository._database_url == config.database_url
+    assert isinstance(runner._job_run_writer, PostgresJobRunWriter)
+    assert runner._job_run_writer._database_url == config.database_url
+
+
+def test_enrichment_runner_loads_gold_candidates_lazily_with_the_run_limit(
+    monkeypatch,
+):
+    repositories = []
+
+    class FakeEnrichmentCompanyRepository(_FakeCompanyRepository):
+        def read_company_names_pending_eu_startups_search(self, limit):
+            self.requested_limit = limit
+            return ["Brightroom"]
+
+    def make_repository(database_url):
+        repository = FakeEnrichmentCompanyRepository(database_url)
+        repositories.append(repository)
+        return repository
+
+    monkeypatch.setattr(main_module, "PostgresCompanyRepository", make_repository)
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+
+    runner = main_module.build_eu_startups_enrichment_runner(config)
+
+    assert repositories == []
+    assert runner._adapter._company_loader() == ["Brightroom"]
+    assert (
+        repositories[0].requested_limit == main_module.EU_STARTUPS_ENRICHMENT_MAX_CALLS
+    )
+
+
 class FakeService:
     def __init__(self, failed_count: int) -> None:
         self._failed_count = failed_count
 
     def run_once(self) -> int:
         return self._failed_count
+
+
+class FakeDiscoveryRunner:
+    def __init__(self) -> None:
+        self.run_count = 0
+
+    def run(self) -> int:
+        self.run_count += 1
+        return 0
+
+
+def test_main_eu_discovery_command_invokes_only_the_dedicated_runner(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    runner = FakeDiscoveryRunner()
+    backfill_permissions = []
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_discovery_runner",
+        lambda actual_config, *, allow_initial_backfill: (
+            backfill_permissions.append(allow_initial_backfill)
+            or (runner if actual_config is config else None)
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_service",
+        lambda _config: pytest.fail("shared service must not run for EU discovery"),
+    )
+
+    main(["eu-startups-discovery"])
+
+    assert runner.run_count == 1
+    assert backfill_permissions == [False]
+
+
+def test_main_forwards_initial_backfill_opt_in_to_discovery_runner(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    runner = FakeDiscoveryRunner()
+    backfill_permissions = []
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_discovery_runner",
+        lambda actual_config, *, allow_initial_backfill: (
+            backfill_permissions.append(allow_initial_backfill)
+            or (runner if actual_config is config else None)
+        ),
+    )
+
+    main(["eu-startups-discovery", "--allow-initial-backfill"])
+
+    assert runner.run_count == 1
+    assert backfill_permissions == [True]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--allow-initial-backfill"],
+        ["eu-startups-enrichment", "--allow-initial-backfill"],
+    ],
+)
+def test_main_rejects_initial_backfill_flag_outside_discovery(argv):
+    with pytest.raises(SystemExit) as exc_info:
+        main(argv)
+
+    assert exc_info.value.code == 2
+
+
+def test_main_eu_enrichment_command_invokes_only_the_dedicated_runner(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    events = []
+
+    class FakeEnrichmentRunner:
+        def run(self):
+            events.append("enrichment")
+            return 2
+
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_runner",
+        lambda actual_config: (
+            FakeEnrichmentRunner() if actual_config is config else None
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_service",
+        lambda _config: pytest.fail("shared service must not run for enrichment"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_hn_yc_sources",
+        lambda _config: pytest.fail("HN/YC ingestion must not run for enrichment"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_stages",
+        lambda _config: [
+            Stage(name, lambda name=name: events.append(name) or 1)
+            for name in (
+                "silver.eu_startups_staging",
+                "silver.signal_resolution",
+                "gold.company",
+                "gold.company_signal",
+            )
+        ],
+    )
+
+    class FakeJobRunWriter:
+        def write(self, _job_run):
+            pass
+
+    monkeypatch.setattr(
+        main_module, "PostgresJobRunWriter", lambda _url: FakeJobRunWriter()
+    )
+
+    main(["eu-startups-enrichment"])
+
+    assert events == [
+        "enrichment",
+        "silver.eu_startups_staging",
+        "silver.signal_resolution",
+        "gold.company",
+        "gold.company_signal",
+    ]
+
+
+def test_main_eu_enrichment_failure_skips_every_materialization_stage(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    events = []
+
+    class FailingEnrichmentRunner:
+        def run(self):
+            events.append("enrichment")
+            raise RuntimeError("fetch/persist failed")
+
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_runner",
+        lambda _config: FailingEnrichmentRunner(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_stages",
+        lambda _config: pytest.fail("downstream stages must not be built"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_service",
+        lambda _config: pytest.fail("shared ingestion must not run"),
+    )
+
+    with pytest.raises(RuntimeError, match="fetch/persist failed"):
+        main(["eu-startups-enrichment"])
+
+    assert events == ["enrichment"]
+
+
+def test_main_exits_non_zero_and_tracks_downstream_stage_failure(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    written_job_runs = []
+
+    class FakeEnrichmentRunner:
+        def run(self):
+            return 0
+
+    class FakeJobRunWriter:
+        def write(self, job_run):
+            written_job_runs.append(job_run)
+
+    def fail_staging():
+        raise RuntimeError("staging failed")
+
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_runner",
+        lambda _config: FakeEnrichmentRunner(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_enrichment_stages",
+        lambda _config: [
+            Stage(
+                "silver.eu_startups_staging",
+                fail_staging,
+            ),
+            Stage(
+                "silver.signal_resolution",
+                lambda: pytest.fail("resolution depends on staging"),
+                depends_on=("silver.eu_startups_staging",),
+            ),
+            Stage(
+                "gold.company",
+                lambda: pytest.fail("company materialization depends on resolution"),
+                depends_on=("silver.signal_resolution",),
+            ),
+            Stage(
+                "gold.company_signal",
+                lambda: pytest.fail("company signal depends on company"),
+                depends_on=("silver.signal_resolution", "gold.company"),
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        main_module, "PostgresJobRunWriter", lambda _url: FakeJobRunWriter()
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["eu-startups-enrichment"])
+
+    assert exc_info.value.code == 1
+    latest_status_by_stage = {
+        job_run.source: job_run.status for job_run in written_job_runs
+    }
+    assert latest_status_by_stage == {
+        "silver.eu_startups_staging": "failed",
+        "silver.signal_resolution": "skipped",
+        "gold.company": "skipped",
+        "gold.company_signal": "skipped",
+    }
+
+
+def test_build_eu_startups_enrichment_stages_reuses_gold_materialization_order():
+    from huginn.elt.ingestion.__main__ import build_eu_startups_enrichment_stages
+
+    stages = build_eu_startups_enrichment_stages(
+        Config(
+            database_url="postgresql://example.invalid/db",
+            yc_algolia_api_key="key-blob",
+        )
+    )
+
+    assert [stage.name for stage in stages] == [
+        "silver.eu_startups_staging",
+        "silver.signal_resolution",
+        "gold.company",
+        "gold.company_signal",
+    ]
+    assert stages[1].depends_on == ("silver.eu_startups_staging",)
+    assert stages[1].run.__name__ == "resolve_eu_startups"
+    assert stages[2].depends_on == ("silver.signal_resolution",)
+    assert stages[3].depends_on == (
+        "silver.signal_resolution",
+        "gold.company",
+    )
 
 
 def test_main_exits_zero_when_every_source_succeeds(monkeypatch):

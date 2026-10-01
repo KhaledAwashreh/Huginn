@@ -7,8 +7,8 @@ that exact name, fetch its detail page and store the raw HTML in Bronze.
 Unlike OpenCorporates' API, EU-Startups' search is a substring match, so
 `_extract_exact_matches` filters the raw results before the zero/one/many
 skip rule applies. Candidate gate: ADR-0010 (`gold.company
-.eu_startups_searched_at`); not read from here, and wiring that read into
-the composition root is outside this ticket's scope (see `__init__`).
+.eu_startups_searched_at`); the composition root supplies the candidate
+read while this adapter remains independent of Postgres.
 Reuses the confirmed Cloudflare/UA behavior from `eu_startups.py`
 (KAN-64); this module does not call that module's `extract_listing_fields`
 (Bronze stores raw HTML only, KAN-64 plan Global Constraint 6, field
@@ -26,7 +26,12 @@ from urllib.parse import unquote, urlencode, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from huginn.elt.ingestion.models import RawRecord
+from huginn.elt.ingestion.models import (
+    EnrichmentBatch,
+    EnrichmentCandidateOutcome,
+    EnrichmentOutcomeStatus,
+    RawRecord,
+)
 from huginn.elt.ingestion.ports import WebScrapeSourcePort
 
 logger = logging.getLogger(__name__)
@@ -207,6 +212,18 @@ def _is_result_set_truncated(raw_match_count: int, parsed_count: int | None) -> 
     return parsed_count is None or parsed_count != raw_match_count
 
 
+def _is_valid_detail_page(html: str) -> bool:
+    """Recognize the directory's minimal single-listing page structure.
+
+    This intentionally checks only the stable outer listing and title
+    elements. Field extraction and detailed content validation remain owned
+    by Silver; the guard here prevents challenge pages and unrelated HTML
+    from replacing a previously stored raw listing.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    return soup.select_one(".wpbdp-listing-single .listing-title h2") is not None
+
+
 class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
     """`WebScrapeSourcePort` for eu-startups.com, enrichment by company
     name. See Jira KAN-65 and ADR-0010.
@@ -225,11 +242,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         time, mirroring `opencorporates.py`'s `OpenCorporatesAdapter
         .__init__`.
 
-        The adapter does not decide which companies to enrich; the loader
-        is injected by `src/huginn/elt/ingestion/__main__.py` (ADR-0010's
-        `read_company_names_pending_eu_startups_search`, wired outside this
-        ticket's scope). Deferring the call until `fetch()` keeps service
-        construction free of database I/O. `max_calls` caps how many
+        The adapter does not decide which companies to enrich; the dedicated
+        runner injects ADR-0010's
+        `read_company_names_pending_eu_startups_search` through the
+        composition root. Deferring the call until `fetch_batch()` keeps
+        service construction free of database I/O. `max_calls` caps how many
         searches this fetch makes, the same simple per-run budget
         `OpenCorporatesAdapter` uses.
         """
@@ -275,29 +292,14 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 f"EU-Startups page fetch failed: {type(exc).__name__}"
             ) from None
 
-    def fetch(self) -> list[RawRecord]:
-        """Search for each company name in turn, up to `max_calls`
-        searches, and enrich exactly the ones with an unambiguous exact
-        match.
+    def fetch_batch(self) -> EnrichmentBatch:
+        """Return successful records with a cursor disposition per candidate.
 
-        Mirrors `opencorporates.py`'s `OpenCorporatesAdapter.fetch()`: a
-        search resolving to exactly one exact-match result (plan Global
-        Constraints 7-8) enriches that company (one `RawRecord`, plan
-        Global Constraint 10). Zero or more than one exact match skips it
-        this run, no guess, just an INFO log naming why. A single failed
-        search (network error, non-2xx) is a WARNING, not an abort: it must
-        not prevent the rest of the batch from being tried (same reasoning
-        as KAN-64's per-listing fetch isolation).
-
-        Before the exact-match filter runs, `_is_result_set_truncated`
-        checks the page's own reported result count against the raw anchor
-        count: WPBDP search pages paginate, and one fetched page is not on
-        its own verified to be the complete result set. A mismatch (or a
-        missing/unparsable count) is a WARNING, skip, same as any other
-        unresolvable search this run (final whole-branch review Fix 1;
-        following pagination is out of this ticket's scope).
+        Definitive results advance the candidate cursor. Failed or possibly
+        incomplete requests stay eligible for retry (KAN-83, KAN-65).
         """
         records = []
+        outcomes = []
         seen_stable_ids = set()
         for name in self._company_loader()[: self._max_calls]:
             try:
@@ -306,6 +308,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 logger.warning(
                     "eu_startups_enrichment fetch: skipping %r, search request failed",
                     name,
+                )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.SEARCH_FAILED
+                    )
                 )
                 continue
 
@@ -320,6 +327,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     len(raw_matches),
                     parsed_count if parsed_count is not None else "not found",
                 )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.SEARCH_INCOMPLETE
+                    )
+                )
                 continue
 
             matches = _extract_exact_matches(search_html, name)
@@ -332,6 +344,12 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     len(matches),
                     len(raw_matches),
                 )
+                status = (
+                    EnrichmentOutcomeStatus.MULTIPLE_EXACT_MATCHES
+                    if matches
+                    else EnrichmentOutcomeStatus.NO_EXACT_MATCH
+                )
+                outcomes.append(EnrichmentCandidateOutcome(name, status))
                 continue
 
             _matched_name, detail_url = matches[0]
@@ -342,6 +360,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     name,
                     detail_url,
                 )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.INVALID_DETAIL_URL
+                    )
+                )
                 continue
 
             stable_id = _listing_slug(detail_url)
@@ -350,6 +373,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     "eu_startups_enrichment fetch: skipping %r, duplicate stable ID %r",
                     name,
                     stable_id,
+                )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.DUPLICATE_STABLE_ID
+                    )
                 )
                 continue
 
@@ -361,6 +389,25 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     "fetch failed: %s",
                     name,
                     detail_url,
+                )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.DETAIL_FETCH_FAILED
+                    )
+                )
+                continue
+
+            if not _is_valid_detail_page(detail_html):
+                logger.warning(
+                    "eu_startups_enrichment fetch: skipping %r, detail page "
+                    "does not contain the expected listing structure: %s",
+                    name,
+                    detail_url,
+                )
+                outcomes.append(
+                    EnrichmentCandidateOutcome(
+                        name, EnrichmentOutcomeStatus.DETAIL_INVALID
+                    )
                 )
                 continue
 
@@ -375,4 +422,11 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                     },
                 )
             )
-        return records
+            outcomes.append(
+                EnrichmentCandidateOutcome(name, EnrichmentOutcomeStatus.ENRICHED)
+            )
+        return EnrichmentBatch(tuple(records), tuple(outcomes))
+
+    def fetch(self) -> list[RawRecord]:
+        """Preserve the SourcePort list contract for existing callers."""
+        return list(self.fetch_batch().records)

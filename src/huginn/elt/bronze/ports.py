@@ -13,9 +13,14 @@ share one query rather than each carrying their own copy.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
-from huginn.elt.ingestion.models import RawRecord
+from huginn.elt.ingestion.models import (
+    DiscoveryBatch,
+    EnrichmentBatch,
+    FailedListingOutcome,
+    RawRecord,
+)
 
 
 class RawStorePort(Protocol):
@@ -51,6 +56,30 @@ class StatePort(Protocol):
 
     def last_hash(self, source: str, stable_id: str) -> str | None:
         """The last stored content hash for this entity, or None if never seen."""
+        ...
+
+
+class EuStartupsDiscoveryRepositoryPort(Protocol):
+    """Atomic persistence boundary for EU-Startups discovery (KAN-83)."""
+
+    def read_watermark(self) -> str | None:
+        """Return the durable sitemap watermark, or None before the first run."""
+        ...
+
+    def list_retryable_listings(self) -> tuple[FailedListingOutcome, ...]:
+        """Return durable retryable listings for the next replay pass."""
+        ...
+
+    def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
+        """Atomically persist a discovery batch and return rows written."""
+        ...
+
+
+class EuStartupsEnrichmentRepositoryPort(Protocol):
+    """Atomic persistence boundary for EU-Startups enrichment (KAN-83)."""
+
+    def persist_batch(self, batch: EnrichmentBatch, run_id: str) -> int:
+        """Persist raw listing pages and definitive candidate cursors together."""
         ...
 
 
@@ -110,3 +139,14 @@ class ApiIngestRepositoryPort(Protocol):
         `content_hash` untouched, for a hash-match skip.
         """
         ...
+
+
+class WebScrapeIngestRepositoryPort(ApiIngestRepositoryPort, Protocol):
+    """Persistence boundary for `bronze.web_scrape_ingest`.
+
+    Web-scrape Bronze rows have the same shape and transaction semantics as
+    API Bronze rows, but use a separate table and repository implementation.
+    The inherited operations are valid only inside the repository context.
+    """
+
+    bronze_table: Literal["web_scrape_ingest"]

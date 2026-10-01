@@ -85,6 +85,28 @@ CREATE TABLE silver.yc_listings (
     UNIQUE (stable_id)
 );
 
+-- EU-Startups directory listings are discovered into
+-- bronze.web_scrape_ingest and parsed into the shared staging shape before
+-- cross-source resolution. These tracking fields stay verbatim; Gold adds
+-- source labels when it composes company notes.
+CREATE TABLE silver.eu_startups_listings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stable_id TEXT NOT NULL,
+    company_name_raw TEXT NOT NULL,
+    website TEXT,
+    signal_type TEXT NOT NULL CHECK (signal_type IN ('hiring', 'funding', 'program_milestone', 'other')),
+    stage TEXT,
+    description TEXT,
+    occurred_on TIMESTAMPTZ,
+    url TEXT,
+    founded TEXT,
+    total_funding TEXT,
+    company_status TEXT,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (stable_id)
+);
+
 -- Fed by all staging tables together. resolved_company_key is a plain
 -- resolved identity value (normalized domain, or a fuzzy-match fallback
 -- key), not a foreign key into a materialized company table: Gold builds
@@ -97,11 +119,10 @@ CREATE TABLE silver.resolved_signals (
     company_name_raw TEXT NOT NULL,
     signal_type TEXT NOT NULL CHECK (signal_type IN ('hiring', 'funding', 'program_milestone', 'other')),
     stage TEXT,
-    -- Cross-source table, so unlike the per-source staging tables these are
-    -- YC-shaped by circumstance rather than by design: an HN row has no
-    -- registry status and no headcount, so all of them are NULL for it.
-    -- Gold treats a NULL here as "this source does not know", never as a
-    -- value that clears one an earlier source supplied.
+    -- Source-specific values share this event-grain table. HN has none;
+    -- EU-Startups supplies company_status; YC supplies its profile fields.
+    -- Gold treats NULL as "this source does not know", not as a value that
+    -- clears a value another source supplied.
     company_status TEXT,
     team_size INTEGER,
     industries TEXT[],
@@ -109,6 +130,9 @@ CREATE TABLE silver.resolved_signals (
     former_names TEXT[],
     -- YC's funded batch, verbatim. See silver.yc_listings.batch.
     batch TEXT,
+    -- EU-Startups tracking values stay raw until Gold attributes them.
+    founded TEXT,
+    total_funding TEXT,
     description TEXT,
     occurred_on TIMESTAMPTZ,
     url TEXT,

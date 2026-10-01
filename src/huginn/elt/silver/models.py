@@ -74,6 +74,9 @@ class EuStartupsListingStaging:
     description: str
     occurred_on: datetime
     url: str
+    founded: str | None = None
+    total_funding: str | None = None
+    company_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,9 +95,8 @@ class StagedSignal:
     description: str | None
     occurred_on: datetime
     url: str
-    # YC-shaped by circumstance, not by design: this is the cross-source
-    # read shape, so an HN staged signal has None for all six of these.
-    # Mirrors the nullable columns on silver.resolved_signals.
+    # Nullable source-specific fields on silver.resolved_signals. HN has
+    # none; company_status is supplied by YC and EU-Startups.
     company_status: str | None = None
     team_size: int | None = None
     industries: tuple[str, ...] | None = None
@@ -105,6 +107,9 @@ class StagedSignal:
     former_names: tuple[str, ...] | None = None
     # YC's funded batch, verbatim. See the note on YcListingStaging.batch.
     batch: str | None = None
+    # EU-Startups' source text, carried raw through resolution to Gold.
+    founded: str | None = None
+    total_funding: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,9 +128,9 @@ class ResolvedSignalRecord:
     occurred_on: datetime
     url: str
     key_derivation: str
-    # YC-shaped by circumstance, not by design: an HN row has None for
-    # all of these, since "Who's Hiring" comments carry no registry status,
-    # no headcount, no industry list, and no location.
+    # Source-specific fields on the shared event record. YC and EU-Startups
+    # supply company_status; EU-Startups also supplies founded and
+    # total_funding. HN supplies none of these profile/tracking values.
     company_status: str | None = None
     team_size: int | None = None
     industries: tuple[str, ...] | None = None
@@ -136,3 +141,6 @@ class ResolvedSignalRecord:
     former_names: tuple[str, ...] | None = None
     # YC's funded batch, verbatim. See the note on YcListingStaging.batch.
     batch: str | None = None
+    # EU-Startups tracking values, kept raw until Gold applies attribution.
+    founded: str | None = None
+    total_funding: str | None = None

@@ -1,11 +1,8 @@
-"""Shared Postgres adapter infrastructure for the Silver repositories: the
-connection scope every one of them needs, and the bronze.api_ingest read
-the two staging repositories share. Composed by each concrete repository,
-not inherited — consistent with this codebase's dependency-injection
-style everywhere else (ports passed into constructors, never a shared
-base class). See huginn.elt.silver.ports for the port contracts these
-support and architecture document section 4.1 for the one shared
-api_ingest table.
+"""Shared Postgres adapter infrastructure for the Silver repositories:
+the connection scope and Bronze payload reads. Composed by each concrete
+repository, not inherited, consistent with this codebase's
+dependency-injection style. See huginn.elt.silver.ports for the supported
+contracts and the source-specific Bronze tables.
 """
 
 from __future__ import annotations
@@ -16,6 +13,9 @@ from typing import Self
 import psycopg
 
 _BRONZE_SELECT_SQL = "SELECT payload FROM bronze.api_ingest WHERE source = %s"
+_WEB_SCRAPE_BRONZE_SELECT_SQL = (
+    "SELECT payload FROM bronze.web_scrape_ingest WHERE source = %s"
+)
 
 
 class PostgresConnectionScope:
@@ -93,4 +93,13 @@ def read_bronze_payloads(cursor, source: str) -> list[dict]:
     HN and YC write to different tables.
     """
     cursor.execute(_BRONZE_SELECT_SQL, (source,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def read_web_scrape_payloads(cursor, source: str) -> list[dict]:
+    """Return every current web-scrape Bronze payload for `source`, using
+    an already-open cursor. Kept distinct from `read_bronze_payloads` so
+    API-backed HN and YC reads remain on bronze.api_ingest.
+    """
+    cursor.execute(_WEB_SCRAPE_BRONZE_SELECT_SQL, (source,))
     return [row[0] for row in cursor.fetchall()]

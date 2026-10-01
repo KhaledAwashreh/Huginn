@@ -147,11 +147,9 @@ class CompanyWriter:
        team_size_to_scale).
     2. `country` and `city`, split from YC's `all_locations` display string
        for the same reason (see parse_all_locations).
-    3. `notes`, YC's `batch` under a hardcoded `YC ` prefix, written only
-       when the signal carries one. The prefix is a label, not a merge key:
-       `DomainNormalizedSignal` carries no `source`, so a second portal's
-       batch would take the same last-non-null merge, overwrite YC's note,
-       and be labelled `YC`.
+    3. `notes`, composed from source-attributed tracking values: YC's
+       `batch`, plus EU-Startups' `founded` year and `total_funding` text.
+       The labels are Gold vocabulary; Silver preserves each source value.
     """
 
     def __init__(self, repository: CompanyRepositoryPort) -> None:
@@ -172,13 +170,16 @@ class CompanyWriter:
         The collapse is per field, not per row. `name` keeps plain
         last-read-wins, unchanged, because it is NOT NULL upstream and
         every signal carries one. `stage`, `company_status`, `business_sector`,
-        `country`, `city`, `notes`, and the `company_scale` derived from
-        `team_size` keep the last *non-null* value instead, because they are
-        source-specific: every HN signal has all of them as None by
-        construction (silver/hn_staging.py), so a plain last-row-wins collapse
-        erases a YC company's values whenever an HN signal for the same
-        domain is read after it. Absence means "this source does not know",
-        not "no value".
+        `country`, `city`, and the `company_scale` derived from `team_size`
+        keep the last *non-null* value instead. Every HN signal has these
+        source-specific fields as None by construction, so a plain
+        last-row-wins collapse would erase values supplied by another source.
+        `notes` are composed separately by source key in a fixed order: the
+        latest non-null YC batch, followed by EU-Startups' latest non-null
+        founded and funding values. This keeps both sources' statements when
+        they resolve to the same domain.
+
+        Absence means "this source does not know", not "no value".
 
         A field absent from every signal is omitted from `new_values`
         entirely, so gold.company keeps whatever an earlier run wrote
@@ -191,6 +192,7 @@ class CompanyWriter:
         with self._repository:
             signals = self._repository.read_domain_normalized_signals()
             values_by_domain: dict[str, dict[str, object]] = {}
+            notes_by_domain: dict[str, dict[str, str]] = {}
             for signal in signals:
                 values = values_by_domain.setdefault(signal.domain, {})
                 values["name"] = signal.company_name_raw
@@ -207,10 +209,29 @@ class CompanyWriter:
                     ),
                     ("country", country),
                     ("city", city),
-                    ("notes", f"YC {signal.batch}" if signal.batch else None),
                 ):
                     if value is not None:
                         values[column] = value
+                if signal.source == "yc" and signal.batch:
+                    notes_by_domain.setdefault(signal.domain, {})["yc"] = (
+                        f"YC {signal.batch}"
+                    )
+                elif signal.source == "eu_startups":
+                    notes = notes_by_domain.setdefault(signal.domain, {})
+                    if signal.founded:
+                        notes["eu_founded"] = f"EU Startups Founded {signal.founded}"
+                    if signal.total_funding:
+                        notes["eu_funding"] = (
+                            f"EU Startups Funding {signal.total_funding}"
+                        )
+            for domain, notes in notes_by_domain.items():
+                ordered_notes = [
+                    notes[key]
+                    for key in ("yc", "eu_founded", "eu_funding")
+                    if key in notes
+                ]
+                if ordered_notes:
+                    values_by_domain[domain]["notes"] = "; ".join(ordered_notes)
             for domain, new_values in values_by_domain.items():
                 write_company(self._repository, domain, new_values)
             written = len(values_by_domain)

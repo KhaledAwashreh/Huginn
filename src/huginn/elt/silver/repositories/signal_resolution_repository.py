@@ -17,10 +17,9 @@ _HN_STAGING_SELECT_SQL = """
     FROM silver.hn_postings
 """
 
-# Wider than the HN select by design: only silver.yc_listings has a registry
-# status, a headcount, an industry list, a location, prior names, or a funded
-# batch, so those six columns are projected here and not there. See ADR-0001
-# on source-specific staging columns.
+# Wider than HN by design: source-specific columns are projected where they
+# exist, with null placeholders keeping the cross-source row positions
+# aligned. See ADR-0001 on per-source staging columns.
 _YC_STAGING_SELECT_SQL = """
     SELECT stable_id, company_name_raw, website, signal_type, stage,
            description, occurred_on, url, company_status, team_size,
@@ -28,13 +27,22 @@ _YC_STAGING_SELECT_SQL = """
     FROM silver.yc_listings
 """
 
+_EU_STARTUPS_STAGING_SELECT_SQL = """
+    SELECT stable_id, company_name_raw, website, signal_type, stage,
+           description, occurred_on, url, company_status,
+           NULL::INTEGER, NULL::TEXT[], NULL::TEXT, NULL::TEXT[], NULL::TEXT,
+           founded, total_funding
+    FROM silver.eu_startups_listings
+"""
+
 _UPSERT_SQL = """
     INSERT INTO silver.resolved_signals
         (source_stable_id, source, resolved_company_key, company_name_raw,
          signal_type, stage, description, occurred_on, url, key_derivation,
          company_status, team_size, industries, all_locations, former_names,
-         batch)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+         batch, founded, total_funding)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s)
     ON CONFLICT (source, source_stable_id) DO UPDATE
     SET resolved_company_key = EXCLUDED.resolved_company_key,
         company_name_raw = EXCLUDED.company_name_raw,
@@ -50,6 +58,8 @@ _UPSERT_SQL = """
         all_locations = EXCLUDED.all_locations,
         former_names = EXCLUDED.former_names,
         batch = EXCLUDED.batch,
+        founded = EXCLUDED.founded,
+        total_funding = EXCLUDED.total_funding,
         updated_at = now()
 """
 
@@ -65,15 +75,15 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
         occurred_on,
         url,
     ) = row[:8]
-    # A narrow row means the source's staging table has no such column at
-    # all, which is the HN case: its comments carry no registry status, no
-    # headcount, no industries, and no location. "Does not know", not a
-    # value. Widening the guard in steps keeps each source's projection
-    # independent of the others'.
+    # Narrow source projections leave fields absent. The EU query uses null
+    # placeholders for YC-only fields so the two source-specific tails keep
+    # their stable indexes in this shared row shape.
     company_status, team_size = (row[8], row[9]) if len(row) > 9 else (None, None)
     industries, all_locations = (row[10], row[11]) if len(row) > 11 else (None, None)
     former_names = row[12] if len(row) > 12 else None
     batch = row[13] if len(row) > 13 else None
+    founded = row[14] if len(row) > 14 else None
+    total_funding = row[15] if len(row) > 15 else None
     return StagedSignal(
         source=source,
         stable_id=stable_id,
@@ -90,6 +100,8 @@ def _row_to_staged_signal(source: str, row: tuple) -> StagedSignal:
         all_locations=all_locations,
         former_names=tuple(former_names) if former_names is not None else None,
         batch=batch,
+        founded=founded,
+        total_funding=total_funding,
     )
 
 
@@ -130,6 +142,9 @@ class PostgresSignalResolutionRepository:
     def read_yc_listings(self) -> list[StagedSignal]:
         return self._read("yc", _YC_STAGING_SELECT_SQL)
 
+    def read_eu_startups_listings(self) -> list[StagedSignal]:
+        return self._read("eu_startups", _EU_STARTUPS_STAGING_SELECT_SQL)
+
     def _read(self, source: str, select_sql: str) -> list[StagedSignal]:
         self._scope.cursor.execute(select_sql)
         return [
@@ -157,5 +172,7 @@ class PostgresSignalResolutionRepository:
                 record.all_locations,
                 list(record.former_names) if record.former_names is not None else None,
                 record.batch,
+                record.founded,
+                record.total_funding,
             ),
         )
