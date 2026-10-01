@@ -46,9 +46,74 @@ Confirmed terminal-failure policy:
 3. `python -m huginn.elt` runs EU discovery, staging, resolution, and Gold in
    dependency order.
 
-The discovery-to-Gold wiring is complete. The separate company-name enrichment
-path remains open:
+The discovery-to-Gold wiring is complete.
 
-1. Wire `EuStartupsEnrichmentAdapter` into an executable workflow with Gold
-   candidate loading, Bronze persistence, and `eu_startups_searched_at` cursor
-   updates.
+## 2026-10-01: Company-name enrichment runner
+
+Company-name enrichment is now wired as a separate bounded workflow:
+
+1. `EuStartupsEnrichmentAdapter.fetch_batch()` returns raw detail records and
+   one outcome per candidate name. Definitive outcomes advance
+   `eu_startups_searched_at`; network failures, possibly truncated search pages,
+   detail fetch failures, and structurally invalid detail pages remain eligible
+   for retry. HTTP-success detail responses must contain the expected
+   single-listing title structure before they can replace Bronze data.
+   `fetch()` retains its prior `list[RawRecord]` contract.
+2. `PostgresEuStartupsEnrichmentRepository` stores successful raw pages and
+   marks every Gold row with a definitive candidate name in one transaction.
+   It hashes only `url` and `html`, touches unchanged rows, and preserves a
+   stored observation whose `lastmod` is newer than the enrichment observation.
+3. `EuStartupsEnrichmentRunner` records `ops.job_runs`, and the explicit
+   `python -m huginn.elt.ingestion eu-startups-enrichment` command uses a
+   50-name bound. After it succeeds, the command materializes EU staging
+   through EU-only Silver resolution and shared Gold writers (see below).
+
+The 32,763-listing historical discovery backfill remains a separate operational
+decision. The live EU discovery watermark and historical crawl scope must not be
+changed as part of enrichment wiring.
+
+## 2026-10-01: Enrichment through Gold
+
+After the bounded enrichment runner successfully fetches and commits its
+Bronze records and definitive-name checkpoints, the explicit
+`python -m huginn.elt.ingestion eu-startups-enrichment` command now runs:
+
+1. `silver.eu_startups_staging`
+2. `silver.signal_resolution`
+3. `gold.company`
+4. `gold.company_signal`
+
+The enrichment runner owns the workflow's fetch/persist `ops.job_runs` row.
+Each downstream stage uses the existing stage-runner job records. A fetch or
+persist exception stops the command before any downstream stage is built or
+run; downstream stage failures produce a non-zero command exit. The command
+does not run HN or YC ingestion, nor does it run EU discovery.
+
+The enrichment command uses `SignalResolver.resolve_eu_startups()`. It reads
+and upserts only EU staged/resolved signals, so an EU enrichment run cannot
+rewrite HN or YC resolution state. The full `python -m huginn.elt` pipeline
+continues to use `resolve_all()` for cross-source resolution.
+
+Gold field ownership remains unchanged: YC signals supply country and city.
+EU-Startups `category` and `based_in` are not mapped into those fields, and EU
+tags are not mapped to YC-owned `business_sector`.
+
+### Live verification
+
+The completed workflow was exercised against the local Docker PostgreSQL
+database after a full HN/YC/EU pipeline run:
+
+- YC populated 3,509 Gold countries and 3,470 Gold cities.
+- A bounded 50-name enrichment batch produced 47 definitive outcomes, three
+  retryable truncated searches, and one exact match (`cortex`).
+- EU Bronze and Silver increased from 98 to 99 rows.
+- EU-only resolution produced 94 domain-normalized and five unresolved rows;
+  `gold.company_signal` contained 94 EU signals afterward.
+- Country and city counts were unchanged by EU materialization.
+- Enrichment, EU staging, EU-only resolution, Company, and CompanySignal job
+  runs all succeeded.
+- The EU discovery watermark remained `2026-09-17T10:06:57+00:00`.
+
+Repository validation after the workflow change passed 787 tests, Ruff lint,
+Ruff format checking across 204 Python files, bytecode compilation, and
+`git diff --check`.

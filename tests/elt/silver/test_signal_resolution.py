@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -321,6 +322,38 @@ def test_resolve_all_completes_every_read_before_opening_the_write_scope(monkeyp
     ]
     assert all(index < second_enter_index for index in read_indices)
     assert all(index > second_enter_index for index in upsert_indices)
+
+
+def test_resolve_eu_startups_reads_and_upserts_only_eu_signals_with_progress(
+    caplog,
+):
+    eu_signals = [
+        _staged_signal(
+            "eu_startups",
+            f"listing-{index}",
+            f"https://company-{index}.example",
+        )
+        for index in range(101)
+    ]
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "hn-1", "https://hn.example")],
+        yc_listings=[_staged_signal("yc", "yc-1", "https://yc.example")],
+        eu_startups_listings=eu_signals,
+    )
+    resolver = SignalResolver(repository)
+    caplog.set_level(logging.INFO, logger=signal_resolution.logger.name)
+
+    written = resolver.resolve_eu_startups()
+
+    assert written == 101
+    assert repository.calls.count("read_eu_startups") == 1
+    assert "read_hn" not in repository.calls
+    assert "read_yc" not in repository.calls
+    assert len(repository.upserted) == 101
+    assert {record.source for record in repository.upserted} == {"eu_startups"}
+    assert "processed 100 of 101" in caplog.text
+    assert "processed 101 of 101" in caplog.text
+    assert "resolve_eu_startups: 101 written" in caplog.text
 
 
 def test_resolve_all_runs_every_reachability_check_with_no_scope_open(monkeypatch):

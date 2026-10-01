@@ -8,6 +8,7 @@ the data a contract passes around has its own home, consistent with the
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -45,3 +46,52 @@ class DiscoveryBatch:
     records: tuple[RawRecord, ...]
     proposed_watermark: str | None
     failed_listings: tuple[FailedListingOutcome, ...]
+
+
+class EnrichmentOutcomeStatus(StrEnum):
+    """One candidate-name result from an EU-Startups enrichment search."""
+
+    NO_EXACT_MATCH = "no_exact_match"
+    MULTIPLE_EXACT_MATCHES = "multiple_exact_matches"
+    INVALID_DETAIL_URL = "invalid_detail_url"
+    DUPLICATE_STABLE_ID = "duplicate_stable_id"
+    ENRICHED = "enriched"
+    SEARCH_FAILED = "search_failed"
+    SEARCH_INCOMPLETE = "search_incomplete"
+    DETAIL_FETCH_FAILED = "detail_fetch_failed"
+    DETAIL_INVALID = "detail_invalid"
+
+    @property
+    def definitive(self) -> bool:
+        return self in {
+            EnrichmentOutcomeStatus.NO_EXACT_MATCH,
+            EnrichmentOutcomeStatus.MULTIPLE_EXACT_MATCHES,
+            EnrichmentOutcomeStatus.INVALID_DETAIL_URL,
+            EnrichmentOutcomeStatus.DUPLICATE_STABLE_ID,
+            EnrichmentOutcomeStatus.ENRICHED,
+        }
+
+
+@dataclass(frozen=True)
+class EnrichmentCandidateOutcome:
+    """Outcome for one candidate name; only definitive outcomes advance its cursor."""
+
+    name: str
+    status: EnrichmentOutcomeStatus
+
+
+@dataclass(frozen=True)
+class EnrichmentBatch:
+    """Complete, not-yet-persisted enrichment result and candidate outcomes."""
+
+    records: tuple[RawRecord, ...]
+    outcomes: tuple[EnrichmentCandidateOutcome, ...]
+
+    @property
+    def definitive_names(self) -> tuple[str, ...]:
+        """Distinct candidate names whose search reached a definitive result."""
+        return tuple(
+            dict.fromkeys(
+                outcome.name for outcome in self.outcomes if outcome.status.definitive
+            )
+        )

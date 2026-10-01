@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 
-from huginn.elt.silver.models import ResolvedSignalRecord
+from huginn.elt.silver.models import ResolvedSignalRecord, StagedSignal
 from huginn.elt.silver.ports import SignalResolutionRepositoryPort
 from huginn.elt.silver.resolution import (
     KeyDerivation,
@@ -161,6 +161,31 @@ class SignalResolver:
                 + self._repository.read_eu_startups_listings()
             )
 
+        return self._resolve_staged_signals(staged_signals, method_name="resolve_all")
+
+    def resolve_eu_startups(self) -> int:
+        """Resolve and upsert only EU-Startups staged signals.
+
+        This path deliberately avoids reading or rewriting HN and YC resolved
+        rows. It is used when the enrichment command refreshes only EU staging,
+        so a temporary reachability failure for unrelated sources cannot
+        downgrade their existing resolution state.
+        """
+        with self._repository:
+            staged_signals = self._repository.read_eu_startups_listings()
+
+        return self._resolve_staged_signals(
+            staged_signals, method_name="resolve_eu_startups"
+        )
+
+    def _resolve_staged_signals(
+        self,
+        staged_signals: list[StagedSignal],
+        *,
+        method_name: str,
+    ) -> int:
+        """Resolve a detached batch and persist only the records it contains."""
+
         total = len(staged_signals)
         resolved_records = []
         for processed, signal in enumerate(staged_signals, start=1):
@@ -169,8 +194,9 @@ class SignalResolver:
             )
             if processed % _PROGRESS_LOG_INTERVAL == 0 or processed == total:
                 logger.info(
-                    "silver.resolved_signals resolve_all: processed %d of %d "
+                    "silver.resolved_signals %s: processed %d of %d "
                     "(last: source=%s stable_id=%s)",
+                    method_name,
                     processed,
                     total,
                     signal.source,
@@ -205,5 +231,5 @@ class SignalResolver:
                 self._repository.upsert(record)
                 written += 1
 
-        logger.info("silver.resolved_signals resolve_all: %d written", written)
+        logger.info("silver.resolved_signals %s: %d written", method_name, written)
         return written

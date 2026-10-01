@@ -21,75 +21,31 @@ from __future__ import annotations
 
 import logging
 import sys
-import time
-from collections.abc import Callable
-from dataclasses import dataclass
 
 from huginn.config import Config, load_config
 from huginn.elt.bronze.api_ingest_store import PostgresApiIngestStore
 from huginn.elt.bronze.repositories.api_ingest_repository import (
     PostgresApiIngestRepository,
 )
-from huginn.elt.gold.company import CompanyWriter
-from huginn.elt.gold.company_signal import CompanySignalWriter
-from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
-from huginn.elt.gold.repositories.company_signal_repository import (
-    PostgresCompanySignalRepository,
-)
 from huginn.elt.ingestion.__main__ import (
     build_eu_startups_discovery_runner,
     build_hn_yc_sources,
 )
 from huginn.elt.ingestion.service import IngestionService
-from huginn.elt.silver.eu_startups_staging import EuStartupsStagingLoader
+from huginn.elt.materialization import build_eu_startups_materialization_stages
 from huginn.elt.silver.hn_staging import HnStagingLoader
-from huginn.elt.silver.manual_review import ManualReviewQueuer
-from huginn.elt.silver.repositories.eu_startups_staging_repository import (
-    PostgresEuStartupsStagingRepository,
-)
 from huginn.elt.silver.repositories.hn_staging_repository import (
     PostgresHnStagingRepository,
-)
-from huginn.elt.silver.repositories.manual_review_repository import (
-    PostgresManualReviewRepository,
-)
-from huginn.elt.silver.repositories.signal_resolution_repository import (
-    PostgresSignalResolutionRepository,
 )
 from huginn.elt.silver.repositories.yc_staging_repository import (
     PostgresYcStagingRepository,
 )
-from huginn.elt.silver.signal_resolution import SignalResolver
 from huginn.elt.silver.yc_staging import YcStagingLoader
-from huginn.ops.job_runs import (
-    JobRun,
-    JobRunStatus,
-    JobRunWriterPort,
-    finish_job_run,
-    start_job_run,
-)
+from huginn.elt.stage_runner import Stage, run_stages
+from huginn.ops.job_runs import JobRunStatus
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class Stage:
-    """One pipeline unit. `name` doubles as the `ops.job_runs.source`
-    label, widened by adr/0014 from "ingestion source" to "pipeline
-    stage" (see `huginn.ops.job_runs`'s own docstring for the same note).
-
-    `depends_on` names the stages (by `name`) this stage requires to have
-    `SUCCEEDED` before it runs at all. `run_stages` below skips a stage,
-    rather than calling it, when any dependency did not succeed
-    (adr/0014's dependency-aware skip-on-failure policy, the same default
-    dbt's `dbt run`/`dbt build` and Airflow's `all_success` trigger rule
-    use: a stage with no dependency on a failure is unaffected by it).
-    """
-
-    name: str
-    run: Callable[[], int]
-    depends_on: tuple[str, ...] = ()
 
 
 def _run_ingestion(config: Config) -> int:
@@ -136,18 +92,13 @@ def build_stages(config: Config) -> list[Stage]:
         PostgresYcStagingRepository(config.database_url)
     )
     eu_startups_discovery_runner = build_eu_startups_discovery_runner(config)
-    eu_startups_staging_loader = EuStartupsStagingLoader(
-        PostgresEuStartupsStagingRepository(config.database_url)
-    )
-    signal_resolver = SignalResolver(
-        PostgresSignalResolutionRepository(config.database_url)
-    )
-    manual_review_queuer = ManualReviewQueuer(
-        PostgresManualReviewRepository(config.database_url)
-    )
-    company_writer = CompanyWriter(PostgresCompanyRepository(config.database_url))
-    company_signal_writer = CompanySignalWriter(
-        PostgresCompanySignalRepository(config.database_url)
+    eu_stages = build_eu_startups_materialization_stages(
+        config,
+        resolution_dependencies=(
+            "silver.hn_staging",
+            "silver.yc_staging",
+            "silver.eu_startups_staging",
+        ),
     )
 
     return [
@@ -172,129 +123,20 @@ def build_stages(config: Config) -> list[Stage]:
         ),
         Stage(
             name="silver.eu_startups_staging",
-            run=eu_startups_staging_loader.load,
+            run=eu_stages[0].run,
             depends_on=("ingestion.eu_startups",),
         ),
         Stage(
             name="silver.signal_resolution",
-            run=signal_resolver.resolve_all,
+            run=eu_stages[1].run,
             # resolve_all reads all three staging tables in one batch. Until
             # resolution is split into per-source stages, each loader is a
             # direct dependency; running after one fails would consume that
             # source's stale Silver rows.
-            depends_on=(
-                "silver.hn_staging",
-                "silver.yc_staging",
-                "silver.eu_startups_staging",
-            ),
+            depends_on=eu_stages[1].depends_on,
         ),
-        Stage(
-            name="silver.manual_review",
-            run=manual_review_queuer.queue_unmatched,
-            depends_on=("silver.signal_resolution",),
-        ),
-        Stage(
-            name="gold.company",
-            run=company_writer.write_all,
-            depends_on=("silver.signal_resolution",),
-        ),
-        Stage(
-            name="gold.company_signal",
-            run=company_signal_writer.write_all,
-            depends_on=("silver.signal_resolution", "gold.company"),
-        ),
+        *eu_stages[2:],
     ]
-
-
-def _safe_write_job_run(job_run_writer: JobRunWriterPort, job_run: JobRun) -> None:
-    """Persist `job_run`, logging rather than raising on failure. Mirrors
-    `IngestionService._safe_write_job_run`: a `job_run_writer` write is
-    bookkeeping, not the stage's own work, and must never abort the stage
-    loop the way a genuine stage failure does.
-    """
-    try:
-        job_run_writer.write(job_run)
-    except Exception:
-        logger.exception(
-            "stage %s: failed to persist job_run state (id=%s, status=%s)",
-            job_run.source,
-            job_run.id,
-            job_run.status,
-        )
-
-
-def run_stages(stages: list[Stage], job_run_writer: JobRunWriterPort) -> dict[str, str]:
-    """Run every stage in order, writing an `ops.job_runs` row per stage
-    and returning each stage's final status keyed by `Stage.name`.
-
-    Dependency-aware skip-on-failure (adr/0014): a stage runs only if
-    every stage named in its `depends_on` reached `SUCCEEDED`. Otherwise
-    it is recorded `SKIPPED` without being called at all, and a `SKIPPED`
-    stage propagates to its own dependents the same way a `FAILED` one
-    does, since neither is `SUCCEEDED`. A stage with no unmet dependency
-    always runs, regardless of what any unrelated stage did; only a
-    stage's own real dependency chain can skip it.
-
-    A stage that raises is caught here, at the stage boundary, and
-    recorded `FAILED` with the error text; the loop continues to the next
-    stage rather than aborting the whole run, so an unrelated stage still
-    gets its chance. Zero rows returned from a stage is `SUCCEEDED`, not
-    a failure: only a raised exception marks a stage `FAILED`.
-    """
-    statuses: dict[str, str] = {}
-    for stage in stages:
-        unmet_dependencies = [
-            dependency
-            for dependency in stage.depends_on
-            if statuses.get(dependency) != JobRunStatus.SUCCEEDED
-        ]
-        if unmet_dependencies:
-            logger.warning(
-                "stage %s: skipped, dependency not succeeded: %s",
-                stage.name,
-                ", ".join(unmet_dependencies),
-            )
-            job_run = start_job_run(stage.name)
-            job_run = finish_job_run(
-                job_run,
-                JobRunStatus.SKIPPED,
-                error=f"dependency not succeeded: {', '.join(unmet_dependencies)}",
-            )
-            _safe_write_job_run(job_run_writer, job_run)
-            statuses[stage.name] = JobRunStatus.SKIPPED
-            continue
-
-        job_run = start_job_run(stage.name)
-        _safe_write_job_run(job_run_writer, job_run)
-        started_at = time.monotonic()
-        try:
-            rows_written = stage.run()
-        except Exception as exc:
-            elapsed_seconds = time.monotonic() - started_at
-            logger.exception(
-                "stage %s: failed after %.1fs", stage.name, elapsed_seconds
-            )
-            job_run = finish_job_run(
-                job_run, JobRunStatus.FAILED, error=str(exc) or repr(exc)
-            )
-            _safe_write_job_run(job_run_writer, job_run)
-            statuses[stage.name] = JobRunStatus.FAILED
-            continue
-
-        elapsed_seconds = time.monotonic() - started_at
-        logger.info(
-            "stage %s: succeeded in %.1fs, %d row(s)",
-            stage.name,
-            elapsed_seconds,
-            rows_written,
-        )
-        job_run = finish_job_run(
-            job_run, JobRunStatus.SUCCEEDED, rows_written=rows_written
-        )
-        _safe_write_job_run(job_run_writer, job_run)
-        statuses[stage.name] = JobRunStatus.SUCCEEDED
-
-    return statuses
 
 
 def main() -> None:

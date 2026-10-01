@@ -18,9 +18,15 @@ from huginn.elt.bronze.repositories.api_ingest_repository import (
 from huginn.elt.bronze.repositories.eu_startups_discovery_repository import (
     PostgresEuStartupsDiscoveryRepository,
 )
+from huginn.elt.bronze.repositories.eu_startups_enrichment_repository import (
+    PostgresEuStartupsEnrichmentRepository,
+)
 from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
 from huginn.elt.ingestion.adapters import yc
 from huginn.elt.ingestion.adapters.eu_startups import EuStartupsDiscoveryAdapter
+from huginn.elt.ingestion.adapters.eu_startups_enrichment import (
+    EuStartupsEnrichmentAdapter,
+)
 from huginn.elt.ingestion.adapters.hn import HackerNewsAdapter
 from huginn.elt.ingestion.adapters.opencorporates import OpenCorporatesAdapter
 from huginn.elt.ingestion.adapters.yc import YcDirectoryAdapter
@@ -29,7 +35,13 @@ from huginn.elt.ingestion.connectors.firebase import FirebaseConnector
 from huginn.elt.ingestion.eu_startups_discovery_runner import (
     EuStartupsDiscoveryRunner,
 )
+from huginn.elt.ingestion.eu_startups_enrichment_runner import (
+    EuStartupsEnrichmentRunner,
+)
 from huginn.elt.ingestion.service import IngestionService
+from huginn.elt.materialization import build_eu_startups_materialization_stages
+from huginn.elt.stage_runner import Stage, run_stages
+from huginn.ops.job_runs import JobRunStatus
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 # OpenCorporates' free tier caps at 50 requests/day (docs/sources/
@@ -38,6 +50,8 @@ from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 # opencorporates-fetch-plan.md section 7 explicitly defers.
 OPENCORPORATES_MAX_CALLS = 50
 EU_STARTUPS_DISCOVERY_COMMAND = "eu-startups-discovery"
+EU_STARTUPS_ENRICHMENT_COMMAND = "eu-startups-enrichment"
+EU_STARTUPS_ENRICHMENT_MAX_CALLS = 50
 
 logger = logging.getLogger(__name__)
 
@@ -123,13 +137,43 @@ def build_eu_startups_discovery_runner(config: Config) -> EuStartupsDiscoveryRun
     )
 
 
+def build_eu_startups_enrichment_runner(
+    config: Config,
+) -> EuStartupsEnrichmentRunner:
+    """Construct the bounded, source-specific EU enrichment pipeline."""
+
+    def load_eu_startups_candidates() -> list[str]:
+        with PostgresCompanyRepository(config.database_url) as company_repository:
+            return company_repository.read_company_names_pending_eu_startups_search(
+                EU_STARTUPS_ENRICHMENT_MAX_CALLS
+            )
+
+    return EuStartupsEnrichmentRunner(
+        adapter=EuStartupsEnrichmentAdapter(
+            company_loader=load_eu_startups_candidates,
+            max_calls=EU_STARTUPS_ENRICHMENT_MAX_CALLS,
+        ),
+        repository=PostgresEuStartupsEnrichmentRepository(config.database_url),
+        job_run_writer=PostgresJobRunWriter(config.database_url),
+    )
+
+
+def build_eu_startups_enrichment_stages(config: Config) -> list[Stage]:
+    """Build only EU staging and the shared resolution/Gold materializers."""
+    return build_eu_startups_materialization_stages(
+        config,
+        include_manual_review=False,
+        resolve_eu_startups_only=True,
+    )
+
+
 def main(argv: Sequence[str] = ()) -> None:
     """Run the selected ingestion path. The application entrypoint, not library
     code, so it owns logging configuration (adr/0005-logging-required-from-day-one.md).
 
     With no command, preserve the shared HN/YC/OpenCorporates ingestion pass.
-    The explicit ``eu-startups-discovery`` command invokes its dedicated
-    transactional runner instead of changing ``IngestionService``.
+    The explicit EU-Startups commands invoke their dedicated transactional
+    runners instead of changing ``IngestionService``.
 
     Exits non-zero if any source failed: `run_once()` isolates per-source
     failures internally (so cron gets one clean process per scheduled run
@@ -148,7 +192,7 @@ def main(argv: Sequence[str] = ()) -> None:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=(EU_STARTUPS_DISCOVERY_COMMAND,),
+        choices=(EU_STARTUPS_DISCOVERY_COMMAND, EU_STARTUPS_ENRICHMENT_COMMAND),
         help="optional source-specific ingestion command",
     )
     args = parser.parse_args(argv)
@@ -162,6 +206,15 @@ def main(argv: Sequence[str] = ()) -> None:
         sys.exit(1)
     if args.command == EU_STARTUPS_DISCOVERY_COMMAND:
         build_eu_startups_discovery_runner(config).run()
+        return
+    if args.command == EU_STARTUPS_ENRICHMENT_COMMAND:
+        build_eu_startups_enrichment_runner(config).run()
+        statuses = run_stages(
+            build_eu_startups_enrichment_stages(config),
+            PostgresJobRunWriter(config.database_url),
+        )
+        if any(status != JobRunStatus.SUCCEEDED for status in statuses.values()):
+            sys.exit(1)
         return
 
     failed_count = build_service(config).run_once()

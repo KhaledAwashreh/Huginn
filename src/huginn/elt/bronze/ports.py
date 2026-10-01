@@ -17,6 +17,7 @@ from typing import Literal, Protocol
 
 from huginn.elt.ingestion.models import (
     DiscoveryBatch,
+    EnrichmentBatch,
     FailedListingOutcome,
     RawRecord,
 )
@@ -71,6 +72,14 @@ class EuStartupsDiscoveryRepositoryPort(Protocol):
 
     def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
         """Atomically persist a discovery batch and return rows written."""
+        ...
+
+
+class EuStartupsEnrichmentRepositoryPort(Protocol):
+    """Atomic persistence boundary for EU-Startups enrichment (KAN-83)."""
+
+    def persist_batch(self, batch: EnrichmentBatch, run_id: str) -> int:
+        """Persist raw listing pages and definitive candidate cursors together."""
         ...
 
 
