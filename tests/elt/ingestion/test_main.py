@@ -273,11 +273,15 @@ def test_main_eu_discovery_command_invokes_only_the_dedicated_runner(monkeypatch
         yc_algolia_api_key="key-blob",
     )
     runner = FakeDiscoveryRunner()
+    backfill_permissions = []
     monkeypatch.setattr(main_module, "load_config", lambda: config)
     monkeypatch.setattr(
         main_module,
         "build_eu_startups_discovery_runner",
-        lambda actual_config: runner if actual_config is config else None,
+        lambda actual_config, *, allow_initial_backfill: (
+            backfill_permissions.append(allow_initial_backfill)
+            or (runner if actual_config is config else None)
+        ),
     )
     monkeypatch.setattr(
         main_module,
@@ -288,6 +292,44 @@ def test_main_eu_discovery_command_invokes_only_the_dedicated_runner(monkeypatch
     main(["eu-startups-discovery"])
 
     assert runner.run_count == 1
+    assert backfill_permissions == [False]
+
+
+def test_main_forwards_initial_backfill_opt_in_to_discovery_runner(monkeypatch):
+    config = Config(
+        database_url="postgresql://example.invalid/db",
+        yc_algolia_api_key="key-blob",
+    )
+    runner = FakeDiscoveryRunner()
+    backfill_permissions = []
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(
+        main_module,
+        "build_eu_startups_discovery_runner",
+        lambda actual_config, *, allow_initial_backfill: (
+            backfill_permissions.append(allow_initial_backfill)
+            or (runner if actual_config is config else None)
+        ),
+    )
+
+    main(["eu-startups-discovery", "--allow-initial-backfill"])
+
+    assert runner.run_count == 1
+    assert backfill_permissions == [True]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--allow-initial-backfill"],
+        ["eu-startups-enrichment", "--allow-initial-backfill"],
+    ],
+)
+def test_main_rejects_initial_backfill_flag_outside_discovery(argv):
+    with pytest.raises(SystemExit) as exc_info:
+        main(argv)
+
+    assert exc_info.value.code == 2
 
 
 def test_main_eu_enrichment_command_invokes_only_the_dedicated_runner(monkeypatch):

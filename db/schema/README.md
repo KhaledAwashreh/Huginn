@@ -20,22 +20,35 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-tra
 
 ## Existing Pre-KAN-83 Databases
 
-The initial KAN-83 rollout has two idempotent additive upgrades for a
-database with the prior Bronze and Silver schemas. They add the EU-Startups
-discovery state/retry tables, supporting indexes, and per-source Silver
-staging table; they do not alter or remove existing data:
+The KAN-83 rollout has three idempotent additive upgrades for a database with
+the prior Bronze and Silver schemas. Together they add EU-Startups discovery
+state and retry tables, supporting indexes, the per-source Silver staging
+table, and its tracking fields; they do not alter or remove existing data:
 
 ```bash
 rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver-eu-startups-listings.sql -f db/schema/silver-eu-startups-tracking-fields.sql
 ```
 
-Run it once before invoking `python -m huginn.elt.ingestion eu-startups-discovery`
-against a pre-KAN-83 database. The SQL is safe to rerun and preserves existing
+For discovery-only use on a pre-KAN-83 database, apply
+`kan-83-eu-startups-discovery.sql` before invoking
+`python -m huginn.elt.ingestion eu-startups-discovery`. Silver staging and
+materialization also require `silver-eu-startups-listings.sql` followed by
+`silver-eu-startups-tracking-fields.sql`. The full `python -m huginn.elt`
+pipeline uses discovery, the three EU rollout upgrades, shared resolution, and
+Gold; apply those EU upgrades plus any other applicable Silver and Gold
+upgrades below for schema changes the pipeline uses. EU enrichment also
+requires `gold-eu-startups-searched-at.sql` before
+`python -m huginn.elt.ingestion eu-startups-enrichment`. Existing databases
+whose `ops.job_runs` check does not yet allow `skipped` must apply
+`ops-job-runs-skipped-status.sql` before a command that records skipped
+stages. Fresh installs already receive that status from `ops.sql`.
+
+Apply each needed file once. The SQL is safe to rerun and preserves existing
 data.
 
-The initial rollout used the first two files. The third, tracking-fields file
-was added later and follows the staging-table creation in the combined command
-above; it adds the raw EU fields and their cross-source resolution columns.
+The tracking-fields file follows staging-table creation; it adds the raw EU
+fields and their cross-source resolution columns. Discovery-only does not
+read or write those Silver fields.
 
 These match `docs/entities.md`, the [management foundation](../../docs/management-foundation.md), and the architecture document as of ADR-0002 and ADR-0011. Column-by-column Type 1/Type 2 classification beyond the two fields in `gold.company_history` is still open (Jira KAN-20); revise `gold.sql` and `src/huginn/elt/gold/dimensional.py` together when that lands.
 
@@ -67,7 +80,11 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-All seventeen are idempotent: re-running one on a database it has already been applied to is a no-op. Automated coverage of that claim is much thinner than the sentence implies:
+The table contains seventeen upgrade files. They are idempotent:
+re-running one on a database it has already been applied to is a no-op. Apply
+only files whose changes are needed by the commands and schema version in use;
+the full inventory is not a prerequisite list for every command. Automated
+coverage of idempotency is much thinner than the sentence implies:
 
 1. Four of the seventeen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, and `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`.
 2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.

@@ -29,10 +29,13 @@ class EuStartupsDiscoveryRunner:
         adapter: EuStartupsDiscoveryAdapter,
         repository: EuStartupsDiscoveryRepositoryPort,
         job_run_writer: JobRunWriterPort,
+        *,
+        allow_initial_backfill: bool = False,
     ) -> None:
         self._adapter = adapter
         self._repository = repository
         self._job_run_writer = job_run_writer
+        self._allow_initial_backfill = allow_initial_backfill
 
     def run(self) -> int:
         """Fetch a batch from durable state and atomically persist it."""
@@ -40,6 +43,12 @@ class EuStartupsDiscoveryRunner:
         self._safe_write_job_run(job_run)
         try:
             watermark = self._repository.read_watermark()
+            if watermark is None and not self._allow_initial_backfill:
+                raise RuntimeError(
+                    "Initial EU-Startups discovery has no durable watermark; "
+                    "rerun eu-startups-discovery with --allow-initial-backfill "
+                    "to authorize the historical crawl"
+                )
             retryable_listings = self._repository.list_retryable_listings()
             batch = self._adapter.fetch(watermark, retryable_listings)
             written = self._repository.commit_batch(batch, job_run.id)

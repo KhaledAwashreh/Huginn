@@ -68,7 +68,7 @@ Current state only. One row per company, always. Overwritten in place when any f
 - PhoneNumber: String
 - Email: String
 - TeamCompositionSignal: Enum (Unknown, LikelyNo, LikelyYes) (Type 2 tracked, see CompanyHistory)
-- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. Nothing writes it yet, so it is NULL for every row today and the ADR-0010 candidate gate cannot yet exclude an already-searched company)
+- EuStartupsSearchedAt: DateTimeOffset (nullable; per-source enrichment pipeline cursor, not a Type 2 tracked company fact, see ADR-0010. The enrichment writer sets it transactionally only for definitive search outcomes; retryable outcomes do not advance it, so a never-definitively-searched company keeps NULL and remains eligible for retry)
 - CurrentSince: DateTimeOffset (when the current set of Type 2 tracked values took effect)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset

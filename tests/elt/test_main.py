@@ -14,6 +14,8 @@ def test_build_stages_wires_eu_startups_from_ingestion_through_resolution():
     by_name = {stage.name: stage for stage in stages}
 
     assert "ingestion.eu_startups" in by_name
+    discovery_runner = by_name["ingestion.eu_startups"].run.__self__
+    assert discovery_runner._allow_initial_backfill is False
     assert by_name["silver.eu_startups_staging"].depends_on == (
         "ingestion.eu_startups",
     )

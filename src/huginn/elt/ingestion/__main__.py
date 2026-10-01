@@ -128,12 +128,15 @@ def build_service(config: Config) -> IngestionService:
     )
 
 
-def build_eu_startups_discovery_runner(config: Config) -> EuStartupsDiscoveryRunner:
+def build_eu_startups_discovery_runner(
+    config: Config, *, allow_initial_backfill: bool = False
+) -> EuStartupsDiscoveryRunner:
     """Construct the source-specific transactional EU discovery pipeline."""
     return EuStartupsDiscoveryRunner(
         adapter=EuStartupsDiscoveryAdapter(),
         repository=PostgresEuStartupsDiscoveryRepository(config.database_url),
         job_run_writer=PostgresJobRunWriter(config.database_url),
+        allow_initial_backfill=allow_initial_backfill,
     )
 
 
@@ -195,7 +198,14 @@ def main(argv: Sequence[str] = ()) -> None:
         choices=(EU_STARTUPS_DISCOVERY_COMMAND, EU_STARTUPS_ENRICHMENT_COMMAND),
         help="optional source-specific ingestion command",
     )
+    parser.add_argument(
+        "--allow-initial-backfill",
+        action="store_true",
+        help="authorize the initial EU-Startups historical discovery crawl",
+    )
     args = parser.parse_args(argv)
+    if args.allow_initial_backfill and args.command != EU_STARTUPS_DISCOVERY_COMMAND:
+        parser.error("--allow-initial-backfill requires eu-startups-discovery")
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
@@ -205,7 +215,9 @@ def main(argv: Sequence[str] = ()) -> None:
         logger.error("%s", error)
         sys.exit(1)
     if args.command == EU_STARTUPS_DISCOVERY_COMMAND:
-        build_eu_startups_discovery_runner(config).run()
+        build_eu_startups_discovery_runner(
+            config, allow_initial_backfill=args.allow_initial_backfill
+        ).run()
         return
     if args.command == EU_STARTUPS_ENRICHMENT_COMMAND:
         build_eu_startups_enrichment_runner(config).run()

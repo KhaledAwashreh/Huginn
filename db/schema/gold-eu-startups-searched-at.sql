@@ -10,12 +10,12 @@
 -- psycopg.errors.UndefinedColumn rather than returning candidates. See Jira
 -- KAN-83 and ADR-0010.
 --
--- Nullable with no default, deliberately. A NULL means "never searched", which
--- is what a company discovered before this column existed must mean: the
--- candidate gate treats NULL as eligible, so backfilling would be a lie about
--- work that was not done. Nothing writes the column yet, so today every row is
--- NULL and the gate cannot exclude anything; that gap is ADR-0010's, tracked
--- against the enrichment writer, and this migration does not paper over it.
+-- Nullable with no default, deliberately. A NULL means "never definitively
+-- searched", which is what a company discovered before this column existed
+-- must mean: the candidate gate treats NULL as eligible, so backfilling would
+-- be a lie about work that was not done. The enrichment repository sets this
+-- cursor in the same transaction as the definitive outcome; retryable outcomes
+-- do not advance it, so a never-definitively-searched company stays NULL.
 --
 -- Type 1: not in TYPE_2_TRACKED_FIELDS, no gold.company_history counterpart.
 -- A search cursor is not company state, and history would only record when the

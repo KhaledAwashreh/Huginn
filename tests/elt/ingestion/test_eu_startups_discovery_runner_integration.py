@@ -220,6 +220,7 @@ def test_runner_commits_bronze_rows_with_its_real_job_run_id():
                 StaticAdapter(batch),
                 repository,
                 PostgresJobRunWriter(DATABASE_URL),
+                allow_initial_backfill=True,
             ).run()
             == 1
         )

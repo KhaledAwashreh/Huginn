@@ -18,6 +18,8 @@ from huginn.ops.job_runs import JobRunStatus
 class FakeRepository:
     def __init__(self) -> None:
         self.watermark = "2026-09-04T23:59:59+00:00"
+        self.watermark_reads = 0
+        self.retryable_reads = 0
         self.retryable = (
             FailedListingOutcome(
                 url="https://www.eu-startups.com/directory/retry-me/",
@@ -27,10 +29,12 @@ class FakeRepository:
         )
         self.committed: tuple[DiscoveryBatch, str] | None = None
 
-    def read_watermark(self) -> str:
+    def read_watermark(self) -> str | None:
+        self.watermark_reads += 1
         return self.watermark
 
     def list_retryable_listings(self) -> tuple[FailedListingOutcome, ...]:
+        self.retryable_reads += 1
         return self.retryable
 
     def commit_batch(self, batch: DiscoveryBatch, run_id: str) -> int:
@@ -118,6 +122,45 @@ def test_runner_replays_a_durable_retry_at_or_before_the_watermark():
     EuStartupsDiscoveryRunner(adapter, repository, job_run_writer).run()
 
     assert adapter.calls == [(repository.watermark, repository.retryable)]
+
+
+def test_runner_refuses_initial_discovery_without_opt_in_before_loading_retries():
+    repository = FakeRepository()
+    repository.watermark = None
+    adapter = FakeAdapter(DiscoveryBatch((), None, ()))
+    job_run_writer = RecordingJobRunWriter()
+
+    with pytest.raises(RuntimeError, match="Initial EU-Startups discovery"):
+        EuStartupsDiscoveryRunner(adapter, repository, job_run_writer).run()
+
+    assert repository.watermark_reads == 1
+    assert repository.retryable_reads == 0
+    assert adapter.calls == []
+    assert repository.committed is None
+    assert [job_run.status for job_run in job_run_writer.job_runs] == [
+        JobRunStatus.RUNNING,
+        JobRunStatus.FAILED,
+    ]
+    assert "--allow-initial-backfill" in job_run_writer.job_runs[-1].error
+
+
+def test_runner_allows_initial_discovery_only_with_explicit_opt_in():
+    repository = FakeRepository()
+    repository.watermark = None
+    batch = DiscoveryBatch((), "2026-09-06T00:00:00+00:00", ())
+    adapter = FakeAdapter(batch)
+    job_run_writer = RecordingJobRunWriter()
+
+    EuStartupsDiscoveryRunner(
+        adapter,
+        repository,
+        job_run_writer,
+        allow_initial_backfill=True,
+    ).run()
+
+    assert adapter.calls == [(None, repository.retryable)]
+    assert repository.committed == (batch, job_run_writer.job_runs[0].id)
+    assert job_run_writer.job_runs[-1].status == JobRunStatus.SUCCEEDED
 
 
 def test_runner_records_and_reraises_a_persistence_failure():
