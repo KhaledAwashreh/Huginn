@@ -9,7 +9,15 @@ from psycopg.types.json import Jsonb
 
 from huginn.management.schemas import ProfessionalCollections
 
-MANAGEMENT_TABLES = {"accounts", "users", "professional_profiles"}
+MANAGEMENT_TABLES = {
+    "accounts",
+    "users",
+    "professional_profiles",
+    "sessions",
+    "service_offerings",
+    "ideal_client_profiles",
+    "client_discovery_strategies",
+}
 EXISTING_OPERATIONAL_TABLES = {
     "employee",
     "match",
@@ -535,13 +543,7 @@ def test_existing_match_references_management_user(management_database_url):
 
 
 def test_out_of_scope_management_tables_are_absent(management_database_url):
-    absent_tables = (
-        "sessions",
-        "offerings",
-        "icps",
-        "strategies",
-        "normalized_profiles",
-    )
+    absent_tables = ("normalized_profiles",)
     with psycopg.connect(management_database_url) as conn:
         found = conn.execute(
             "SELECT table_name FROM information_schema.tables "
@@ -550,3 +552,288 @@ def test_out_of_scope_management_tables_are_absent(management_database_url):
         ).fetchall()
 
     assert found == []
+
+
+def test_management_resource_tables_have_expected_columns(management_database_url):
+    expected_columns = {
+        "sessions": {
+            "id",
+            "account_id",
+            "token_digest",
+            "csrf_digest",
+            "created_at",
+            "expires_at",
+            "revoked_at",
+        },
+        "service_offerings": {
+            "id",
+            "user_id",
+            "name",
+            "description",
+            "created_at",
+            "updated_at",
+        },
+        "ideal_client_profiles": {
+            "id",
+            "user_id",
+            "name",
+            "industries",
+            "company_sizes",
+            "geographies",
+            "exclusions",
+            "created_at",
+            "updated_at",
+        },
+        "client_discovery_strategies": {
+            "id",
+            "user_id",
+            "name",
+            "service_offering_id",
+            "ideal_client_profile_id",
+            "is_active",
+            "created_at",
+            "updated_at",
+        },
+    }
+    with psycopg.connect(management_database_url) as conn:
+        columns = {
+            table: {
+                row[0]
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'operational' AND table_name = %s",
+                    (table,),
+                )
+            }
+            for table in expected_columns
+        }
+
+    for table, required in expected_columns.items():
+        assert columns[table] >= required
+
+
+def test_management_resource_indexes_support_lookups_and_owner_references(
+    management_database_url,
+):
+    expected_indexes = {
+        "sessions_token_digest_key",
+        "sessions_account_id_idx",
+        "service_offerings_user_id_id_key",
+        "ideal_client_profiles_user_id_id_key",
+        "service_offerings_user_created_idx",
+        "ideal_client_profiles_user_created_idx",
+        "client_discovery_strategies_user_created_idx",
+        "client_discovery_strategies_user_active_created_idx",
+    }
+    with psycopg.connect(management_database_url) as conn:
+        indexes = {
+            row[0]
+            for row in conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'operational'"
+            )
+        }
+
+    assert indexes >= expected_indexes
+
+
+def test_sessions_store_digests_and_reject_duplicate_digest(management_database_url):
+    with _connection(management_database_url) as conn:
+        account_id = _insert_account(conn)
+        values = (account_id, "a" * 64, "b" * 64)
+        row = conn.execute(
+            "INSERT INTO operational.sessions "
+            "(account_id, token_digest, csrf_digest, expires_at) "
+            "VALUES (%s, %s, %s, now() + interval '1 hour') "
+            "RETURNING id, created_at, expires_at, revoked_at",
+            values,
+        ).fetchone()
+        assert isinstance(row[0], UUID)
+        assert row[1].utcoffset() is not None
+        assert row[2].utcoffset() is not None
+        assert row[3] is None
+
+        with pytest.raises(psycopg.IntegrityError), conn.transaction():
+            conn.execute(
+                "DELETE FROM operational.accounts WHERE id = %s", (account_id,)
+            )
+
+        with pytest.raises(psycopg.IntegrityError), conn.transaction():
+            conn.execute(
+                "INSERT INTO operational.sessions "
+                "(account_id, token_digest, csrf_digest, expires_at) "
+                "VALUES (%s, %s, %s, now() + interval '1 hour')",
+                (account_id, "a" * 64, "c" * 64),
+            )
+
+
+@pytest.mark.parametrize(
+    "invalid_json",
+    (None, {}, 7, ["not-an-object"], [[{"name": "nested"}]]),
+)
+def test_offerings_and_icps_have_defaults_and_jsonb_outer_shapes(
+    management_database_url,
+    invalid_json,
+):
+    with _connection(management_database_url) as conn:
+        user_id = _insert_user(conn, _insert_account(conn))
+        offering = conn.execute(
+            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "VALUES (%s, 'Consulting', 'Service description') "
+            "RETURNING id, created_at, updated_at",
+            (user_id,),
+        ).fetchone()
+        _assert_uuid_and_aware_timestamps(offering)
+        profile = conn.execute(
+            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "VALUES (%s, 'Target clients') "
+            "RETURNING industries, company_sizes, geographies, exclusions",
+            (user_id,),
+        ).fetchone()
+        assert profile == ([], [], [], [])
+
+        for column in ("industries", "company_sizes", "geographies", "exclusions"):
+            values = {
+                field: Jsonb([])
+                for field in (
+                    "industries",
+                    "company_sizes",
+                    "geographies",
+                    "exclusions",
+                )
+            }
+            values[column] = None if invalid_json is None else Jsonb(invalid_json)
+            query = sql.SQL(
+                "INSERT INTO operational.ideal_client_profiles "
+                "(user_id, name, industries, company_sizes, geographies, exclusions) "
+                "VALUES (%s, 'Invalid', %s, %s, %s, %s)"
+            )
+            with pytest.raises(psycopg.IntegrityError), conn.transaction():
+                conn.execute(
+                    query,
+                    (
+                        user_id,
+                        *(
+                            values[field]
+                            for field in (
+                                "industries",
+                                "company_sizes",
+                                "geographies",
+                                "exclusions",
+                            )
+                        ),
+                    ),
+                )
+
+        with pytest.raises(psycopg.IntegrityError), conn.transaction():
+            conn.execute(
+                "INSERT INTO operational.ideal_client_profiles "
+                "(user_id, name, company_sizes) VALUES (%s, 'Bad band', %s)",
+                (user_id, Jsonb([{"band": "unsupported"}])),
+            )
+
+
+def test_strategy_defaults_inactive_and_allows_multiple_shared_references(
+    management_database_url,
+):
+    with _connection(management_database_url) as conn:
+        user_id = _insert_user(conn, _insert_account(conn))
+        offering_id = conn.execute(
+            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "VALUES (%s, 'Consulting', 'Service description') RETURNING id",
+            (user_id,),
+        ).fetchone()[0]
+        profile_id = conn.execute(
+            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "VALUES (%s, 'Target clients') RETURNING id",
+            (user_id,),
+        ).fetchone()[0]
+        rows = conn.execute(
+            "INSERT INTO operational.client_discovery_strategies "
+            "(user_id, name, service_offering_id, ideal_client_profile_id) "
+            "VALUES (%s, 'One', %s, %s), (%s, 'Two', %s, %s) "
+            "RETURNING id, is_active, created_at, updated_at",
+            (user_id, offering_id, profile_id, user_id, offering_id, profile_id),
+        ).fetchall()
+
+        assert len(rows) == 2
+        assert all(row[1] is False for row in rows)
+        for row in rows:
+            assert isinstance(row[0], UUID)
+            assert row[2].utcoffset() is not None
+            assert row[3].utcoffset() is not None
+
+
+def test_strategy_rejects_cross_user_references_and_referenced_deletes(
+    management_database_url,
+):
+    with _connection(management_database_url) as conn:
+        first_user = _insert_user(conn, _insert_account(conn))
+        second_user = _insert_user(conn, _insert_account(conn))
+        first_offering = conn.execute(
+            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "VALUES (%s, 'First', 'First service') RETURNING id",
+            (first_user,),
+        ).fetchone()[0]
+        second_offering = conn.execute(
+            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "VALUES (%s, 'Second', 'Second service') RETURNING id",
+            (second_user,),
+        ).fetchone()[0]
+        first_profile = conn.execute(
+            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "VALUES (%s, 'First') RETURNING id",
+            (first_user,),
+        ).fetchone()[0]
+        second_profile = conn.execute(
+            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "VALUES (%s, 'Second') RETURNING id",
+            (second_user,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO operational.client_discovery_strategies "
+            "(user_id, name, service_offering_id, ideal_client_profile_id) "
+            "VALUES (%s, 'Valid', %s, %s)",
+            (first_user, first_offering, first_profile),
+        )
+
+        for offering_id, profile_id in (
+            (second_offering, first_profile),
+            (first_offering, second_profile),
+        ):
+            with pytest.raises(psycopg.IntegrityError), conn.transaction():
+                conn.execute(
+                    "INSERT INTO operational.client_discovery_strategies "
+                    "(user_id, name, service_offering_id, ideal_client_profile_id) "
+                    "VALUES (%s, 'Invalid', %s, %s)",
+                    (first_user, offering_id, profile_id),
+                )
+
+        with pytest.raises(psycopg.IntegrityError), conn.transaction():
+            conn.execute(
+                "DELETE FROM operational.service_offerings WHERE id = %s",
+                (first_offering,),
+            )
+        with pytest.raises(psycopg.IntegrityError), conn.transaction():
+            conn.execute(
+                "DELETE FROM operational.ideal_client_profiles WHERE id = %s",
+                (first_profile,),
+            )
+
+
+def test_strategy_reference_constraints_are_no_action(management_database_url):
+    with psycopg.connect(management_database_url) as conn:
+        actions = {
+            row[0]: row[1]
+            for row in conn.execute(
+                "SELECT conname, confdeltype FROM pg_constraint "
+                "WHERE conrelid = 'operational.client_discovery_strategies'::regclass"
+            )
+        }
+
+    strategy_foreign_keys = {
+        name: action
+        for name, action in actions.items()
+        if name.endswith("fkey") and name.startswith("client_discovery_strategies_")
+    }
+    assert len(strategy_foreign_keys) >= 3
+    assert set(strategy_foreign_keys.values()) == {"a"}

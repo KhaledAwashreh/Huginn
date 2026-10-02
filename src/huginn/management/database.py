@@ -1,6 +1,9 @@
 """Management database adapters defined by ADR-0011."""
 
 import logging
+from collections.abc import Callable
+from types import TracebackType
+from typing import Self
 
 import psycopg
 
@@ -16,6 +19,16 @@ _PROBES = (
     "SELECT id, user_id, headline, professional_summary, skills, experience, "
     "previous_projects, created_at, updated_at "
     "FROM operational.professional_profiles LIMIT 0",
+    "SELECT id, account_id, token_digest, csrf_digest, created_at, expires_at, "
+    "revoked_at FROM operational.sessions LIMIT 0",
+    "SELECT id, user_id, name, description, created_at, updated_at "
+    "FROM operational.service_offerings LIMIT 0",
+    "SELECT id, user_id, name, industries, company_sizes, geographies, "
+    "exclusions, created_at, updated_at "
+    "FROM operational.ideal_client_profiles LIMIT 0",
+    "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
+    "is_active, created_at, updated_at "
+    "FROM operational.client_discovery_strategies LIMIT 0",
 )
 
 
@@ -40,3 +53,76 @@ class PostgresReadiness:
         except psycopg.Error as exc:
             logger.warning("Management readiness failed: %s", type(exc).__name__)
             return False
+
+
+class ManagementConnectionFactory:
+    """Create management-owned PostgreSQL connections on demand."""
+
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connector: Callable[..., psycopg.Connection] | None = None,
+        connect_timeout: int = 5,
+    ) -> None:
+        self._database_url = database_url
+        self._connector = connector or psycopg.connect
+        self._connect_timeout = connect_timeout
+
+    def connect(self) -> psycopg.Connection:
+        return self._connector(
+            self._database_url, connect_timeout=self._connect_timeout
+        )
+
+
+class UnitOfWork:
+    """One explicit transaction and connection for an application operation."""
+
+    def __init__(self, connection_factory: ManagementConnectionFactory) -> None:
+        self._connection_factory = connection_factory
+        self.connection: psycopg.Connection | None = None
+        self._finished = False
+
+    def __enter__(self) -> Self:
+        self.connection = self._connection_factory.connect()
+        self._finished = False
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        connection = self._require_connection()
+        try:
+            if not self._finished:
+                self.rollback()
+        finally:
+            connection.close()
+            self.connection = None
+        return False
+
+    def commit(self) -> None:
+        connection = self._require_connection()
+        if self._finished:
+            raise RuntimeError("unit of work is already finished")
+        try:
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            self._finished = True
+            raise
+        self._finished = True
+
+    def rollback(self) -> None:
+        connection = self._require_connection()
+        if self._finished:
+            raise RuntimeError("unit of work is already finished")
+        connection.rollback()
+        self._finished = True
+
+    def _require_connection(self) -> psycopg.Connection:
+        if self.connection is None:
+            raise RuntimeError("unit of work is not active")
+        return self.connection

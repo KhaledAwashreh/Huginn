@@ -69,6 +69,21 @@ def test_factory_constructs_default_probe_without_probing(monkeypatch):
     assert constructed_with == ["postgresql://management.test/huginn"]
 
 
+def test_app_construction_and_health_do_not_create_a_database_connection(monkeypatch):
+    def unexpected_connection_factory(*args, **kwargs):
+        pytest.fail("application construction attempted to create a database adapter")
+
+    monkeypatch.setattr(
+        app_module, "ManagementConnectionFactory", unexpected_connection_factory
+    )
+    app = app_module.create_app(
+        ManagementConfig("postgresql://management.test/huginn"),
+        readiness=FakeReadiness(True),
+    )
+
+    assert app.test_client().get("/health").status_code == 200
+
+
 def test_injected_probes_are_independent_between_factories(monkeypatch):
     def unexpected_load_config():
         pytest.fail("injected configuration was ignored")
@@ -110,7 +125,7 @@ def test_missing_config_raises_before_constructing_probe(monkeypatch):
         app_module.create_app()
 
 
-def test_only_health_and_readiness_routes_are_registered():
+def test_management_routes_are_registered():
     app = app_module.create_app(
         ManagementConfig("unused"),
         readiness=FakeReadiness(True),
@@ -121,6 +136,74 @@ def test_only_health_and_readiness_routes_are_registered():
     assert routes == {
         ("/health", frozenset({"GET", "HEAD", "OPTIONS"})),
         ("/ready", frozenset({"GET", "HEAD", "OPTIONS"})),
+        ("/openapi.json", frozenset({"GET", "HEAD", "OPTIONS"})),
+        ("/api/v1/sessions", frozenset({"POST", "OPTIONS"})),
+        ("/api/v1/sessions/current", frozenset({"DELETE", "OPTIONS"})),
+        ("/api/v1/me/password", frozenset({"PATCH", "OPTIONS"})),
+        ("/api/v1/me", frozenset({"GET", "HEAD", "OPTIONS"})),
+        ("/api/v1/me", frozenset({"OPTIONS", "PATCH"})),
+        (
+            "/api/v1/me/professional-profile",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/me/professional-profile",
+            frozenset({"OPTIONS", "PATCH"}),
+        ),
+        ("/api/v1/offerings", frozenset({"GET", "HEAD", "OPTIONS"})),
+        ("/api/v1/offerings", frozenset({"POST", "OPTIONS"})),
+        (
+            "/api/v1/offerings/<uuid:offering_id>",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/offerings/<uuid:offering_id>",
+            frozenset({"PATCH", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/offerings/<uuid:offering_id>",
+            frozenset({"DELETE", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/ideal-client-profiles",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/ideal-client-profiles",
+            frozenset({"POST", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/ideal-client-profiles/<uuid:profile_id>",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/ideal-client-profiles/<uuid:profile_id>",
+            frozenset({"PATCH", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/ideal-client-profiles/<uuid:profile_id>",
+            frozenset({"DELETE", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/discovery-strategies",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/discovery-strategies",
+            frozenset({"POST", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/discovery-strategies/<uuid:strategy_id>",
+            frozenset({"GET", "HEAD", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/discovery-strategies/<uuid:strategy_id>",
+            frozenset({"PATCH", "OPTIONS"}),
+        ),
+        (
+            "/api/v1/discovery-strategies/<uuid:strategy_id>",
+            frozenset({"DELETE", "OPTIONS"}),
+        ),
     }
 
 

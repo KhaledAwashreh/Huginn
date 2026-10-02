@@ -171,3 +171,89 @@ rtk uv run --python 3.14 flask --app huginn.management.app:create_app run --host
 Only run a manual server smoke test against an explicitly selected dedicated
 database. Automated Flask test-client tests and live Postgres 16 container
 tests are the portable required evidence.
+
+## Management CRUD local runbook
+
+This procedure exercises KAN-72 through KAN-78 with the unique database name
+`huginn_management_crud_local_kan78`. If that name exists, stop and select
+another unused name. Never adapt these commands to an existing or shared
+database.
+
+Create and bootstrap the disposable database from the repository root:
+
+```bash
+rtk proxy createdb huginn_management_crud_local_kan78
+export HUGINN_MANAGEMENT_DATABASE_URL='postgresql://localhost:5432/huginn_management_crud_local_kan78'
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+```
+
+Provision the owner. The command prompts twice with terminal echo disabled, so
+the raw password is neither a command-line argument nor shell history:
+
+```bash
+rtk uv run --python 3.14 python -m huginn.management.admin account provision --username owner --first-name Local --last-name Owner --email owner@example.test --phone-number +970599000000 --country-of-residence Palestine --timezone Asia/Hebron
+```
+
+For non-interactive automation, add `--password-stdin` and redirect a protected
+file containing the password twice on separate lines. Do not place the password
+in an argument, environment variable, example file, or log.
+
+Start the development server. Startup opens no database connection and applies
+no DDL:
+
+```bash
+rtk uv run --python 3.14 python -m huginn.management
+```
+
+In a second terminal, export the same database URL, then create private local
+files for the response and cookie jar. The producer reads the password through
+`getpass`, so neither credential is embedded in the command:
+
+```bash
+umask 077
+rtk uv run --python 3.14 python -c 'import getpass,json; print(json.dumps({"username": input("Username: "), "password": getpass.getpass()}))' | rtk proxy curl --fail-with-body --silent --show-error --request POST --header 'Content-Type: application/json' --data-binary @- --cookie-jar /tmp/huginn-kan78-cookies.txt --output /tmp/huginn-kan78-login.json http://127.0.0.1:8000/api/v1/sessions
+export HUGINN_CSRF_TOKEN="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-login.json"))["csrf_token"])')"
+rtk proxy curl --fail-with-body --cookie /tmp/huginn-kan78-cookies.txt http://127.0.0.1:8000/api/v1/me
+```
+
+The cookie authenticates every API request. Every unsafe request also requires
+the session-bound `X-CSRF-Token` header. These commands exercise self-service
+and the offering, ICP, and strategy CRUD chain:
+
+```bash
+rtk proxy curl --fail-with-body --request PATCH --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"headline":"Local operator","skills":[{"name":"Python"}]}' http://127.0.0.1:8000/api/v1/me/professional-profile
+rtk proxy curl --fail-with-body --silent --show-error --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"name":"Local service","description":"Disposable runbook service"}' --output /tmp/huginn-kan78-offering.json http://127.0.0.1:8000/api/v1/offerings
+export HUGINN_OFFERING_ID="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-offering.json"))["id"])')"
+rtk proxy curl --fail-with-body --silent --show-error --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"name":"Local ICP","industries":[{"name":"Software"}],"company_sizes":[{"band":"11-100"}],"geographies":[{"kind":"country","value":"Palestine"}],"exclusions":[]}' --output /tmp/huginn-kan78-icp.json http://127.0.0.1:8000/api/v1/ideal-client-profiles
+export HUGINN_ICP_ID="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-icp.json"))["id"])')"
+rtk proxy curl --fail-with-body --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data "{\"name\":\"Local strategy\",\"service_offering_id\":\"$HUGINN_OFFERING_ID\",\"ideal_client_profile_id\":\"$HUGINN_ICP_ID\",\"is_active\":true}" http://127.0.0.1:8000/api/v1/discovery-strategies
+rtk proxy curl --fail-with-body --cookie /tmp/huginn-kan78-cookies.txt 'http://127.0.0.1:8000/api/v1/discovery-strategies?active=true&limit=50&offset=0'
+rtk proxy curl --fail-with-body http://127.0.0.1:8000/openapi.json
+```
+
+Run the required verification from the repository root:
+
+```bash
+rtk uv run --python 3.14 python -m compileall -q src tests
+rtk uv run --python 3.14 ruff check .
+rtk uv run --python 3.14 ruff format --check .
+rtk uv run --python 3.14 pytest -q tests/management
+rtk uv run --python 3.14 pytest -q
+rtk openspec validate management-api-crud --strict
+```
+
+For teardown, revoke the current session while the server is running, then stop
+the server, remove the named local artifacts, and clear shell values:
+
+```bash
+rtk proxy curl --fail-with-body --request DELETE --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" http://127.0.0.1:8000/api/v1/sessions/current
+rtk rm -f /tmp/huginn-kan78-cookies.txt /tmp/huginn-kan78-login.json /tmp/huginn-kan78-offering.json /tmp/huginn-kan78-icp.json
+unset HUGINN_CSRF_TOKEN HUGINN_OFFERING_ID HUGINN_ICP_ID HUGINN_MANAGEMENT_DATABASE_URL
+```
+
+Only after confirming `huginn_management_crud_local_kan78` is the dedicated
+disposable database created above, remove it by its explicit name:
+
+```bash
+rtk proxy dropdb huginn_management_crud_local_kan78
+```
