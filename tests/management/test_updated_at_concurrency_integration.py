@@ -2,8 +2,8 @@ from uuid import uuid4
 
 import psycopg
 
-from huginn.management.domain import NewAccount
-from huginn.management.identity import PostgresAccountRepository
+from huginn.management.domain.account import NewAccount
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
 
 
 def test_earlier_transaction_writing_last_gets_later_updated_at(

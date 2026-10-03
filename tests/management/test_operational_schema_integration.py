@@ -7,7 +7,9 @@ import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from huginn.management.schemas import ProfessionalCollections
+from huginn.management.requests.professional_profile import (
+    ProfessionalCollectionsRequest as ProfessionalCollections,
+)
 
 MANAGEMENT_TABLES = {
     "accounts",

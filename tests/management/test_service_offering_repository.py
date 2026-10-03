@@ -2,8 +2,10 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain import ServiceOfferingChanges
-from huginn.management.service_offerings import PostgresServiceOfferingRepository
+from huginn.management.domain.service_offering import ServiceOfferingChanges
+from huginn.management.repositories.postgres.service_offering import (
+    PostgresServiceOfferingRepository,
+)
 
 
 class Cursor:

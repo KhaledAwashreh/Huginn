@@ -4,7 +4,15 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.schemas import OfferingCreate, OfferingPatch, OfferingRead
+from huginn.management.requests.service_offering import (
+    ServiceOfferingCreateRequest as OfferingCreate,
+)
+from huginn.management.requests.service_offering import (
+    ServiceOfferingUpdateRequest as OfferingPatch,
+)
+from huginn.management.responses.service_offering import (
+    ServiceOfferingResponse as OfferingRead,
+)
 
 
 def test_offering_models_validate_nonblank_values_and_track_patch_presence():

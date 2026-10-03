@@ -4,12 +4,20 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.schemas import ProfessionalCollections
+from huginn.management.requests.professional_profile import (
+    ProfessionalCollectionsRequest as ProfessionalCollections,
+)
+from huginn.management.requests.professional_profile import (
+    ProfessionalProfileUpdateRequest as ProfessionalProfilePatch,
+)
+from huginn.management.requests.user import UserUpdateRequest as UserPatch
+from huginn.management.responses.professional_profile import (
+    ProfessionalProfileResponse as ProfessionalProfileRead,
+)
+from huginn.management.responses.user import UserResponse as UserRead
 
 
 def test_user_and_profile_read_models_expose_safe_public_fields_only():
-    from huginn.management.schemas import ProfessionalProfileRead, UserRead
-
     assert "password_hash" not in UserRead.model_fields
     assert "password" not in UserRead.model_fields
     assert "account_id" not in UserRead.model_fields
@@ -23,8 +31,6 @@ def test_user_and_profile_read_models_expose_safe_public_fields_only():
 
 
 def test_user_patch_preserves_required_fields_and_accepts_nullable_timezone():
-    from huginn.management.schemas import UserPatch
-
     patch = UserPatch.model_validate({"timezone": None})
     assert patch.supplied_fields == frozenset({"timezone"})
     assert patch.model_dump(exclude_unset=True) == {"timezone": None}
@@ -50,15 +56,11 @@ def test_user_patch_preserves_required_fields_and_accepts_nullable_timezone():
     ],
 )
 def test_user_patch_rejects_credentials_ownership_and_unknown_fields(payload):
-    from huginn.management.schemas import UserPatch
-
     with pytest.raises(ValidationError):
         UserPatch.model_validate(payload)
 
 
 def test_profile_patch_tracks_omission_null_and_complete_replacement():
-    from huginn.management.schemas import ProfessionalProfilePatch
-
     patch = ProfessionalProfilePatch.model_validate(
         {
             "headline": None,
@@ -99,8 +101,6 @@ def test_profile_patch_tracks_omission_null_and_complete_replacement():
     ],
 )
 def test_profile_patch_reuses_experience_validation(experience):
-    from huginn.management.schemas import ProfessionalProfilePatch
-
     with pytest.raises(ValidationError):
         ProfessionalProfilePatch.model_validate({"experience": [experience]})
 
@@ -116,15 +116,15 @@ def test_profile_patch_reuses_experience_validation(experience):
     ],
 )
 def test_profile_patch_rejects_extra_fields_and_coercion(payload):
-    from huginn.management.schemas import ProfessionalProfilePatch
+    from huginn.management.requests.professional_profile import (
+        ProfessionalProfileUpdateRequest as ProfessionalProfilePatch,
+    )
 
     with pytest.raises(ValidationError):
         ProfessionalProfilePatch.model_validate(payload)
 
 
 def test_profile_read_uses_established_collection_models():
-    from huginn.management.schemas import ProfessionalProfileRead
-
     collections = ProfessionalCollections.model_validate(
         {"skills": [{"name": "Python"}]}
     )

@@ -4,7 +4,11 @@ import logging
 import pytest
 from werkzeug.security import check_password_hash
 
-from huginn.management.passwords import Password, hash_password, verify_password
+from huginn.management.security.passwords import (
+    Password,
+    hash_password,
+    verify_password,
+)
 
 
 @pytest.mark.parametrize("length", [12, 1024])
@@ -47,7 +51,9 @@ def test_password_is_not_exposed_in_repr_or_logs(caplog):
     password = Password(secret)
 
     with caplog.at_level(logging.DEBUG):
-        logging.getLogger("huginn.management.passwords").debug("received password")
+        logging.getLogger("huginn.management.security.passwords").debug(
+            "received password"
+        )
 
     assert secret not in repr(password)
     assert secret not in caplog.text

@@ -6,12 +6,20 @@ import sys
 
 from huginn.management.config import load_config
 from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.domain import (
+from huginn.management.domain.provisioning import ProvisionIdentity
+from huginn.management.errors.domain import (
     ConflictError,
     ManagementDomainError,
     ValidationDomainError,
 )
-from huginn.management.identity import AccountAdminService, IdentityProvisioningService
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.professional_profile import (
+    PostgresProfessionalProfileRepository,
+)
+from huginn.management.repositories.postgres.session import PostgresSessionRepository
+from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.services.account_admin import AccountAdminService
+from huginn.management.services.provisioning import IdentityProvisioningService
 
 
 class _SafeArgumentParser(argparse.ArgumentParser):
@@ -86,17 +94,32 @@ def main(argv: list[str] | None = None) -> int:
         def uow():
             return UnitOfWork(factory)
 
+        def accounts_factory(work):
+            return PostgresAccountRepository(work.connection)
+
+        def sessions_factory(work):
+            return PostgresSessionRepository(work.connection)
+
         if args.action == "provision":
             password = _password(stdin=args.password_stdin)
-            result = IdentityProvisioningService(uow).provision(
-                username=args.username,
-                first_name=args.first_name,
-                last_name=args.last_name,
-                email=args.email,
-                phone_number=args.phone_number,
-                country_of_residence=args.country_of_residence,
-                timezone=args.timezone,
-                password=password,
+            result = IdentityProvisioningService(
+                uow,
+                accounts_factory=accounts_factory,
+                users_factory=lambda work: PostgresUserRepository(work.connection),
+                profiles_factory=lambda work: PostgresProfessionalProfileRepository(
+                    work.connection
+                ),
+            ).provision(
+                ProvisionIdentity(
+                    args.username,
+                    args.first_name,
+                    args.last_name,
+                    args.email,
+                    args.phone_number,
+                    args.country_of_residence,
+                    args.timezone,
+                    password,
+                )
             )
             print(
                 f"Provisioned account {result.username} ({result.account_id}); "
@@ -104,13 +127,21 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.action in {"enable", "disable"}:
             status = "active" if args.action == "enable" else "disabled"
-            AccountAdminService(uow).set_status(args.username, status)
+            AccountAdminService(
+                uow,
+                accounts_factory=accounts_factory,
+                sessions_factory=sessions_factory,
+            ).set_status(args.username, status)
             print(
                 f"Account {args.username} {'enabled' if status == 'active' else 'disabled'}"
             )
         else:
             password = _password(stdin=args.password_stdin)
-            AccountAdminService(uow).reset_password(args.username, password)
+            AccountAdminService(
+                uow,
+                accounts_factory=accounts_factory,
+                sessions_factory=sessions_factory,
+            ).reset_password(args.username, password)
             print(f"Password reset for account {args.username}")
         return 0
     except ConflictError:

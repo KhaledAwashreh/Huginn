@@ -5,8 +5,12 @@ from uuid import uuid4
 import pytest
 
 from huginn.management.config import ManagementConfig
-from huginn.management.domain import Account, AuthenticationError, RateLimitError
-from huginn.management.identity import LoginService, PasswordChangeService
+from huginn.management.domain.account import Account
+from huginn.management.errors.domain import (
+    AuthenticationError,
+    RateLimitError,
+)
+from huginn.management.services.authentication import AuthenticationService
 
 NOW = datetime(2026, 1, 2, tzinfo=UTC)
 PASSWORD = "correct horse battery staple"
@@ -132,7 +136,7 @@ def make_login(
         verified.append((password.value, encoded))
         return valid
 
-    service = LoginService(
+    service = AuthenticationService(
         lambda: uow,
         ManagementConfig("postgresql://ignored", session_ttl=timedelta(hours=2)),
         throttle,
@@ -140,9 +144,9 @@ def make_login(
         sessions_factory=lambda _: sessions,
         clock=lambda: NOW,
         token_generator=iter(("session-secret", "csrf-secret")).__next__,
-        verify_password=verify or verifier,
-        hash_password=hash_fn or (lambda _: "new-hash"),
-        needs_rehash=(None if use_werkzeug_rehash else lambda _: rehash),
+        verify_password_fn=verify or verifier,
+        hash_password_fn=hash_fn or (lambda _: "new-hash"),
+        needs_rehash_fn=(None if use_werkzeug_rehash else lambda _: rehash),
         password_method=password_method,
         dummy_password_hash=(None if use_werkzeug_rehash else dummy_hash),
     )
@@ -295,13 +299,15 @@ def make_password_change(
             raise RuntimeError("hash failure")
         return f"new:{password.value}"
 
-    service = PasswordChangeService(
+    service = AuthenticationService(
         lambda: uow,
+        config=ManagementConfig("postgresql://ignored"),
+        throttle=Throttle(),
         accounts_factory=lambda _: repos,
         sessions_factory=lambda _: sessions,
         clock=lambda: NOW,
-        verify_password=verifier,
-        hash_password=hasher,
+        verify_password_fn=verifier,
+        hash_password_fn=hasher,
     )
     return service, account_value, uow, repos, sessions, checked
 

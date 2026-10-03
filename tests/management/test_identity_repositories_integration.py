@@ -10,25 +10,28 @@ import pytest
 from huginn.management.admin import main as admin_main
 from huginn.management.config import ManagementConfig
 from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.domain import (
+from huginn.management.domain.account import NewAccount
+from huginn.management.domain.professional_profile import NewProfessionalProfile
+from huginn.management.domain.provisioning import ProvisionIdentity
+from huginn.management.domain.session import NewSession
+from huginn.management.domain.user import NewUser
+from huginn.management.errors.domain import (
     AuthenticationError,
     ConflictError,
-    NewAccount,
-    NewProfessionalProfile,
-    NewUser,
 )
-from huginn.management.identity import (
-    AccountAdminService,
-    IdentityProvisioningService,
-    LoginService,
-    PasswordChangeService,
-    PostgresAccountRepository,
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.professional_profile import (
     PostgresProfessionalProfileRepository,
-    PostgresSessionRepository,
-    PostgresUserRepository,
-    SessionService,
 )
-from huginn.management.passwords import Password, verify_password
+from huginn.management.repositories.postgres.session import PostgresSessionRepository
+from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.security.passwords import Password, verify_password
+from huginn.management.security.tokens import digest_token, generate_token
+from huginn.management.services.account_admin import AccountAdminService
+from huginn.management.services.authentication import (
+    AuthenticationService,
+)
+from huginn.management.services.provisioning import IdentityProvisioningService
 
 
 def test_live_identity_repositories_mapping_defaults_and_case_conflict(
@@ -107,16 +110,21 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
                 raise TimeoutError("login commit was not released")
             return self.repository.create(session)
 
-    login = LoginService(
+    login = AuthenticationService(
         lambda: UnitOfWork(factory),
         ManagementConfig(management_database_url),
         Throttle(),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
         sessions_factory=PausingSessions,
-        verify_password=lambda *_: True,
-        needs_rehash=lambda _: False,
+        verify_password_fn=lambda *_: True,
+        needs_rehash_fn=lambda _: False,
         token_generator=iter(("login-token", "csrf-token")).__next__,
     )
-    admin = AccountAdminService(lambda: UnitOfWork(factory))
+    admin = AccountAdminService(
+        lambda: UnitOfWork(factory),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        sessions_factory=lambda uow: PostgresSessionRepository(uow.connection),
+    )
 
     def run_login():
         try:
@@ -185,7 +193,13 @@ def test_live_password_change_rechecks_hash_after_owner_reset_lock(
 
     factory = ManagementConnectionFactory(management_database_url)
     started, outcome = Event(), []
-    service = PasswordChangeService(lambda: UnitOfWork(factory))
+    service = AuthenticationService(
+        lambda: UnitOfWork(factory),
+        ManagementConfig(management_database_url),
+        object(),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        sessions_factory=lambda uow: PostgresSessionRepository(uow.connection),
+    )
 
     def change_with_stale_old_password():
         started.set()
@@ -282,7 +296,13 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
             management_database_url, connector=connect
         )
         return IdentityProvisioningService(
-            lambda: UnitOfWork(factory), hash_password=lambda _: "test-scrypt-hash"
+            lambda: UnitOfWork(factory),
+            accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+            users_factory=lambda uow: PostgresUserRepository(uow.connection),
+            profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
+                uow.connection
+            ),
+            hash_password_fn=lambda _: "test-scrypt-hash",
         )
 
     def provision_values(username):
@@ -311,7 +331,9 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
 
     try:
         successful = f"Owner-{uuid4()}"
-        identity = service().provision(**provision_values(successful))
+        identity = service().provision(
+            ProvisionIdentity(**provision_values(successful))
+        )
         assert identity.username == successful
         assert counts(successful) == (1, 1, 1)
         with psycopg.connect(management_database_url) as connection:
@@ -325,7 +347,9 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
         for stage in stages:
             username = f"Failed-{stage}-{uuid4()}"
             with pytest.raises(psycopg.Error, match="injected identity failure"):
-                service(stage).provision(**provision_values(username))
+                service(stage).provision(
+                    ProvisionIdentity(**provision_values(username))
+                )
             assert counts(username) == (0, 0, 0)
     finally:
         with psycopg.connect(management_database_url) as connection:
@@ -447,18 +471,26 @@ def test_live_cli_disable_and_reset_roll_back_when_session_revocation_fails(
 ):
     factory = ManagementConnectionFactory(management_database_url)
     service = IdentityProvisioningService(
-        lambda: UnitOfWork(factory), hash_password=lambda _: "old-hash"
+        lambda: UnitOfWork(factory),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        users_factory=lambda uow: PostgresUserRepository(uow.connection),
+        profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
+            uow.connection
+        ),
+        hash_password_fn=lambda _: "old-hash",
     )
     username = f"Rollback-{uuid4()}"
     result = service.provision(
-        username=username,
-        first_name="Grace",
-        last_name="Hopper",
-        email="grace@example.test",
-        phone_number="+12025550123",
-        country_of_residence="US",
-        timezone="UTC",
-        password="a sufficiently long password",
+        ProvisionIdentity(
+            username,
+            "Grace",
+            "Hopper",
+            "grace@example.test",
+            "+12025550123",
+            "US",
+            "UTC",
+            "a sufficiently long password",
+        )
     )
     session_id = uuid4()
     with psycopg.connect(management_database_url) as connection:
@@ -533,70 +565,101 @@ def test_live_sessions_persist_only_digests_and_enforce_active_state_transaction
 ):
     factory = ManagementConnectionFactory(management_database_url)
     provisioner = IdentityProvisioningService(
-        lambda: UnitOfWork(factory), hash_password=lambda _: "session-test-hash"
+        lambda: UnitOfWork(factory),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        users_factory=lambda uow: PostgresUserRepository(uow.connection),
+        profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
+            uow.connection
+        ),
+        hash_password_fn=lambda _: "session-test-hash",
     )
     username = f"Session-{uuid4()}"
     identity = provisioner.provision(
-        username=username,
-        first_name="Ada",
-        last_name="Lovelace",
-        email=f"{username}@example.test",
-        phone_number="+12025550123",
-        country_of_residence="US",
-        timezone="UTC",
-        password="a long owner password",
+        ProvisionIdentity(
+            username,
+            "Ada",
+            "Lovelace",
+            f"{username}@example.test",
+            "+12025550123",
+            "US",
+            "UTC",
+            "a long owner password",
+        )
     )
 
     with psycopg.connect(management_database_url) as connection:
         repository = PostgresSessionRepository(connection)
-        service = SessionService(repository)
+        now = datetime.now(UTC)
+
+        def create_session():
+            session_token, csrf_token = generate_token(), generate_token()
+            session = repository.create(
+                NewSession(
+                    identity.account_id,
+                    digest_token(session_token),
+                    digest_token(csrf_token),
+                    now + timedelta(hours=1),
+                )
+            )
+            return session, session_token, csrf_token
+
         connection.execute("SAVEPOINT session_rollback")
-        rolled_back = service.create(identity.account_id)
+        rolled_back, rolled_back_token, _ = create_session()
         connection.execute("ROLLBACK TO SAVEPOINT session_rollback")
+        assert repository.get_by_token_digest(digest_token(rolled_back_token)) is None
+
+        current, current_token, current_csrf = create_session()
+        sibling, sibling_token, _ = create_session()
+        expiring, expiring_token, _ = create_session()
+        connection.execute(
+            "UPDATE operational.sessions SET expires_at = now() - interval '1 second' "
+            "WHERE token_digest = %s",
+            (digest_token(expiring_token),),
+        )
+        connection.commit()
         assert (
-            repository.get_by_token_digest(
-                SessionService.digest(rolled_back.session_token)
+            repository.get_active_principal_by_token_digest(
+                digest_token(expiring_token), datetime.now(UTC)
             )
             is None
         )
 
-        current = service.create(identity.account_id)
-        sibling = service.create(identity.account_id)
-        expiring = service.create(identity.account_id)
-        connection.execute(
-            "UPDATE operational.sessions SET expires_at = now() - interval '1 second' "
-            "WHERE token_digest = %s",
-            (SessionService.digest(expiring.session_token),),
-        )
-        connection.commit()
-        assert service.resolve(expiring.session_token) is None
-
         stored = connection.execute(
             "SELECT token_digest, csrf_digest, created_at, expires_at FROM "
             "operational.sessions WHERE token_digest = %s",
-            (SessionService.digest(current.session_token),),
+            (digest_token(current_token),),
         ).fetchone()
-        assert stored[0] == SessionService.digest(current.session_token)
-        assert stored[1] == SessionService.digest(current.csrf_token)
-        assert current.session_token not in stored[0]
-        assert current.csrf_token not in stored[1]
+        assert stored[0] == digest_token(current_token)
+        assert stored[1] == digest_token(current_csrf)
+        assert current_token not in stored[0]
+        assert current_csrf not in stored[1]
         assert stored[2].tzinfo is not None and stored[3].tzinfo is not None
-        principal = service.resolve_principal(sibling.session_token)
+        principal = repository.get_active_principal_by_token_digest(
+            digest_token(sibling_token), datetime.now(UTC)
+        )
         assert (principal.account_id, principal.user_id) == (
             identity.account_id,
             identity.user_id,
         )
-        service.revoke_current(current.session_token)
+        repository.revoke_current(current.id, datetime.now(UTC))
         connection.commit()
-        assert service.resolve(current.session_token) is None
-        assert service.resolve(sibling.session_token) is not None
+        assert repository.get_by_token_digest(digest_token(current_token)).revoked_at
+        assert (
+            repository.get_by_token_digest(digest_token(sibling_token)).revoked_at
+            is None
+        )
 
         connection.execute(
             "UPDATE operational.accounts SET status = 'disabled' WHERE id = %s",
             (identity.account_id,),
         )
         connection.commit()
-        assert service.resolve_principal(sibling.session_token) is None
-        service.revoke_account(identity.account_id)
+        assert (
+            repository.get_active_principal_by_token_digest(
+                digest_token(sibling_token), datetime.now(UTC)
+            )
+            is None
+        )
+        repository.revoke_for_account(identity.account_id, datetime.now(UTC))
         connection.commit()
-        assert service.resolve(sibling.session_token) is None
+        assert repository.get_by_token_digest(digest_token(sibling_token)).revoked_at

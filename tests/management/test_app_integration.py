@@ -1,41 +1,61 @@
 from uuid import uuid4
 
 import psycopg
+from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
 from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.identity import IdentityProvisioningService, SessionService
+from huginn.management.domain.provisioning import ProvisionIdentity
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.professional_profile import (
+    PostgresProfessionalProfileRepository,
+)
+from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.security.tokens import digest_token
+from huginn.management.services.provisioning import IdentityProvisioningService
+
+
+def _provision_identity(factory, **values):
+    service = IdentityProvisioningService(
+        lambda: UnitOfWork(factory),
+        accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        users_factory=lambda uow: PostgresUserRepository(uow.connection),
+        profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
+            uow.connection
+        ),
+    )
+    return service.provision(ProvisionIdentity(**values))
 
 
 def test_live_health_and_readiness_on_bootstrapped_database(
     management_database_url,
 ):
     app = create_app(ManagementConfig(management_database_url))
-    client = app.test_client()
+    client = TestClient(app)
 
     health = client.get("/health")
     ready = client.get("/ready")
 
     assert health.status_code == 200
-    assert health.data == b'{"status":"ok"}\n'
+    assert health.json() == {"status": "ok"}
     assert ready.status_code == 200
-    assert ready.data == b'{"status":"ready"}\n'
+    assert ready.json() == {"status": "ready"}
 
 
 def test_live_requests_do_not_bootstrap_empty_database(
     empty_management_database_url,
 ):
     app = create_app(ManagementConfig(empty_management_database_url))
-    client = app.test_client()
+    client = TestClient(app)
 
     health = client.get("/health")
     ready = client.get("/ready")
 
     assert health.status_code == 200
-    assert health.data == b'{"status":"ok"}\n'
+    assert health.json() == {"status": "ok"}
     assert ready.status_code == 503
-    assert ready.data == b'{"status":"not_ready"}\n'
+    assert ready.json() == {"status": "not_ready"}
 
     with psycopg.connect(empty_management_database_url) as conn:
         schemas = {
@@ -56,7 +76,7 @@ def test_readiness_rejects_deliberately_incomplete_operational_schema(
         conn.execute("CREATE TABLE operational.accounts (id UUID PRIMARY KEY)")
 
     app = create_app(ManagementConfig(empty_management_database_url))
-    assert app.test_client().get("/ready").status_code == 503
+    assert TestClient(app).get("/ready").status_code == 503
 
     with psycopg.connect(empty_management_database_url) as conn:
         tables = {
@@ -88,7 +108,7 @@ def test_app_construction_and_probes_do_not_reset_persisted_account(
 
         for _ in range(2):
             app = create_app(ManagementConfig(management_database_url))
-            client = app.test_client()
+            client = TestClient(app)
             assert client.get("/health").status_code == 200
             assert client.get("/ready").status_code == 200
 
@@ -114,7 +134,8 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
     factory = ManagementConnectionFactory(management_database_url)
     username = f"http-session-{uuid4()}"
     password = "correct-horse-battery-staple"
-    identity = IdentityProvisioningService(lambda: UnitOfWork(factory)).provision(
+    identity = _provision_identity(
+        factory,
         username=username,
         first_name="Ada",
         last_name="Lovelace",
@@ -124,17 +145,16 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
         timezone="UTC",
         password=password,
     )
-    client = create_app(
-        ManagementConfig(management_database_url, environment="test")
-    ).test_client()
+    client = create_app(ManagementConfig(management_database_url, environment="test"))
+    client = TestClient(client)
 
     try:
         login = client.post(
             "/api/v1/sessions", json={"username": username, "password": password}
         )
         assert login.status_code == 200
-        csrf_token = login.json["csrf_token"]
-        session_token = client.get_cookie("huginn_management_session").value
+        csrf_token = login.json()["csrf_token"]
+        session_token = client.cookies.get("huginn_management_session")
         with psycopg.connect(management_database_url) as connection:
             digests = connection.execute(
                 "SELECT token_digest, csrf_digest FROM operational.sessions "
@@ -142,22 +162,22 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
                 (identity.account_id,),
             ).fetchone()
         assert digests == (
-            SessionService.digest(session_token),
-            SessionService.digest(csrf_token),
+            digest_token(session_token),
+            digest_token(csrf_token),
         )
 
         bad_csrf = client.delete(
             "/api/v1/sessions/current", headers={"X-CSRF-Token": "wrong-csrf"}
         )
         assert bad_csrf.status_code == 403
-        assert client.get_cookie("huginn_management_session").value == session_token
+        assert client.cookies.get("huginn_management_session") == session_token
         logout = client.delete(
             "/api/v1/sessions/current", headers={"X-CSRF-Token": csrf_token}
         )
         assert logout.status_code == 204
-        assert client.get_cookie("huginn_management_session") is None
+        assert client.cookies.get("huginn_management_session") is None
 
-        client.set_cookie("huginn_management_session", session_token)
+        client.cookies.set("huginn_management_session", session_token)
         replay = client.delete(
             "/api/v1/sessions/current", headers={"X-CSRF-Token": csrf_token}
         )
@@ -187,7 +207,8 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
     username = f"http-password-{uuid4()}"
     old_password = "correct-horse-battery-staple"
     new_password = "replacement-battery-horse-staple"
-    identity = IdentityProvisioningService(lambda: UnitOfWork(factory)).provision(
+    identity = _provision_identity(
+        factory,
         username=username,
         first_name="Grace",
         last_name="Hopper",
@@ -197,24 +218,23 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
         timezone="UTC",
         password=old_password,
     )
-    client = create_app(
-        ManagementConfig(management_database_url, environment="test")
-    ).test_client()
+    client = create_app(ManagementConfig(management_database_url, environment="test"))
+    client = TestClient(client)
 
     try:
         first_login = client.post(
             "/api/v1/sessions",
             json={"username": username, "password": old_password},
         )
-        first_csrf = first_login.json["csrf_token"]
-        first_token = client.get_cookie("huginn_management_session").value
+        first_csrf = first_login.json()["csrf_token"]
+        first_token = client.cookies.get("huginn_management_session")
         second_login = client.post(
             "/api/v1/sessions",
             json={"username": username, "password": old_password},
         )
-        second_csrf = second_login.json["csrf_token"]
+        second_csrf = second_login.json()["csrf_token"]
         assert first_login.status_code == second_login.status_code == 200
-        assert client.get_cookie("huginn_management_session").value != first_token
+        assert client.cookies.get("huginn_management_session") != first_token
 
         changed = client.patch(
             "/api/v1/me/password",
@@ -222,7 +242,7 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
             headers={"X-CSRF-Token": second_csrf},
         )
         assert changed.status_code == 204
-        assert client.get_cookie("huginn_management_session") is None
+        assert client.cookies.get("huginn_management_session") is None
         with psycopg.connect(management_database_url) as connection:
             revoked = connection.execute(
                 "SELECT revoked_at FROM operational.sessions WHERE account_id = %s",
@@ -230,7 +250,7 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
             ).fetchall()
         assert len(revoked) == 2 and all(row[0] is not None for row in revoked)
 
-        client.set_cookie("huginn_management_session", first_token)
+        client.cookies.set("huginn_management_session", first_token)
         stale = client.delete(
             "/api/v1/sessions/current", headers={"X-CSRF-Token": first_csrf}
         )
@@ -271,7 +291,10 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
 
 def test_live_two_user_management_crud_end_to_end(management_database_url):
     factory = ManagementConnectionFactory(management_database_url)
-    provision = IdentityProvisioningService(lambda: UnitOfWork(factory)).provision
+
+    def provision(**values):
+        return _provision_identity(factory, **values)
+
     password = "correct-horse-battery-staple"
     identities = [
         provision(
@@ -287,7 +310,7 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
         for index in (1, 2)
     ]
     app = create_app(ManagementConfig(management_database_url, environment="test"))
-    clients = [app.test_client(), app.test_client()]
+    clients = [TestClient(app), TestClient(app)]
     csrf_tokens = []
     try:
         with psycopg.connect(management_database_url) as connection:
@@ -303,7 +326,7 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
                 "/api/v1/sessions", json={"username": username, "password": password}
             )
             assert login.status_code == 200
-            csrf_tokens.append(login.json["csrf_token"])
+            csrf_tokens.append(login.json()["csrf_token"])
 
         first, second = clients
         csrf = csrf_tokens[0]
@@ -341,8 +364,8 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
         assert offering.status_code == icp.status_code == 201
         strategy_payload = {
             "name": "Primary",
-            "service_offering_id": offering.json["id"],
-            "ideal_client_profile_id": icp.json["id"],
+            "service_offering_id": offering.json()["id"],
+            "ideal_client_profile_id": icp.json()["id"],
             "is_active": True,
         }
         first_strategy = first.post(
@@ -357,11 +380,11 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
         )
         assert first_strategy.status_code == second_strategy.status_code == 201
         assert (
-            len(first.get("/api/v1/discovery-strategies?active=true").json["items"])
+            len(first.get("/api/v1/discovery-strategies?active=true").json()["items"])
             == 2
         )
 
-        cross_path = f"/api/v1/offerings/{offering.json['id']}"
+        cross_path = f"/api/v1/offerings/{offering.json()['id']}"
         assert second.get(cross_path).status_code == 404
         assert (
             second.patch(
@@ -376,20 +399,20 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
         )
         assert (
             first.delete(
-                f"/api/v1/ideal-client-profiles/{icp.json['id']}",
+                f"/api/v1/ideal-client-profiles/{icp.json()['id']}",
                 headers={"X-CSRF-Token": csrf},
             ).status_code
             == 409
         )
 
-        session_token = first.get_cookie("huginn_management_session").value
+        session_token = first.cookies.get("huginn_management_session")
         assert (
             first.delete(
                 "/api/v1/sessions/current", headers={"X-CSRF-Token": csrf}
             ).status_code
             == 204
         )
-        first.set_cookie("huginn_management_session", session_token)
+        first.cookies.set("huginn_management_session", session_token)
         assert first.get("/api/v1/me").status_code == 401
     finally:
         with psycopg.connect(management_database_url) as connection:

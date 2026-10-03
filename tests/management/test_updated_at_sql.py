@@ -1,24 +1,26 @@
 from uuid import uuid4
 
-from huginn.management.discovery_strategies import (
+from huginn.management.domain.client_discovery_strategy import (
+    ClientDiscoveryStrategyChanges,
+)
+from huginn.management.domain.ideal_client_profile import IdealClientProfileChanges
+from huginn.management.domain.professional_profile import ProfessionalProfileChanges
+from huginn.management.domain.service_offering import ServiceOfferingChanges
+from huginn.management.domain.user import UserChanges
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
-from huginn.management.domain import (
-    ClientDiscoveryStrategyChanges,
-    IdealClientProfileChanges,
-    ProfessionalProfileChanges,
-    ServiceOfferingChanges,
-    UserChanges,
-)
-from huginn.management.ideal_client_profiles import (
+from huginn.management.repositories.postgres.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.identity import (
-    PostgresAccountRepository,
+from huginn.management.repositories.postgres.professional_profile import (
     PostgresProfessionalProfileRepository,
-    PostgresUserRepository,
 )
-from huginn.management.service_offerings import PostgresServiceOfferingRepository
+from huginn.management.repositories.postgres.service_offering import (
+    PostgresServiceOfferingRepository,
+)
+from huginn.management.repositories.postgres.user import PostgresUserRepository
 
 
 class Cursor:
@@ -62,7 +64,7 @@ def test_all_management_updated_at_updates_use_write_time_clock():
     PostgresUserRepository(connection).update(
         user_id, UserChanges({"first_name": "Grace"}, frozenset({"first_name"}))
     )
-    PostgresProfessionalProfileRepository(connection).update_owned(
+    PostgresProfessionalProfileRepository(connection).update(
         user_id,
         ProfessionalProfileChanges({"headline": "Engineer"}, frozenset({"headline"})),
     )

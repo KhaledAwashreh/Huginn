@@ -7,28 +7,34 @@ from typing import Self
 
 import psycopg
 
+from huginn.management.constants.database import (
+    DATABASE_CONNECT_TIMEOUT_SECONDS,
+    DATABASE_READINESS_TIMEOUT_SECONDS,
+    MANAGEMENT_SCHEMA,
+)
+
 logger = logging.getLogger(__name__)
 
 _PROBES = (
     "SELECT 1",
     "SELECT id, username, password_hash, status, created_at, updated_at "
-    "FROM operational.accounts LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.accounts LIMIT 0",
     "SELECT id, account_id, first_name, last_name, email, phone_number, "
     "country_of_residence, timezone, created_at, updated_at "
-    "FROM operational.users LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.users LIMIT 0",
     "SELECT id, user_id, headline, professional_summary, skills, experience, "
     "previous_projects, created_at, updated_at "
-    "FROM operational.professional_profiles LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.professional_profiles LIMIT 0",
     "SELECT id, account_id, token_digest, csrf_digest, created_at, expires_at, "
-    "revoked_at FROM operational.sessions LIMIT 0",
+    f"revoked_at FROM {MANAGEMENT_SCHEMA}.sessions LIMIT 0",
     "SELECT id, user_id, name, description, created_at, updated_at "
-    "FROM operational.service_offerings LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.service_offerings LIMIT 0",
     "SELECT id, user_id, name, industries, company_sizes, geographies, "
     "exclusions, created_at, updated_at "
-    "FROM operational.ideal_client_profiles LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.ideal_client_profiles LIMIT 0",
     "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
     "is_active, created_at, updated_at "
-    "FROM operational.client_discovery_strategies LIMIT 0",
+    f"FROM {MANAGEMENT_SCHEMA}.client_discovery_strategies LIMIT 0",
 )
 
 
@@ -42,9 +48,10 @@ class PostgresReadiness:
         try:
             with psycopg.connect(
                 self._database_url,
-                connect_timeout=2,
+                connect_timeout=DATABASE_READINESS_TIMEOUT_SECONDS,
                 options=(
-                    "-c statement_timeout=2000 -c default_transaction_read_only=on"
+                    f"-c statement_timeout={DATABASE_READINESS_TIMEOUT_SECONDS * 1000} "
+                    "-c default_transaction_read_only=on"
                 ),
             ) as conn:
                 for query in _PROBES:
@@ -63,7 +70,7 @@ class ManagementConnectionFactory:
         database_url: str,
         *,
         connector: Callable[..., psycopg.Connection] | None = None,
-        connect_timeout: int = 5,
+        connect_timeout: int = DATABASE_CONNECT_TIMEOUT_SECONDS,
     ) -> None:
         self._database_url = database_url
         self._connector = connector or psycopg.connect

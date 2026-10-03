@@ -1,0 +1,13 @@
+"""User persistence contract."""
+
+from typing import Protocol
+from uuid import UUID
+
+from huginn.management.domain.user import NewUser, User, UserChanges
+
+
+class UserRepository(Protocol):
+    def get_by_id(self, user_id: UUID) -> User | None: ...
+    def get_by_account_id(self, account_id: UUID) -> User | None: ...
+    def create(self, user: NewUser) -> User: ...
+    def update(self, user_id: UUID, changes: UserChanges) -> User | None: ...

@@ -3,9 +3,17 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain import NotFoundError, Principal, ProfessionalProfile, User
-from huginn.management.schemas import ProfessionalProfilePatch, UserPatch
-from huginn.management.user_profile import UserProfileService
+from huginn.management.domain.common import Principal
+from huginn.management.domain.professional_profile import (
+    ProfessionalProfile,
+    ProfessionalProfileChanges,
+)
+from huginn.management.domain.user import (
+    User,
+    UserChanges,
+)
+from huginn.management.errors.domain import NotFoundError
+from huginn.management.services.user_profile import UserProfileService
 
 
 class FakeUnitOfWork:
@@ -49,11 +57,15 @@ class FakeProfiles:
     def __init__(self, record):
         self.record, self.calls = record, []
 
+    def create(self, profile):
+        self.record = profile
+        return profile
+
     def get_owned(self, user_id):
         self.calls.append(("get", user_id))
         return self.record if user_id == self.record.user_id else None
 
-    def update_owned(self, user_id, changes):
+    def update(self, user_id, changes):
         self.calls.append(("update", user_id, changes))
         return self.record if user_id == self.record.user_id else None
 
@@ -77,6 +89,7 @@ def test_self_service_uses_principal_and_preserves_patch_field_presence():
     profiles = FakeProfiles(
         ProfessionalProfile(uuid4(), user_id, None, None, (), (), (), now, now)
     )
+    assert not hasattr(profiles, "update_owned")
     uow = FakeUnitOfWork()
     service = UserProfileService(
         lambda: uow,
@@ -87,15 +100,17 @@ def test_self_service_uses_principal_and_preserves_patch_field_presence():
 
     user_read = service.get_user(principal)
     profile_read = service.get_profile(principal)
-    assert user_read["id"] == str(user_id)
-    assert "account_id" not in user_read and "password_hash" not in user_read
-    assert profile_read["skills"] == []
+    assert user_read.id == user_id
+    assert profile_read.skills == ()
 
-    service.update_user(principal, UserPatch.model_validate({"timezone": None}))
+    service.update_user(
+        principal, UserChanges({"timezone": None}, frozenset({"timezone"}))
+    )
     service.update_profile(
         principal,
-        ProfessionalProfilePatch.model_validate(
-            {"headline": None, "skills": [{"name": "Python"}, {"name": "Python"}]}
+        ProfessionalProfileChanges(
+            {"headline": None, "skills": ({"name": "Python"}, {"name": "Python"})},
+            frozenset({"headline", "skills"}),
         ),
     )
     assert users.calls[-1][1] == user_id
@@ -108,45 +123,6 @@ def test_self_service_uses_principal_and_preserves_patch_field_presence():
     }
     assert profiles.calls[-1][2].supplied_fields == frozenset({"headline", "skills"})
     assert (uow.commits, uow.rollbacks) == (2, 2)
-
-
-@pytest.mark.parametrize("resource", ["user", "profile"])
-def test_invalid_repository_return_rolls_back_without_commit(resource):
-    now, user_id = datetime.now(UTC), uuid4()
-    user = User(
-        user_id,
-        uuid4(),
-        "Ada",
-        "Lovelace",
-        "invalid-email",
-        "+12025550123",
-        "US",
-        None,
-        now,
-        now,
-    )
-    profile = ProfessionalProfile(
-        uuid4(), user_id, None, None, ({"wrong": True},), (), (), now, now
-    )
-    users, profiles, uow = FakeUsers(user), FakeProfiles(profile), FakeUnitOfWork()
-    service = UserProfileService(
-        lambda: uow,
-        users_factory=lambda _uow: users,
-        profiles_factory=lambda _uow: profiles,
-    )
-    principal = Principal(uuid4(), user_id)
-
-    with pytest.raises(ValueError):
-        if resource == "user":
-            service.update_user(
-                principal, UserPatch.model_validate({"timezone": "UTC"})
-            )
-        else:
-            service.update_profile(
-                principal,
-                ProfessionalProfilePatch.model_validate({"headline": "Updated"}),
-            )
-    assert (uow.commits, uow.rollbacks) == (0, 1)
 
 
 def test_missing_user_is_indistinguishable_from_missing_profile_owner_record():

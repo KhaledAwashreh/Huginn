@@ -1,89 +1,19 @@
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Thread
-from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain import RateLimitError, Session
-from huginn.management.identity import SessionService
+from huginn.management.errors.domain import RateLimitError
+from huginn.management.security.tokens import digest_token, generate_token
 from huginn.management.throttle import FailedLoginThrottle
 
 
-class FakeSessionRepository:
-    def __init__(self):
-        self.rows = {}
-
-    def create(self, value):
-        row = Session(
-            uuid4(),
-            value.account_id,
-            value.token_digest,
-            value.csrf_digest,
-            datetime(2026, 1, 1, tzinfo=UTC),
-            value.expires_at,
-            None,
-        )
-        self.rows[value.token_digest] = row
-        return row
-
-    def get_by_token_digest(self, digest):
-        return self.rows.get(digest)
-
-    def revoke_current(self, session_id, revoked_at):
-        for digest, row in self.rows.items():
-            if row.id == session_id:
-                self.rows[digest] = replace(row, revoked_at=revoked_at)
-
-    def revoke_for_account(self, account_id, revoked_at):
-        for digest, row in self.rows.items():
-            if row.account_id == account_id:
-                self.rows[digest] = replace(row, revoked_at=revoked_at)
-
-
-def test_session_service_generates_injectable_opaque_tokens_and_stores_digests():
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    tokens = iter(("opaque-session-token", "opaque-csrf-token"))
-    repository = FakeSessionRepository()
-    service = SessionService(
-        repository,
-        clock=lambda: now,
-        ttl=timedelta(hours=12),
-        token_generator=lambda: next(tokens),
-    )
-
-    issued = service.create(uuid4())
-
-    assert (issued.session_token, issued.csrf_token) == (
-        "opaque-session-token",
-        "opaque-csrf-token",
-    )
-    assert issued.session_token not in repr(repository.rows)
-    assert issued.csrf_token not in repr(repository.rows)
-    assert issued.session_token not in repr(issued)
-    assert issued.csrf_token not in repr(issued)
-    assert service.resolve(issued.session_token).account_id == issued.account_id
-
-
-def test_session_service_rejects_expired_and_revoked_sessions():
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    repository = FakeSessionRepository()
-    tokens = iter(f"opaque-{index}" for index in range(4))
-    service = SessionService(
-        repository,
-        clock=lambda: now,
-        ttl=timedelta(seconds=1),
-        token_generator=lambda: next(tokens),
-    )
-    expired = service.create(uuid4())
-    now += timedelta(seconds=2)
-    assert service.resolve(expired.session_token) is None
-
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    active = service.create(uuid4())
-    service.revoke_current(active.session_token)
-    assert service.resolve(active.session_token) is None
-    service.revoke_account(active.account_id)
+def test_session_tokens_are_opaque_and_stored_as_digests():
+    session_token, csrf_token = generate_token(), generate_token()
+    assert session_token != csrf_token
+    assert session_token not in digest_token(session_token)
+    assert csrf_token not in digest_token(csrf_token)
+    assert digest_token(session_token) != digest_token(csrf_token)
 
 
 def test_failed_login_throttle_uses_lower_normalized_composite_key_and_resets():

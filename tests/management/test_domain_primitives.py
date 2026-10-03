@@ -1,12 +1,14 @@
 import ast
 import inspect
+from types import SimpleNamespace
 from typing import Any, get_type_hints
 
-from huginn.management import domain, primitives, repository_ports
+from huginn.management import domain, primitives
+from huginn.management.repositories import protocols
 
 
 def test_application_and_domain_modules_do_not_import_flask():
-    for module in (domain, primitives, repository_ports):
+    for module in (domain, primitives, protocols):
         syntax = ast.parse(inspect.getsource(module))
         imported = {
             alias.name
@@ -24,7 +26,10 @@ def test_application_and_domain_modules_do_not_import_flask():
 def test_page_result_and_principal_are_typed_immutable_values():
     from uuid import uuid4
 
-    from huginn.management.domain import Page, Principal
+    from huginn.management.domain.common import (
+        Page,
+        Principal,
+    )
 
     principal = Principal(account_id=uuid4(), user_id=uuid4())
     page = Page(items=("a", "b"), offset=5, limit=2, has_more=True)
@@ -35,22 +40,31 @@ def test_page_result_and_principal_are_typed_immutable_values():
 
 
 def test_domain_errors_have_stable_types_and_safe_messages():
-    from huginn.management.domain import ConflictError, NotFoundError
+    from huginn.management.errors.domain import (
+        ConflictError,
+        NotFoundError,
+    )
 
     assert str(ConflictError("already exists")) == "already exists"
     assert issubclass(NotFoundError, Exception)
 
 
 def test_repository_ports_are_protocols():
-    from huginn.management.repository_ports import (
-        AccountRepository,
+    from huginn.management.repositories.protocols.account import AccountRepository
+    from huginn.management.repositories.protocols.discovery_strategy import (
         ClientDiscoveryStrategyRepository,
-        IdealClientProfileRepository,
-        ProfessionalProfileRepository,
-        ServiceOfferingRepository,
-        SessionRepository,
-        UserRepository,
     )
+    from huginn.management.repositories.protocols.ideal_client_profile import (
+        IdealClientProfileRepository,
+    )
+    from huginn.management.repositories.protocols.professional_profile import (
+        ProfessionalProfileRepository,
+    )
+    from huginn.management.repositories.protocols.service_offering import (
+        ServiceOfferingRepository,
+    )
+    from huginn.management.repositories.protocols.session import SessionRepository
+    from huginn.management.repositories.protocols.user import UserRepository
 
     for port in (
         AccountRepository,
@@ -65,16 +79,40 @@ def test_repository_ports_are_protocols():
 
 
 def test_repository_ports_cover_documented_operations_with_typed_results():
-    from huginn.management import repository_ports as ports
-    from huginn.management.domain import (
-        Account,
-        ClientDiscoveryStrategy,
-        IdealClientProfile,
-        ProfessionalProfile,
-        ServiceOffering,
-        Session,
-        User,
+    from huginn.management.repositories.protocols.account import AccountRepository
+    from huginn.management.repositories.protocols.discovery_strategy import (
+        ClientDiscoveryStrategyRepository,
     )
+    from huginn.management.repositories.protocols.ideal_client_profile import (
+        IdealClientProfileRepository,
+    )
+    from huginn.management.repositories.protocols.professional_profile import (
+        ProfessionalProfileRepository,
+    )
+    from huginn.management.repositories.protocols.service_offering import (
+        ServiceOfferingRepository,
+    )
+    from huginn.management.repositories.protocols.session import SessionRepository
+    from huginn.management.repositories.protocols.user import UserRepository
+
+    ports = SimpleNamespace(
+        AccountRepository=AccountRepository,
+        ClientDiscoveryStrategyRepository=ClientDiscoveryStrategyRepository,
+        IdealClientProfileRepository=IdealClientProfileRepository,
+        ProfessionalProfileRepository=ProfessionalProfileRepository,
+        ServiceOfferingRepository=ServiceOfferingRepository,
+        SessionRepository=SessionRepository,
+        UserRepository=UserRepository,
+    )
+    from huginn.management.domain.account import Account
+    from huginn.management.domain.client_discovery_strategy import (
+        ClientDiscoveryStrategy,
+    )
+    from huginn.management.domain.ideal_client_profile import IdealClientProfile
+    from huginn.management.domain.professional_profile import ProfessionalProfile
+    from huginn.management.domain.service_offering import ServiceOffering
+    from huginn.management.domain.session import Session
+    from huginn.management.domain.user import User
 
     expected = {
         ports.AccountRepository: {
@@ -133,4 +171,4 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
                 for name, annotation in hints.items()
                 if name != "return"
             )
-        assert results[port].__module__ == "huginn.management.domain"
+        assert results[port].__module__.startswith("huginn.management.domain.")

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import RLock
 
-from huginn.management.domain import RateLimitError
+from huginn.management.errors.domain import RateLimitError
 
 
 @dataclass(eq=False)

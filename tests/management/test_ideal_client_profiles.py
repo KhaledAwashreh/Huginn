@@ -5,26 +5,34 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.domain import (
-    ConflictError,
+from huginn.management.domain.account import NewAccount
+from huginn.management.domain.ideal_client_profile import (
     IdealClientProfile,
     IdealClientProfileChanges,
-    NewAccount,
     NewIdealClientProfile,
-    NewServiceOffering,
-    NewUser,
-    NotFoundError,
 )
-from huginn.management.ideal_client_profiles import (
-    IdealClientProfileService,
+from huginn.management.domain.service_offering import NewServiceOffering
+from huginn.management.domain.user import NewUser
+from huginn.management.errors.domain import ConflictError
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
+)
+from huginn.management.repositories.postgres.service_offering import (
+    PostgresServiceOfferingRepository,
+)
+from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.requests.ideal_client_profile import (
+    IdealClientProfileCreateRequest as IcpCreate,
+)
+from huginn.management.requests.ideal_client_profile import (
+    IdealClientProfileUpdateRequest as IcpPatch,
+)
+from huginn.management.responses.ideal_client_profile import IdealClientProfileResponse
+from huginn.management.services.ideal_client_profiles import (
     evaluate_icp,
 )
-from huginn.management.identity import PostgresAccountRepository, PostgresUserRepository
-from huginn.management.schemas import IcpCreate, IcpPatch
-from huginn.management.service_offerings import PostgresServiceOfferingRepository
-from tests.management.test_app_authentication import make_app
-from tests.management.test_service_offering_app import Sessions
+from huginn.management.transport import request_to_changes, request_to_domain
 
 
 def _profile(**overrides):
@@ -53,20 +61,33 @@ def test_icp_models_support_progressive_saves_and_replacement_patches():
         IcpPatch.model_validate({"industries": None})
     with pytest.raises(ValidationError):
         IcpCreate.model_validate({"name": "Target", "user_id": str(uuid4())})
-    with pytest.raises(ValidationError):
+    company_id = uuid4()
+    assert (
         IcpCreate.model_validate(
             {
                 "name": "Target",
-                "exclusions": [{"kind": "company", "company_id": str(uuid4())}],
+                "exclusions": [{"kind": "company", "company_id": str(company_id)}],
             }
         )
+        .exclusions[0]
+        .company_id
+        == company_id
+    )
 
 
-def test_icp_service_serializes_json_native_company_exclusion_uuid():
+def test_icp_response_serializes_company_exclusion_uuid():
     company_id = uuid4()
-    profile = _profile(exclusions=({"kind": "company", "company_id": str(company_id)},))
-
-    assert IdealClientProfileService._read(profile)["exclusions"] == [
+    profile = _profile(exclusions=({"kind": "company", "company_id": company_id},))
+    response = IdealClientProfileResponse.model_validate(
+        {
+            **profile.__dict__,
+            "industries": list(profile.industries),
+            "company_sizes": list(profile.company_sizes),
+            "geographies": list(profile.geographies),
+            "exclusions": list(profile.exclusions),
+        }
+    )
+    assert response.model_dump(mode="json")["exclusions"] == [
         {"kind": "company", "company_id": str(company_id)}
     ]
 
@@ -183,16 +204,14 @@ def test_icp_company_exclusion_uuid_round_trips_jsonb_crud(management_database_u
             )
         )
         repo = PostgresIdealClientProfileRepository(connection)
-        company_exclusion = {"kind": "company", "company_id": str(company_id)}
+        create = IcpCreate.model_validate(
+            {
+                "name": "Target",
+                "exclusions": [{"kind": "company", "company_id": str(company_id)}],
+            }
+        )
         profile = repo.create(
-            NewIdealClientProfile(
-                owner.id,
-                "Target",
-                (),
-                (),
-                (),
-                (company_exclusion,),
-            )
+            request_to_domain(create, NewIdealClientProfile, user_id=owner.id)
         )
         expected = {"kind": "company", "company_id": str(company_id)}
         assert profile.exclusions == (expected,)
@@ -203,143 +222,11 @@ def test_icp_company_exclusion_uuid_round_trips_jsonb_crud(management_database_u
         updated = repo.update_owned(
             owner.id,
             profile.id,
-            IdealClientProfileChanges(
-                {"exclusions": (company_exclusion,)}, frozenset({"exclusions"})
+            request_to_changes(
+                IcpPatch.model_validate(
+                    {"exclusions": [{"kind": "company", "company_id": str(company_id)}]}
+                ),
+                IdealClientProfileChanges,
             ),
         )
         assert updated.exclusions == (expected,)
-
-
-def test_icp_routes_are_authenticated_owner_scoped_and_map_statuses():
-    class Icps:
-        calls = []
-
-        def create(self, principal, body):
-            self.calls.append(("create", principal.user_id, body))
-            return {
-                "id": str(uuid4()),
-                "user_id": str(principal.user_id),
-                **body.model_dump(mode="json"),
-            }
-
-        def list(self, principal, *, limit, offset):
-            self.calls.append(("list", principal.user_id, limit, offset))
-            return {"items": [], "offset": offset, "limit": limit, "has_more": False}
-
-        def get(self, principal, profile_id):
-            raise NotFoundError("not found")
-
-        def update(self, principal, profile_id, patch):
-            return {
-                "id": str(profile_id),
-                "user_id": str(principal.user_id),
-                "name": "Target",
-                "industries": [],
-                "company_sizes": [],
-                "geographies": [],
-                "exclusions": [],
-            }
-
-        def delete(self, principal, profile_id):
-            raise ConflictError("referenced")
-
-    sessions, icps = Sessions(), Icps()
-    app, _, _ = make_app(sessions, ideal_client_profile_service=icps)
-    client = app.test_client()
-    token, (_session, principal, csrf) = next(iter(sessions.values.items()))
-    client.set_cookie("huginn_management_session", token)
-    created = client.post(
-        "/api/v1/ideal-client-profiles",
-        json={"name": "Target"},
-        headers={"X-CSRF-Token": csrf},
-    )
-    assert created.status_code == 201 and created.json["user_id"] == str(
-        principal.user_id
-    )
-    assert (
-        client.get("/api/v1/ideal-client-profiles?limit=7&offset=2").status_code == 200
-    )
-    profile_id = uuid4()
-    assert client.get(f"/api/v1/ideal-client-profiles/{profile_id}").status_code == 404
-    assert (
-        client.patch(
-            f"/api/v1/ideal-client-profiles/{profile_id}",
-            json={"industries": []},
-            headers={"X-CSRF-Token": csrf},
-        ).status_code
-        == 200
-    )
-    assert (
-        client.delete(
-            f"/api/v1/ideal-client-profiles/{profile_id}",
-            headers={"X-CSRF-Token": csrf},
-        ).status_code
-        == 409
-    )
-    assert (
-        client.post(
-            "/api/v1/ideal-client-profiles",
-            json={"name": "Target", "user_id": str(uuid4())},
-            headers={"X-CSRF-Token": csrf},
-        ).status_code
-        == 422
-    )
-
-
-def test_two_user_icp_routes_hide_cross_owner_resources():
-    class OwnerScopedIcps:
-        def __init__(self):
-            self.records = {}
-
-        def create(self, principal, body):
-            profile_id = uuid4()
-            record = {
-                "id": str(profile_id),
-                "user_id": str(principal.user_id),
-                **body.model_dump(mode="json"),
-            }
-            self.records[profile_id] = record
-            return record
-
-        def get(self, principal, profile_id):
-            record = self.records.get(profile_id)
-            if record is None or record["user_id"] != str(principal.user_id):
-                raise NotFoundError("not found")
-            return record
-
-        def update(self, principal, profile_id, patch):
-            record = self.get(principal, profile_id)
-            record.update(patch.model_dump(mode="json", exclude_unset=True))
-            return record
-
-        def delete(self, principal, profile_id):
-            self.get(principal, profile_id)
-            del self.records[profile_id]
-
-    sessions, icps = Sessions(), OwnerScopedIcps()
-    app, _, _ = make_app(sessions, ideal_client_profile_service=icps)
-    client = app.test_client()
-    first, second = list(sessions.values.items())
-    first_token, (_, _, first_csrf) = first
-    second_token, (_, _, second_csrf) = second
-    client.set_cookie("huginn_management_session", first_token)
-    created = client.post(
-        "/api/v1/ideal-client-profiles",
-        json={"name": "Progressive"},
-        headers={"X-CSRF-Token": first_csrf},
-    )
-    assert created.status_code == 201 and created.json["industries"] == []
-    path = f"/api/v1/ideal-client-profiles/{created.json['id']}"
-    client.set_cookie("huginn_management_session", second_token)
-    assert client.get(path).status_code == 404
-    assert (
-        client.patch(
-            path,
-            json={"geographies": []},
-            headers={"X-CSRF-Token": second_csrf},
-        ).status_code
-        == 404
-    )
-    assert client.delete(path, headers={"X-CSRF-Token": second_csrf}).status_code == 404
-    client.set_cookie("huginn_management_session", first_token)
-    assert client.get(path).status_code == 200

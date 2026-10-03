@@ -3,9 +3,17 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain import NotFoundError, Page, Principal, ServiceOffering
-from huginn.management.schemas import OfferingCreate, OfferingPatch
-from huginn.management.service_offerings import ServiceOfferingService
+from huginn.management.domain.common import (
+    Page,
+    Principal,
+)
+from huginn.management.domain.service_offering import (
+    NewServiceOffering,
+    ServiceOffering,
+    ServiceOfferingChanges,
+)
+from huginn.management.errors.domain import NotFoundError
+from huginn.management.services.service_offerings import ServiceOfferingService
 
 
 class Uow:
@@ -71,13 +79,17 @@ def test_offering_service_derives_owner_commits_mutations_and_uses_paged_reads()
     service = ServiceOfferingService(lambda: uow, offerings_factory=lambda _: repo)
     principal = Principal(uuid4(), user_id)
     created = service.create(
-        principal, OfferingCreate(name="Consulting", description="Audit")
+        principal, NewServiceOffering(user_id, "Consulting", "Audit")
     )
-    assert created["id"] == str(record.id) and repo.calls[-1][1].user_id == user_id
-    assert service.get(principal, record.id)["user_id"] == str(user_id)
+    assert created.id == record.id and repo.calls[-1][1].user_id == user_id
+    assert service.get(principal, record.id).user_id == user_id
     page = service.list(principal, limit=3, offset=4)
-    assert page["offset"] == 4 and page["items"][0]["name"] == "Consulting"
-    service.update(principal, record.id, OfferingPatch(description="Review"))
+    assert page.offset == 4 and page.items[0].name == "Consulting"
+    service.update(
+        principal,
+        record.id,
+        ServiceOfferingChanges({"description": "Review"}, frozenset({"description"})),
+    )
     assert repo.calls[-1][-1].values == {"description": "Review"}
     service.delete(principal, record.id)
     assert uow.commits == 3
@@ -91,26 +103,3 @@ def test_offering_service_hides_cross_owner_and_missing_as_not_found():
     )
     with pytest.raises(NotFoundError):
         service.get(Principal(uuid4(), uuid4()), record.id)
-
-
-@pytest.mark.parametrize("operation", ["create", "update"])
-def test_invalid_repository_return_rolls_back_before_commit(operation):
-    user_id = uuid4()
-    now = datetime.now(UTC)
-    invalid = ServiceOffering(uuid4(), user_id, " ", "Audit", now, now)
-    uow = Uow()
-    service = ServiceOfferingService(
-        lambda: uow, offerings_factory=lambda _: Repo(invalid)
-    )
-    principal = Principal(uuid4(), user_id)
-
-    with pytest.raises(ValueError):
-        if operation == "create":
-            service.create(
-                principal, OfferingCreate(name="Consulting", description="Audit")
-            )
-        else:
-            service.update(principal, invalid.id, OfferingPatch(name="Consulting"))
-
-    assert uow.commits == 0
-    assert uow.rollbacks == 1

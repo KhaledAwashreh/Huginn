@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
+from huginn.management.constants.pagination import MAX_PAGE_LIMIT
+
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 
 
@@ -25,7 +27,7 @@ def _validate_timezone(value: str) -> str:
 
 
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-PageLimit = Annotated[int, Field(strict=True, ge=1, le=100)]
+PageLimit = Annotated[int, Field(strict=True, ge=1, le=MAX_PAGE_LIMIT)]
 PageOffset = Annotated[int, Field(strict=True, ge=0)]
 UUIDValue = Annotated[UUID, Field(strict=True)]
 Email = Annotated[

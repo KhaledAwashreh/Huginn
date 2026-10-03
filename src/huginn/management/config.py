@@ -7,16 +7,22 @@ from datetime import timedelta
 
 from dotenv import load_dotenv
 
+from huginn.management.constants.authentication import SESSION_TTL_SECONDS
+from huginn.management.constants.http import (
+    DEFAULT_COOKIE_SAMESITE,
+    DEFAULT_SESSION_COOKIE_NAME,
+)
+
 
 @dataclass(frozen=True)
 class ManagementConfig:
     """Management process configuration defined by ADR-0011."""
 
     database_url: str = field(repr=False)
-    cookie_name: str = "huginn_management_session"
+    cookie_name: str = DEFAULT_SESSION_COOKIE_NAME
     cookie_secure: bool | None = None
-    cookie_samesite: str = "Lax"
-    session_ttl: timedelta = timedelta(hours=12)
+    cookie_samesite: str = DEFAULT_COOKIE_SAMESITE
+    session_ttl: timedelta = timedelta(seconds=SESSION_TTL_SECONDS)
     login_throttle_failures: int = 5
     login_throttle_window: timedelta = timedelta(minutes=15)
     environment: str = "local"
@@ -63,7 +69,9 @@ def load_config() -> ManagementConfig:
     )
     try:
         ttl_seconds = int(
-            os.environ.get("HUGINN_MANAGEMENT_SESSION_TTL_SECONDS", "43200")
+            os.environ.get(
+                "HUGINN_MANAGEMENT_SESSION_TTL_SECONDS", str(SESSION_TTL_SECONDS)
+            )
         )
         throttle_failures = int(
             os.environ.get("HUGINN_MANAGEMENT_LOGIN_THROTTLE_FAILURES", "5")
@@ -74,10 +82,10 @@ def load_config() -> ManagementConfig:
         return ManagementConfig(
             database_url=database_url,
             cookie_name=os.environ.get(
-                "HUGINN_MANAGEMENT_COOKIE_NAME", "huginn_management_session"
+                "HUGINN_MANAGEMENT_COOKIE_NAME", DEFAULT_SESSION_COOKIE_NAME
             ).strip(),
             cookie_samesite=os.environ.get(
-                "HUGINN_MANAGEMENT_COOKIE_SAMESITE", "Lax"
+                "HUGINN_MANAGEMENT_COOKIE_SAMESITE", DEFAULT_COOKIE_SAMESITE
             ).strip(),
             session_ttl=timedelta(seconds=ttl_seconds),
             login_throttle_failures=throttle_failures,

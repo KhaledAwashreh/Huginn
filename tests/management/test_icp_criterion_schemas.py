@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from huginn.management.schemas import (
+from huginn.management.requests.ideal_client_profile import (
     CompanySize,
     Exclusion,
     Geography,
@@ -66,8 +66,12 @@ def test_company_exclusion_parses_uuid_from_json_string_but_not_invalid_value():
     assert parsed.company_id == identifier
     with pytest.raises(ValidationError):
         adapter.validate_json('{"kind":"company","company_id":"bad"}')
-    with pytest.raises(ValidationError):
-        adapter.validate_python({"kind": "company", "company_id": str(identifier)})
+    assert (
+        adapter.validate_python(
+            {"kind": "company", "company_id": str(identifier)}
+        ).company_id
+        == identifier
+    )
     with pytest.raises(ValidationError):
         adapter.validate_python({"kind": "company", "company_id": 12})
 

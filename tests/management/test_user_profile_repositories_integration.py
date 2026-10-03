@@ -4,18 +4,20 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.domain import (
-    NewAccount,
+from huginn.management.domain.account import NewAccount
+from huginn.management.domain.professional_profile import (
     NewProfessionalProfile,
-    NewUser,
     ProfessionalProfileChanges,
+)
+from huginn.management.domain.user import (
+    NewUser,
     UserChanges,
 )
-from huginn.management.identity import (
-    PostgresAccountRepository,
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.professional_profile import (
     PostgresProfessionalProfileRepository,
-    PostgresUserRepository,
 )
+from huginn.management.repositories.postgres.user import PostgresUserRepository
 
 
 def test_profile_repositories_validate_jsonb_map_partial_updates_and_leave_rollback(
@@ -65,7 +67,7 @@ def test_profile_repositories_validate_jsonb_map_partial_updates_and_leave_rollb
         assert updated_user.timezone is None
         assert updated_user.updated_at > user.updated_at
 
-        updated_profile = profiles.update_owned(
+        updated_profile = profiles.update(
             user.id,
             ProfessionalProfileChanges(
                 {
@@ -105,7 +107,7 @@ def test_profile_repositories_validate_jsonb_map_partial_updates_and_leave_rollb
             is None
         )
         assert (
-            profiles.update_owned(uuid4(), ProfessionalProfileChanges({}, frozenset()))
+            profiles.update(uuid4(), ProfessionalProfileChanges({}, frozenset()))
             is None
         )
 

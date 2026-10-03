@@ -3,15 +3,18 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from huginn.management.domain import (
-    ConflictError,
-    NewAccount,
+from huginn.management.domain.account import NewAccount
+from huginn.management.domain.service_offering import (
     NewServiceOffering,
-    NewUser,
     ServiceOfferingChanges,
 )
-from huginn.management.identity import PostgresAccountRepository, PostgresUserRepository
-from huginn.management.service_offerings import PostgresServiceOfferingRepository
+from huginn.management.domain.user import NewUser
+from huginn.management.errors.domain import ConflictError
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.repositories.postgres.service_offering import (
+    PostgresServiceOfferingRepository,
+)
+from huginn.management.repositories.postgres.user import PostgresUserRepository
 
 
 def test_offering_repository_crud_pagination_timestamp_and_ownership(

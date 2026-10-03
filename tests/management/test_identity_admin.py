@@ -3,14 +3,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from huginn.management.domain import (
-    Account,
-    ProfessionalProfile,
-    User,
-)
-from huginn.management.identity import (
-    IdentityProvisioningService,
-    PostgresAccountRepository,
+from huginn.management.domain.account import Account
+from huginn.management.domain.professional_profile import ProfessionalProfile
+from huginn.management.domain.provisioning import ProvisionIdentity
+from huginn.management.domain.user import User
+from huginn.management.repositories.postgres.account import PostgresAccountRepository
+from huginn.management.services.provisioning import IdentityProvisioningService
+from huginn.management.services.provisioning import (
+    IdentityProvisioningService as DomainIdentityProvisioningService,
 )
 
 
@@ -110,14 +110,16 @@ def _provision(
     phone_number="+12025550123",
 ):
     return service.provision(
-        username=username,
-        first_name="Ada",
-        last_name="Lovelace",
-        email="ada@example.test",
-        phone_number=phone_number,
-        country_of_residence="US",
-        timezone="UTC",
-        password=password,
+        ProvisionIdentity(
+            username,
+            "Ada",
+            "Lovelace",
+            "ada@example.test",
+            phone_number,
+            "US",
+            "UTC",
+            password,
+        )
     )
 
 
@@ -130,7 +132,11 @@ def test_provisioning_injected_failure_rolls_back_each_stage(failure):
         FakeRepository("profile", fail=failure == "profile"),
     ]
     service = IdentityProvisioningService(
-        lambda: uow, *repos, hash_password=lambda _: "scrypt$hash"
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        hash_password_fn=lambda _: "scrypt$hash",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _provision(service)
@@ -143,7 +149,11 @@ def test_provisioning_returns_all_ids_and_preserves_username_spelling():
     uow = FakeUow()
     repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
     service = IdentityProvisioningService(
-        lambda: uow, *repos, hash_password=lambda _: "scrypt$hash"
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        hash_password_fn=lambda _: "scrypt$hash",
     )
     result = _provision(service, username="Alice")
     assert result.username == "Alice"
@@ -155,22 +165,119 @@ def test_provisioning_returns_all_ids_and_preserves_username_spelling():
     assert (uow.commits, uow.rollbacks) == (1, 0)
 
 
-def test_provisioning_reports_field_specific_validation_without_echoing_values():
-    from huginn.management.domain import ValidationDomainError
+def test_domain_provisioning_service_accepts_command_value():
+    uow = FakeUow()
+    repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
+    service = DomainIdentityProvisioningService(
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        hash_password_fn=lambda _: "scrypt$hash",
+    )
+    result = service.provision(
+        ProvisionIdentity(
+            "Alice",
+            "Ada",
+            "Lovelace",
+            "ada@example.test",
+            "+12025550123",
+            "US",
+            "UTC",
+            "a long owner password",
+        )
+    )
 
-    service = IdentityProvisioningService(lambda: FakeUow())
-    with pytest.raises(ValidationDomainError, match="phone_number") as error:
-        _provision(service, phone_number="bad phone")
-    # use a separate invalid request: errors are field names only
-    assert "ada@example.test" not in str(error.value)
+    assert result.username == "Alice"
+    assert (uow.commits, uow.rollbacks) == (1, 0)
 
 
 def test_invalid_password_names_password_without_echoing_value():
-    from huginn.management.domain import ValidationDomainError
+    from huginn.management.errors.domain import ValidationDomainError
 
     with pytest.raises(ValidationDomainError, match="password") as error:
-        _provision(IdentityProvisioningService(lambda: FakeUow()), password="short")
+        _provision(
+            IdentityProvisioningService(
+                lambda: FakeUow(),
+                accounts_factory=lambda _: FakeRepository("account"),
+                users_factory=lambda _: FakeRepository("user"),
+                profiles_factory=lambda _: FakeRepository("profile"),
+            ),
+            password="short",
+        )
     assert "short" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("username", "   "),
+        ("first_name", "   "),
+        ("last_name", "   "),
+        ("email", "invalid-email"),
+        ("phone_number", "2025550123"),
+        ("country_of_residence", "  "),
+        ("timezone", "Mars/Olympus"),
+    ],
+)
+def test_provisioning_rejects_invalid_identity_fields_before_opening_uow(field, value):
+    from dataclasses import replace
+
+    from huginn.management.errors.domain import ValidationDomainError
+
+    opened = []
+    service = IdentityProvisioningService(
+        lambda: (opened.append(True), FakeUow())[1],
+        accounts_factory=lambda _: FakeRepository("account"),
+        users_factory=lambda _: FakeRepository("user"),
+        profiles_factory=lambda _: FakeRepository("profile"),
+    )
+    identity = ProvisionIdentity(
+        "Alice",
+        "Ada",
+        "Lovelace",
+        "ada@example.test",
+        "+12025550123",
+        "US",
+        "UTC",
+        "a long owner password",
+    )
+    with pytest.raises(ValidationDomainError, match=field) as error:
+        service.provision(replace(identity, **{field: value}))
+    assert opened == []
+    assert value not in str(error.value)
+
+
+def test_provisioning_normalizes_identity_fields_before_persistence():
+    uow = FakeUow()
+    repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
+    service = IdentityProvisioningService(
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        hash_password_fn=lambda _: "scrypt$hash",
+    )
+    service.provision(
+        ProvisionIdentity(
+            " Alice ",
+            " Ada ",
+            " Lovelace ",
+            " ada@example.test ",
+            "+12025550123",
+            " US ",
+            "UTC",
+            "a long owner password",
+        )
+    )
+    assert repos[0].created[0].username == "Alice"
+    user = repos[1].created[0]
+    assert (user.first_name, user.last_name, user.email) == (
+        "Ada",
+        "Lovelace",
+        "ada@example.test",
+    )
+    assert user.country_of_residence == "US"
 
 
 def test_cli_reads_matching_stdin_password_twice_and_rejects_argv_password(
@@ -194,7 +301,7 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
     from types import SimpleNamespace
 
     from huginn.management import admin
-    from huginn.management.domain import ConflictError
+    from huginn.management.errors.domain import ConflictError
 
     prompts = iter(("some password", "some password"))
     calls = []
@@ -211,7 +318,7 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
     monkeypatch.setattr(admin, "ManagementConnectionFactory", lambda _: object())
 
     class ConflictService:
-        def __init__(self, *_):
+        def __init__(self, *_, **__):
             pass
 
         def set_status(self, *_):
@@ -228,7 +335,7 @@ def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsy
     from types import SimpleNamespace
 
     from huginn.management import admin
-    from huginn.management.domain import ValidationDomainError
+    from huginn.management.errors.domain import ValidationDomainError
 
     monkeypatch.setattr(
         admin, "load_config", lambda: SimpleNamespace(database_url="dsn")
@@ -236,10 +343,10 @@ def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsy
     monkeypatch.setattr(admin, "ManagementConnectionFactory", lambda _: object())
 
     class InvalidService:
-        def __init__(self, *_):
+        def __init__(self, *_, **__):
             pass
 
-        def provision(self, **_):
+        def provision(self, _):
             raise ValidationDomainError("invalid identity fields: phone_number")
 
     monkeypatch.setattr(admin, "IdentityProvisioningService", InvalidService)
