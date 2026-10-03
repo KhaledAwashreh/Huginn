@@ -365,15 +365,17 @@ erDiagram
     }
 ```
 
-KAN-71 provides the fresh bootstrap tables, strict professional-collection
-schemas, configuration, read-only readiness adapter, and inert Flask factory.
-It exposes only `/health` and `/ready`; it adds no account, profile, session,
-or business CRUD behavior. Unique foreign keys enforce at most one User per
-Account and at most one ProfessionalProfile per User. KAN-72 must create all
-three atomically to enforce the intended exactly-one lifecycle, and KAN-73
-adds session storage and authentication. These management stages do not alter
-or run the ELT pipeline. `Match.UserId` remains a reference to User, not
-Account.
+The management API uses FastAPI with Uvicorn, generated OpenAPI, native
+sanitized HTTP 422 validation, and synchronous psycopg calls in FastAPI's
+worker threads. Werkzeug is an explicit dependency for scrypt password
+hashing. The API has an inert application factory, readiness probes, and
+authenticated User/Profile, offering, ICP, and discovery-strategy workflows.
+Unique foreign keys enforce at most one User per Account and at most one
+ProfessionalProfile per User; owner provisioning creates the full aggregate
+atomically. Its login throttle is process-local, so the runtime is
+single-process until throttle state is shared. These management stages do not
+alter or run the ELT pipeline.
+`Match.UserId` remains a reference to User, not Account.
 
 `MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
 

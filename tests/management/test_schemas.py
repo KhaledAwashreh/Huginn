@@ -1,11 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.schemas import (
+from huginn.management.requests.professional_profile import (
     Experience,
     PreviousProject,
-    ProfessionalCollections,
     Skill,
+)
+from huginn.management.requests.professional_profile import (
+    ProfessionalCollectionsRequest as ProfessionalCollections,
 )
 
 

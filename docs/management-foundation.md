@@ -1,9 +1,10 @@
 # Management foundation
 
-KAN-71 establishes a synchronous management application boundary and a fresh
-operational bootstrap. It does not implement provisioning, authentication, or
-business CRUD. The management boundary is independent of ELT execution while
-sharing the production Postgres data model.
+KAN-71 established the synchronous management application boundary and fresh
+operational bootstrap. KAN-72 through KAN-78 add provisioning,
+authentication, and owner-scoped business CRUD on that foundation. The
+management boundary is independent of ELT execution while sharing the
+production Postgres data model.
 
 ## Authority and status
 
@@ -11,8 +12,10 @@ sharing the production Postgres data model.
    [`architecture-notes/account-user-and-client-discovery-domain.md`](../architecture-notes/account-user-and-client-discovery-domain.md).
 2. The executable plan is
    [`docs/superpowers/plans/2026-09-17-kan-71-management-foundation.md`](superpowers/plans/2026-09-17-kan-71-management-foundation.md).
-3. [ADR-0011](../adr/0011-management-api-foundation.md) records the selected
-   Flask, Pydantic, identity, and storage representations.
+3. [ADR-0015](../adr/0015-management-fastapi-runtime.md) records the selected
+   FastAPI/Uvicorn runtime and synchronous psycopg execution model.
+   [ADR-0011](../adr/0011-management-api-foundation.md) remains as the history
+   of the superseded Flask decision and the identity and storage choices.
 4. The original planning session also cited
    `architecture-notes/management-mvp-codex-session-log-2026-09-17.md` as
    historical context. That file is not present in this branch and is not a
@@ -23,9 +26,15 @@ sharing the production Postgres data model.
 
 ## Runtime contract
 
-The selected runtime is synchronous Flask 3 with Pydantic 2 boundaries,
-psycopg 3, and Postgres 16. KAN-71 adds no ORM, asynchronous framework,
-password-hashing package, session package, or authentication middleware.
+The selected runtime is FastAPI with Uvicorn, Pydantic 2 boundaries,
+synchronous psycopg 3, and Postgres 16. Database-backed handlers and
+dependencies use normal `def` functions, which FastAPI runs in its worker
+thread pool so psycopg calls do not block the ASGI event loop. Production
+worker count, thread capacity, and database connection capacity must be
+configured together. The login throttle is process-local, so the runtime must
+remain single-process until throttle state is shared. Werkzeug is an explicit
+runtime dependency because password code imports its scrypt helpers directly.
+The application adds no ORM or automatic migrations.
 
 1. `ManagementConfig` is a frozen dataclass. It reads only
    `HUGINN_MANAGEMENT_DATABASE_URL`, does not fall back to
@@ -35,15 +44,24 @@ password-hashing package, session package, or authentication middleware.
 3. `GET /health` returns `200 {"status":"ok"}` without probing Postgres.
 4. `GET /ready` opens one read-only psycopg connection per request, with a
    two-second connection timeout and two-second statement timeout. It checks
-   `SELECT 1` and the required Account, User, and ProfessionalProfile columns,
-   returning `200 {"status":"ready"}` or
+   `SELECT 1` and the required columns for accounts, users, professional
+   profiles, sessions, service offerings, ideal client profiles, and client
+   discovery strategies, returning `200 {"status":"ready"}` or
    `503 {"status":"not_ready"}`.
-5. `/accounts`, `/users`, `/login`, `/sessions`, `/profiles`, `/offerings`,
-   `/icps`, and `/strategies` are not implemented and remain 404. KAN-71 sets
-   no authentication cookie and exposes no static route.
-6. `python -m huginn.management` runs Flask's local development server on
-   `127.0.0.1:8000` with debug and the reloader disabled. It is not a
-   production WSGI deployment contract.
+5. `/api/v1` implements session login and logout, password changes,
+   self-service User and ProfessionalProfile access, and owner-scoped CRUD for
+   service offerings, ideal client profiles, and discovery strategies. Login
+   sets an opaque `HttpOnly` session cookie; authenticated unsafe requests also
+   require the session-bound `X-CSRF-Token` header. Logout and password changes
+   clear the cookie.
+6. `python -m huginn.management` runs Uvicorn on `127.0.0.1:8000` without
+   debug mode or reload. It is a local development command, not a production
+   deployment configuration.
+7. FastAPI generates `/openapi.json`, `/docs`, and `/redoc` from the declared
+   routes, request and response models, and security dependencies.
+8. Invalid body, path, query, and header values use HTTP 422 with a sanitized
+   `detail` array. Submitted values and validation context are removed to
+   protect credentials.
 
 ## Identity and storage
 
@@ -91,48 +109,50 @@ and duplicates. Explicit null collections are rejected. `Skill` contains only
 | `PreviousProject` | `name`, `description` | None |
 | `ProfessionalCollections` | None | `skills = []`, `experience = []`, `previous_projects = []` |
 
-The models in `huginn.management.schemas` are strict, frozen, and reject
-unknown fields and type coercion. Required strings are stripped and must
-remain nonblank. Optional strings may be omitted or null but must remain
-nonblank when supplied. Months use `YYYY-MM` from `0001-01` through
-`9999-12`; an end month cannot precede a start month, and current experience
-cannot have an end month. Unknown dates are allowed.
+The directional models in `huginn.management.requests.professional_profile`
+and `huginn.management.responses.professional_profile` are strict and frozen.
+Request models reject unknown fields and unwanted type coercion. Required
+strings are stripped and must remain nonblank. Optional strings may be omitted
+or null but must remain nonblank when supplied. Months use `YYYY-MM` from
+`0001-01` through `9999-12`; an end month cannot precede a start month, and
+current experience cannot have an end month. Unknown dates are allowed.
 
 The SQL boundary checks only that each collection is an outer array containing
-objects. Pydantic checks the object fields before persistence and after loading
-typed values. Direct SQL can bypass deep validation, so future writers must use
-the shared schemas. Frozen Pydantic fields do not make nested lists immutable;
-callers treat these models as short-lived boundary values and replace rather
-than mutate them. Item IDs, deduplication, normalized child tables, and
-migration execution are deferred to [KAN-49](https://kawashreh.atlassian.net/browse/KAN-49).
+objects. Request models validate values before a use case, and private
+PostgreSQL row models validate persisted JSONB after loading. Direct SQL can
+bypass deep validation, so writers must use the application services and
+repositories. Frozen Pydantic fields do not make nested lists immutable;
+callers treat request values as short-lived boundaries and replace rather than
+mutate them. Item IDs, deduplication, normalized child tables, and migration
+execution are deferred to [KAN-49](https://kawashreh.atlassian.net/browse/KAN-49).
 
-## Authentication and deferred work
+## Authentication and ownership
 
 [KAN-72](https://kawashreh.atlassian.net/browse/KAN-72) consumes
 `operational.accounts`, `operational.users`,
-`operational.professional_profiles`, `ManagementConfig`, and the `Skill`,
-`Experience`, `PreviousProject`, and `ProfessionalCollections` schemas. It
+`operational.professional_profiles`, `ManagementConfig`, professional-profile
+request values, and PostgreSQL row validation. It
 owns password hashing, owner-only CLI provisioning, and one transaction that
-creates Account, User, and an empty ProfessionalProfile. It must finalize
-personal input validation before accepting owner input, use the same
-`lower(username)` expression for conflict handling, and prove rollback leaves
+creates Account, User, and an empty ProfessionalProfile. It validates personal
+input before accepting owner input, uses the same
+`lower(username)` expression for conflict handling, and proves rollback leaves
 no partial identity. It must not assume the database makes either child
 mandatory or normalizes usernames.
 
 [KAN-73](https://kawashreh.atlassian.net/browse/KAN-73) owns login verification,
 opaque revocable server-side session storage, token transport, expiry,
 revocation, CSRF, disabled-account enforcement, and ownership enforcement.
-Flask's signed client-side session is not the authentication store.
+The session cookie contains only an opaque token; PostgreSQL holds its digest.
 
-The bootstrap intentionally contains no session, service-offering, ICP, or
-discovery-strategy tables. Service offerings are deferred to
+The operational schema now contains sessions, service offerings, ICPs, and
+discovery strategies. Service offerings are owned by
 [KAN-75](https://kawashreh.atlassian.net/browse/KAN-75), ICP storage and
-multi-value semantics to [KAN-76](https://kawashreh.atlassian.net/browse/KAN-76),
-and strategies and their reference rules to
-[KAN-77](https://kawashreh.atlassian.net/browse/KAN-77). User/Profile CRUD is
-[KAN-74](https://kawashreh.atlassian.net/browse/KAN-74). BuyerPersona and
-EngagementPreferences remain separate domain concepts without KAN-71 tables
-or workflows. Matching and scoring remain under
+multi-value semantics by [KAN-76](https://kawashreh.atlassian.net/browse/KAN-76),
+strategies and their reference rules by
+[KAN-77](https://kawashreh.atlassian.net/browse/KAN-77), and User/Profile CRUD
+by [KAN-74](https://kawashreh.atlassian.net/browse/KAN-74). BuyerPersona and
+EngagementPreferences remain separate domain concepts. Matching and scoring
+remain under
 [KAN-18](https://kawashreh.atlassian.net/browse/KAN-18).
 
 ## Local bootstrap and probes
@@ -155,19 +175,108 @@ rtk uv run --python 3.14 python -m huginn.management
 `export` is a shell builtin, so it is not wrapped with `rtk`. The seven-file
 bootstrap is required because retained operational tables reference Gold.
 
-With the local development server running, use a separate terminal:
+With the local development server running, use a separate terminal. The API
+reference is available at `/docs`, `/redoc`, and `/openapi.json`:
 
 ```bash
 rtk proxy curl --fail-with-body http://127.0.0.1:8000/health
 rtk proxy curl --fail-with-body http://127.0.0.1:8000/ready
+rtk proxy curl --fail-with-body http://127.0.0.1:8000/docs
+rtk proxy curl --fail-with-body http://127.0.0.1:8000/redoc
 ```
 
 If port 8000 is occupied, run the local development server on 8001:
 
 ```bash
-rtk uv run --python 3.14 flask --app huginn.management.app:create_app run --host 127.0.0.1 --port 8001 --no-debugger --no-reload
+rtk uv run --python 3.14 uvicorn huginn.management.app:create_app --factory --host 127.0.0.1 --port 8001 --no-reload
 ```
 
 Only run a manual server smoke test against an explicitly selected dedicated
-database. Automated Flask test-client tests and live Postgres 16 container
+database. Automated FastAPI `TestClient` tests and live Postgres 16 container
 tests are the portable required evidence.
+
+## Management CRUD local runbook
+
+This procedure exercises KAN-72 through KAN-78 with the unique database name
+`huginn_management_crud_local_kan78`. If that name exists, stop and select
+another unused name. Never adapt these commands to an existing or shared
+database.
+
+Create and bootstrap the disposable database from the repository root:
+
+```bash
+rtk proxy createdb huginn_management_crud_local_kan78
+export HUGINN_MANAGEMENT_DATABASE_URL='postgresql://localhost:5432/huginn_management_crud_local_kan78'
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+```
+
+Provision the owner. The command prompts twice with terminal echo disabled, so
+the raw password is neither a command-line argument nor shell history:
+
+```bash
+rtk uv run --python 3.14 python -m huginn.management.admin account provision --username owner --first-name Local --last-name Owner --email owner@example.test --phone-number +970599000000 --country-of-residence Palestine --timezone Asia/Hebron
+```
+
+For non-interactive automation, add `--password-stdin` and redirect a protected
+file containing the password twice on separate lines. Do not place the password
+in an argument, environment variable, example file, or log.
+
+Start the development server. Startup opens no database connection and applies
+no DDL:
+
+```bash
+rtk uv run --python 3.14 python -m huginn.management
+```
+
+In a second terminal, export the same database URL, then create private local
+files for the response and cookie jar. The producer reads the password through
+`getpass`, so neither credential is embedded in the command:
+
+```bash
+umask 077
+rtk uv run --python 3.14 python -c 'import getpass,json,sys; print("Username: ", end="", file=sys.stderr, flush=True); username=input(); print(json.dumps({"username": username, "password": getpass.getpass()}))' | rtk proxy curl --fail-with-body --silent --show-error --request POST --header 'Content-Type: application/json' --data-binary @- --cookie-jar /tmp/huginn-kan78-cookies.txt --output /tmp/huginn-kan78-login.json http://127.0.0.1:8000/api/v1/sessions
+export HUGINN_CSRF_TOKEN="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-login.json"))["csrf_token"])')"
+rtk proxy curl --fail-with-body --cookie /tmp/huginn-kan78-cookies.txt http://127.0.0.1:8000/api/v1/me
+```
+
+The cookie authenticates every API request. Every unsafe request also requires
+the session-bound `X-CSRF-Token` header. These commands exercise self-service
+and the offering, ICP, and strategy CRUD chain:
+
+```bash
+rtk proxy curl --fail-with-body --request PATCH --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"headline":"Local operator","skills":[{"name":"Python"}]}' http://127.0.0.1:8000/api/v1/me/professional-profile
+rtk proxy curl --fail-with-body --silent --show-error --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"name":"Local service","description":"Disposable runbook service"}' --output /tmp/huginn-kan78-offering.json http://127.0.0.1:8000/api/v1/offerings
+export HUGINN_OFFERING_ID="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-offering.json"))["id"])')"
+rtk proxy curl --fail-with-body --silent --show-error --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data '{"name":"Local ICP","industries":[{"name":"Software"}],"company_sizes":[{"band":"11-100"}],"geographies":[{"kind":"country","value":"Palestine"}],"exclusions":[]}' --output /tmp/huginn-kan78-icp.json http://127.0.0.1:8000/api/v1/ideal-client-profiles
+export HUGINN_ICP_ID="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-icp.json"))["id"])')"
+rtk proxy curl --fail-with-body --request POST --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" --header 'Content-Type: application/json' --data "{\"name\":\"Local strategy\",\"service_offering_id\":\"$HUGINN_OFFERING_ID\",\"ideal_client_profile_id\":\"$HUGINN_ICP_ID\",\"is_active\":true}" http://127.0.0.1:8000/api/v1/discovery-strategies
+rtk proxy curl --fail-with-body --cookie /tmp/huginn-kan78-cookies.txt 'http://127.0.0.1:8000/api/v1/discovery-strategies?active=true&limit=50&offset=0'
+rtk proxy curl --fail-with-body http://127.0.0.1:8000/openapi.json
+```
+
+Run the required verification from the repository root:
+
+```bash
+rtk uv run --python 3.14 python -m compileall -q src tests
+rtk uv run --python 3.14 ruff check .
+rtk uv run --python 3.14 ruff format --check .
+rtk uv run --python 3.14 pytest -q tests/management
+rtk uv run --python 3.14 pytest -q
+rtk openspec validate management-api-crud --strict
+```
+
+For teardown, revoke the current session while the server is running, then stop
+the server, remove the named local artifacts, and clear shell values:
+
+```bash
+rtk proxy curl --fail-with-body --request DELETE --cookie /tmp/huginn-kan78-cookies.txt --header "X-CSRF-Token: $HUGINN_CSRF_TOKEN" http://127.0.0.1:8000/api/v1/sessions/current
+rtk rm -f /tmp/huginn-kan78-cookies.txt /tmp/huginn-kan78-login.json /tmp/huginn-kan78-offering.json /tmp/huginn-kan78-icp.json
+unset HUGINN_CSRF_TOKEN HUGINN_OFFERING_ID HUGINN_ICP_ID HUGINN_MANAGEMENT_DATABASE_URL
+```
+
+Only after confirming `huginn_management_crud_local_kan78` is the dedicated
+disposable database created above, remove it by its explicit name:
+
+```bash
+rtk proxy dropdb huginn_management_crud_local_kan78
+```

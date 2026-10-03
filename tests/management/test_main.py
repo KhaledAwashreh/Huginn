@@ -5,20 +5,22 @@ import pytest
 from huginn.management import __main__ as entrypoint
 
 
-def test_main_configures_logging_and_runs_local_development_server(monkeypatch):
+def test_main_configures_logging_and_runs_uvicorn_without_reload(monkeypatch):
     basic_config_calls = []
     run_calls = []
-
-    class FakeApp:
-        def run(self, **kwargs):
-            run_calls.append(kwargs)
+    fake_app = object()
 
     monkeypatch.setattr(
         entrypoint.logging,
         "basicConfig",
         lambda **kwargs: basic_config_calls.append(kwargs),
     )
-    monkeypatch.setattr(entrypoint, "create_app", lambda: FakeApp())
+    monkeypatch.setattr(entrypoint, "create_app", lambda: fake_app)
+    monkeypatch.setattr(
+        entrypoint.uvicorn,
+        "run",
+        lambda app, **kwargs: run_calls.append((app, kwargs)),
+    )
 
     entrypoint.main()
 
@@ -29,12 +31,14 @@ def test_main_configures_logging_and_runs_local_development_server(monkeypatch):
         }
     ]
     assert run_calls == [
-        {
-            "host": "127.0.0.1",
-            "port": 8000,
-            "debug": False,
-            "use_reloader": False,
-        }
+        (
+            fake_app,
+            {
+                "host": "127.0.0.1",
+                "port": 8000,
+                "reload": False,
+            },
+        )
     ]
 
 

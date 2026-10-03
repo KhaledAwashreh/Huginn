@@ -1,0 +1,5 @@
+"""Management database identity constants."""
+
+MANAGEMENT_SCHEMA = "operational"
+DATABASE_CONNECT_TIMEOUT_SECONDS = 5
+DATABASE_READINESS_TIMEOUT_SECONDS = 2

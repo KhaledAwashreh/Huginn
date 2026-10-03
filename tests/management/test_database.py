@@ -16,6 +16,16 @@ EXPECTED_PROBES = (
     "SELECT id, user_id, headline, professional_summary, skills, experience, "
     "previous_projects, created_at, updated_at "
     "FROM operational.professional_profiles LIMIT 0",
+    "SELECT id, account_id, token_digest, csrf_digest, created_at, expires_at, "
+    "revoked_at FROM operational.sessions LIMIT 0",
+    "SELECT id, user_id, name, description, created_at, updated_at "
+    "FROM operational.service_offerings LIMIT 0",
+    "SELECT id, user_id, name, industries, company_sizes, geographies, "
+    "exclusions, created_at, updated_at "
+    "FROM operational.ideal_client_profiles LIMIT 0",
+    "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
+    "is_active, created_at, updated_at "
+    "FROM operational.client_discovery_strategies LIMIT 0",
 )
 
 

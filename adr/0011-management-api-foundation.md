@@ -1,6 +1,6 @@
 # 0011: Use Flask and Pydantic for the management API foundation
 
-Status: Proposed
+Status: Superseded by 0015
 Date: 2026-09-17
 Deciders: Khaled Awashreh
 

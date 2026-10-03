@@ -8,6 +8,9 @@ reviews:
     - '!**/__pycache__/**'
     - '!*.egg-info/**'
     - '!.pytest_cache/**'
+    # The free OSS review path accepts at most 100 selected files. Tests still
+    # run in CI and the pre-push gate, but CodeRabbit focuses on production code.
+    - '!tests/**'
   auto_review:
     enabled: true
     auto_incremental_review: true

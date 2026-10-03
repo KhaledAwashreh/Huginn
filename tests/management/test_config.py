@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from huginn.management import config
@@ -58,3 +60,63 @@ def test_management_config_hides_database_url_from_repr():
 
     assert database_url not in rendered
     assert "secret" not in rendered
+
+
+def test_management_config_cookie_defaults_and_production_security():
+    config_value = config.ManagementConfig("unused")
+    production = config.ManagementConfig("unused", environment="production")
+
+    assert config_value.cookie_name == "huginn_management_session"
+    assert config_value.cookie_secure is False
+    assert config_value.cookie_samesite == "Lax"
+    assert config_value.session_ttl == timedelta(hours=12)
+    assert config_value.login_throttle_failures == 5
+    assert config_value.login_throttle_window == timedelta(minutes=15)
+    assert production.cookie_secure is True
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"cookie_name": "bad name"},
+        {"cookie_samesite": "unsafe"},
+        {"session_ttl": timedelta(0)},
+        {"login_throttle_failures": 0},
+        {"login_throttle_window": timedelta(0)},
+        {"environment": "production", "cookie_secure": False},
+        {"cookie_secure": "false"},
+    ),
+)
+def test_management_config_rejects_invalid_auth_settings(kwargs):
+    with pytest.raises(ValueError):
+        config.ManagementConfig("unused", **kwargs)
+
+
+def test_load_config_auth_settings_and_dsn_safe_repr(monkeypatch):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "postgresql://u:p@host/db")
+    monkeypatch.setenv("HUGINN_MANAGEMENT_ENVIRONMENT", "production")
+    monkeypatch.setenv("HUGINN_MANAGEMENT_COOKIE_SAMESITE", "Strict")
+    monkeypatch.setenv("HUGINN_MANAGEMENT_SESSION_TTL_SECONDS", "3600")
+
+    loaded = config.load_config()
+
+    assert loaded.cookie_secure is True
+    assert loaded.cookie_samesite == "Strict"
+    assert loaded.session_ttl == timedelta(hours=1)
+    assert "postgresql://u:p@host/db" not in repr(loaded)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        ("HUGINN_MANAGEMENT_COOKIE_SAMESITE", "unsafe"),
+        ("HUGINN_MANAGEMENT_ENVIRONMENT", "unknown"),
+        ("HUGINN_MANAGEMENT_LOGIN_THROTTLE_FAILURES", "many"),
+        ("HUGINN_MANAGEMENT_SESSION_TTL_SECONDS", "0"),
+    ),
+)
+def test_load_config_rejects_invalid_auth_environment(monkeypatch, key, value):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "postgresql://host/db")
+    monkeypatch.setenv(key, value)
+    with pytest.raises(RuntimeError, match="^invalid management configuration$"):
+        config.load_config()
