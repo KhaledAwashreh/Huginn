@@ -66,3 +66,27 @@ def test_authentication_service_owns_session_resolution_logout_and_password_entr
     assert sessions.lookups[0][0] != "opaque-token"
     assert sessions.revocations == [(session.id, now)]
     assert uow.commits == 1
+
+
+def test_authenticate_session_rejects_mismatched_session_and_principal_accounts():
+    now = datetime(2026, 1, 2, tzinfo=UTC)
+    principal = Principal(uuid4(), uuid4())
+    session = Session(
+        uuid4(),
+        uuid4(),
+        digest_token("opaque-token"),
+        "csrf",
+        now,
+        now + timedelta(hours=1),
+        None,
+    )
+    service = AuthenticationService(
+        UnitOfWork,
+        config=None,
+        throttle=None,
+        sessions_factory=lambda _: Sessions(principal, session),
+        clock=lambda: now,
+    )
+
+    assert session.account_id != principal.account_id
+    assert service.authenticate_session("opaque-token") is None

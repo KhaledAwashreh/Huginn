@@ -228,7 +228,11 @@ class AuthenticationService:
             token_digest = digest_token(token)
             session = sessions.get_by_token_digest(token_digest)
             principal = lookup(token_digest, now)
-            if session is None or principal is None:
+            if (
+                session is None
+                or principal is None
+                or session.account_id != principal.account_id
+            ):
                 return None
             return AuthenticatedSession(principal, session)
 

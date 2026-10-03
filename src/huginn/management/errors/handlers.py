@@ -84,7 +84,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_integrity_error(
         request: Request, error: IntegrityError
     ) -> JSONResponse:
-        del request, error
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", "<unmatched>")
+        logger.warning(
+            "Management API integrity conflict on %s %s (%s, SQLSTATE %s)",
+            request.method,
+            route_template,
+            type(error).__name__,
+            error.sqlstate or "<unknown>",
+        )
         shape = error_shape_for_status(409)
         return JSONResponse(status_code=shape.status_code, content=shape.body)
 

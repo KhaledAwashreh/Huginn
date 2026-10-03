@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from psycopg import IntegrityError
+from psycopg import errors
 from pydantic import BaseModel, ConfigDict
 from uvicorn.protocols.http.h11_impl import RequestResponseCycle
 
@@ -31,7 +31,7 @@ def make_app() -> FastAPI:
 
     @app.get("/integrity")
     def integrity_failure():
-        raise IntegrityError("constraint detail token-sentinel")
+        raise errors.UniqueViolation("constraint detail token-sentinel")
 
     @app.post("/validate")
     def validate(credentials: Credentials):
@@ -69,6 +69,26 @@ def test_domain_and_integrity_failures_use_safe_project_envelopes(caplog):
         }
     }
     assert "token-sentinel" not in integrity.text
+    assert "token-sentinel" not in caplog.text
+
+
+def test_integrity_failure_logs_safe_request_and_database_metadata(caplog):
+    caplog.set_level(logging.WARNING)
+    with TestClient(make_app(), raise_server_exceptions=False) as client:
+        response = client.get("/integrity")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "conflict",
+            "message": "Request could not be completed",
+            "details": [],
+        }
+    }
+    assert "GET /integrity" in caplog.text
+    assert "UniqueViolation" in caplog.text
+    assert "23505" in caplog.text
+    assert "constraint detail" not in caplog.text
     assert "token-sentinel" not in caplog.text
 
 

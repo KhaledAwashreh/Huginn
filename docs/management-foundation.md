@@ -44,12 +44,16 @@ The application adds no ORM or automatic migrations.
 3. `GET /health` returns `200 {"status":"ok"}` without probing Postgres.
 4. `GET /ready` opens one read-only psycopg connection per request, with a
    two-second connection timeout and two-second statement timeout. It checks
-   `SELECT 1` and the required Account, User, and ProfessionalProfile columns,
-   returning `200 {"status":"ready"}` or
+   `SELECT 1` and the required columns for accounts, users, professional
+   profiles, sessions, service offerings, ideal client profiles, and client
+   discovery strategies, returning `200 {"status":"ready"}` or
    `503 {"status":"not_ready"}`.
-5. `/accounts`, `/users`, `/login`, `/sessions`, `/profiles`, `/offerings`,
-   `/icps`, and `/strategies` are not implemented and remain 404. KAN-71 sets
-   no authentication cookie and exposes no static route.
+5. `/api/v1` implements session login and logout, password changes,
+   self-service User and ProfessionalProfile access, and owner-scoped CRUD for
+   service offerings, ideal client profiles, and discovery strategies. Login
+   sets an opaque `HttpOnly` session cookie; authenticated unsafe requests also
+   require the session-bound `X-CSRF-Token` header. Logout and password changes
+   clear the cookie.
 6. `python -m huginn.management` runs Uvicorn on `127.0.0.1:8000` without
    debug mode or reload. It is a local development command, not a production
    deployment configuration.
