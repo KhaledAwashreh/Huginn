@@ -4,12 +4,12 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from psycopg import errors
 from pydantic import BaseModel, ConfigDict
 from uvicorn.protocols.http.h11_impl import RequestResponseCycle
 
-from huginn.management.errors.domain import ConflictError
-from huginn.management.errors.handlers import (
+from huginn.management.domain.errors.errors import ConflictError
+from huginn.management.persistence.errors.database import DatabaseError, IntegrityError
+from huginn.management.presentation.api.errors.handlers import (
     register_exception_handlers,
     suppress_handled_server_error_tracebacks,
 )
@@ -31,7 +31,11 @@ def make_app() -> FastAPI:
 
     @app.get("/integrity")
     def integrity_failure():
-        raise errors.UniqueViolation("constraint detail token-sentinel")
+        raise IntegrityError(sqlstate="23505", error_name="UniqueViolation")
+
+    @app.get("/database")
+    def database_failure():
+        raise DatabaseError(sqlstate="08006", error_name="OperationalError")
 
     @app.post("/validate")
     def validate(credentials: Credentials):
@@ -106,6 +110,17 @@ def test_validation_is_native_sanitized_and_does_not_log_secrets(caplog):
     assert "token-sentinel" not in response.text
     assert "password-sentinel" not in caplog.text
     assert "token-sentinel" not in caplog.text
+
+
+def test_unexpected_database_failure_remains_a_safe_500(caplog):
+    caplog.set_level(logging.ERROR)
+    with TestClient(make_app(), raise_server_exceptions=False) as client:
+        response = client.get("/database")
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal_error"
+    assert "OperationalError" in caplog.text
+    assert "OperationalError" not in response.text
+    assert "08006" not in response.text
 
 
 def test_framework_404_and_405_keep_native_starlette_conventions():

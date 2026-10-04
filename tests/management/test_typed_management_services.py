@@ -1,15 +1,15 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from huginn.management.domain.common import (
+from huginn.management.application.services.service_offerings import (
+    ServiceOfferingService,
+)
+from huginn.management.domain.entities.service_offering import ServiceOffering
+from huginn.management.domain.value_objects.common import (
     Page,
     Principal,
 )
-from huginn.management.domain.service_offering import (
-    NewServiceOffering,
-    ServiceOffering,
-)
-from huginn.management.services.service_offerings import ServiceOfferingService
+from huginn.management.domain.value_objects.service_offering import NewServiceOffering
 
 
 class UnitOfWork:

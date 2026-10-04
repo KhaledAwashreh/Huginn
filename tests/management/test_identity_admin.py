@@ -3,15 +3,17 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from huginn.management.domain.account import Account
-from huginn.management.domain.professional_profile import ProfessionalProfile
-from huginn.management.domain.provisioning import ProvisionIdentity
-from huginn.management.domain.user import User
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.services.provisioning import IdentityProvisioningService
-from huginn.management.services.provisioning import (
+from huginn.management.application.commands.provisioning import ProvisionIdentity
+from huginn.management.application.services.provisioning import (
+    IdentityProvisioningService,
+)
+from huginn.management.application.services.provisioning import (
     IdentityProvisioningService as DomainIdentityProvisioningService,
 )
+from huginn.management.domain.entities.account import Account
+from huginn.management.domain.entities.professional_profile import ProfessionalProfile
+from huginn.management.domain.entities.user import User
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
 
 
 def test_username_lookup_trims_but_uses_postgres_lower_for_case_insensitivity():
@@ -193,7 +195,7 @@ def test_domain_provisioning_service_accepts_command_value():
 
 
 def test_invalid_password_names_password_without_echoing_value():
-    from huginn.management.errors.domain import ValidationDomainError
+    from huginn.management.domain.errors.errors import ValidationDomainError
 
     with pytest.raises(ValidationDomainError, match="password") as error:
         _provision(
@@ -223,7 +225,7 @@ def test_invalid_password_names_password_without_echoing_value():
 def test_provisioning_rejects_invalid_identity_fields_before_opening_uow(field, value):
     from dataclasses import replace
 
-    from huginn.management.errors.domain import ValidationDomainError
+    from huginn.management.domain.errors.errors import ValidationDomainError
 
     opened = []
     service = IdentityProvisioningService(
@@ -285,7 +287,7 @@ def test_cli_reads_matching_stdin_password_twice_and_rejects_argv_password(
 ):
     from io import StringIO
 
-    from huginn.management.admin import _password, main
+    from huginn.management.presentation.cli.account_admin import _password, main
 
     monkeypatch.setattr("sys.stdin", StringIO("secret password\nsecret password\n"))
     assert _password(stdin=True) == "secret password"
@@ -300,8 +302,8 @@ def test_cli_reads_matching_stdin_password_twice_and_rejects_argv_password(
 def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
     from types import SimpleNamespace
 
-    from huginn.management import admin
-    from huginn.management.errors.domain import ConflictError
+    from huginn.management.domain.errors.errors import ConflictError
+    from huginn.management.presentation.cli import account_admin as admin
 
     prompts = iter(("some password", "some password"))
     calls = []
@@ -312,10 +314,6 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
     )
     assert admin._password(stdin=False) == "some password"
     assert calls == ["Password: ", "Confirm password: "]
-    monkeypatch.setattr(
-        admin, "load_config", lambda: SimpleNamespace(database_url="dsn")
-    )
-    monkeypatch.setattr(admin, "ManagementConnectionFactory", lambda _: object())
 
     class ConflictService:
         def __init__(self, *_, **__):
@@ -324,8 +322,13 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
         def set_status(self, *_):
             raise ConflictError("username is already in use")
 
-    monkeypatch.setattr(admin, "AccountAdminService", ConflictService)
-    assert admin.main(["account", "disable", "--username", "Alice"]) == 2
+    assert (
+        admin.main(
+            ["account", "disable", "--username", "Alice"],
+            services_factory=lambda: SimpleNamespace(lifecycle=ConflictService()),
+        )
+        == 2
+    )
     output = capsys.readouterr().err
     assert "username already in use" in output
     assert "hash" not in output and "some password" not in output
@@ -334,13 +337,8 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
 def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsys):
     from types import SimpleNamespace
 
-    from huginn.management import admin
-    from huginn.management.errors.domain import ValidationDomainError
-
-    monkeypatch.setattr(
-        admin, "load_config", lambda: SimpleNamespace(database_url="dsn")
-    )
-    monkeypatch.setattr(admin, "ManagementConnectionFactory", lambda _: object())
+    from huginn.management.domain.errors.errors import ValidationDomainError
+    from huginn.management.presentation.cli import account_admin as admin
 
     class InvalidService:
         def __init__(self, *_, **__):
@@ -349,7 +347,6 @@ def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsy
         def provision(self, _):
             raise ValidationDomainError("invalid identity fields: phone_number")
 
-    monkeypatch.setattr(admin, "IdentityProvisioningService", InvalidService)
     monkeypatch.setattr(admin, "_password", lambda **_: "do-not-print-password")
     assert (
         admin.main(
@@ -368,10 +365,42 @@ def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsy
                 "+12025550123",
                 "--country-of-residence",
                 "US",
-            ]
+            ],
+            services_factory=lambda: SimpleNamespace(provisioning=InvalidService()),
         )
         == 2
     )
     output = capsys.readouterr().err
     assert "phone_number" in output
     assert "do-not-print-password" not in output
+
+
+def test_cli_preserves_safe_database_failure_class_name(capsys):
+    from types import SimpleNamespace
+
+    import psycopg
+
+    from huginn.management.application.services.account_admin import AccountAdminService
+    from huginn.management.persistence.database.client import (
+        ManagementConnectionFactory,
+    )
+    from huginn.management.persistence.database.unit_of_work import UnitOfWork
+    from huginn.management.presentation.cli.account_admin import main
+
+    def failing_connector(*args, **kwargs):
+        raise psycopg.OperationalError("database password-sentinel")
+
+    factory = ManagementConnectionFactory("dsn", connector=failing_connector)
+    service = AccountAdminService(
+        lambda: UnitOfWork(factory),
+        accounts_factory=lambda _: None,
+        sessions_factory=lambda _: None,
+    )
+    assert (
+        main(
+            ["account", "disable", "--username", "owner"],
+            services_factory=lambda: SimpleNamespace(lifecycle=service),
+        )
+        == 2
+    )
+    assert capsys.readouterr().err == "Account command failed: OperationalError\n"

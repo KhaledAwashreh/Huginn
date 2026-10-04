@@ -4,13 +4,13 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.config import ManagementConfig
-from huginn.management.domain.account import Account
-from huginn.management.errors.domain import (
+from huginn.management.application.errors.errors import (
     AuthenticationError,
     RateLimitError,
 )
-from huginn.management.services.authentication import AuthenticationService
+from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.config import ManagementConfig
+from huginn.management.domain.entities.account import Account
 
 NOW = datetime(2026, 1, 2, tzinfo=UTC)
 PASSWORD = "correct horse battery staple"
@@ -254,7 +254,9 @@ def test_session_creation_failure_rolls_back_without_success_reset():
 
 
 def test_unexpected_login_failure_releases_reserved_throttle_capacity():
-    from huginn.management.throttle import FailedLoginThrottle
+    from huginn.management.application.throttling.failed_login import (
+        FailedLoginThrottle,
+    )
 
     throttle = FailedLoginThrottle(max_failures=1)
 

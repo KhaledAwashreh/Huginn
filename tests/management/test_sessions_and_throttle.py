@@ -3,9 +3,9 @@ from threading import Barrier, Thread
 
 import pytest
 
-from huginn.management.errors.domain import RateLimitError
+from huginn.management.application.errors.errors import RateLimitError
+from huginn.management.application.throttling.failed_login import FailedLoginThrottle
 from huginn.management.security.tokens import digest_token, generate_token
-from huginn.management.throttle import FailedLoginThrottle
 
 
 def test_session_tokens_are_opaque_and_stored_as_digests():

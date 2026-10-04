@@ -1,6 +1,10 @@
 import pytest
 
-from huginn.management.database import ManagementConnectionFactory, UnitOfWork
+from huginn.management.persistence.database.client import (
+    ManagementConnectionFactory,
+    PsycopgDatabaseSession,
+)
+from huginn.management.persistence.database.unit_of_work import UnitOfWork
 
 
 class FakeConnection:
@@ -31,7 +35,7 @@ def _factory_for(connection):
 def test_unit_of_work_commits_success_and_closes_connection():
     connection = FakeConnection()
     with UnitOfWork(_factory_for(connection)) as unit:
-        assert unit.connection is connection
+        assert isinstance(unit.connection, PsycopgDatabaseSession)
         unit.commit()
     assert (connection.commits, connection.rollbacks, connection.closed) == (1, 0, True)
 
@@ -91,5 +95,5 @@ def test_connection_factory_is_lazy_and_returns_connection():
         connector=lambda *args, **kwargs: calls.append((args, kwargs)) or connection,
     )
     assert calls == []
-    assert factory.connect() is connection
+    assert isinstance(factory.connect(), PsycopgDatabaseSession)
     assert len(calls) == 1

@@ -11,6 +11,11 @@ reviews:
     # The free OSS review path accepts at most 100 selected files. Tests still
     # run in CI and the pre-push gate, but CodeRabbit focuses on production code.
     - '!tests/**'
+    - '!docs/**'
+    - '!README.md'
+    - '!**/__init__.py'
+    # Response DTOs were mechanically relocated without behavioral changes.
+    - '!src/huginn/management/presentation/api/responses/**'
   auto_review:
     enabled: true
     auto_incremental_review: true

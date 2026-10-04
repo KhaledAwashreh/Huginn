@@ -10,8 +10,8 @@ from uuid import uuid4
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
-from huginn.management.domain.common import Principal
-from huginn.management.domain.session import Session
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.value_objects.common import Principal
 from huginn.management.security.tokens import digest_token
 
 SESSION_TOKEN = "raw-session-token-sentinel"

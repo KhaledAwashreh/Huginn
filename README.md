@@ -43,12 +43,13 @@ Fetches HN, YC, and OpenCorporates once and writes to Bronze only, recording a r
 
 ## Running the management foundation
 
-The management module currently exposes only health and database-readiness
-probes. Bootstrap a dedicated development database and run the local server
+The management module exposes health and database-readiness probes, sessions,
+self-service User/Profile access, and owner-scoped offering, ICP, and strategy
+CRUD. Bootstrap a dedicated development database and run the local server
 through the [module entrypoint](src/huginn/management/__main__.py) with
 `python -m huginn.management`. The management foundation runbook has the
 complete schema order, environment, probe commands, implemented contract, and
-KAN-72 handoff.
+owner-administration CLI, and the layered package architecture.
 
 ## Layout
 
@@ -62,7 +63,8 @@ src/huginn/
     silver/           entity resolution
     gold/             Company/CompanyHistory current-plus-history update logic
     ops/              job_runs domain model, Postgres-backed JobRunWriterPort
-    management/       config, professional collection schemas, readiness, Flask app,
+    management/       presentation, application, domain, persistence, security,
+                      FastAPI composition and config,
                       __main__.py (local development server entrypoint)
     config.py         environment-based configuration
 db/schema/            hand-written DDL, one file per layer

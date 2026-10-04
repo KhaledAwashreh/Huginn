@@ -7,7 +7,7 @@ import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from huginn.management.requests.professional_profile import (
+from huginn.management.presentation.api.requests.professional_profile import (
     ProfessionalCollectionsRequest as ProfessionalCollections,
 )
 

@@ -7,8 +7,8 @@ from datetime import timedelta
 
 from dotenv import load_dotenv
 
-from huginn.management.constants.authentication import SESSION_TTL_SECONDS
-from huginn.management.constants.http import (
+from huginn.management.application.authentication_policy import SESSION_TTL_SECONDS
+from huginn.management.presentation.api.constants.http import (
     DEFAULT_COOKIE_SAMESITE,
     DEFAULT_SESSION_COOKIE_NAME,
 )

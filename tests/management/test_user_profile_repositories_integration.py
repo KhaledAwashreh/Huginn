@@ -4,20 +4,18 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.domain.account import NewAccount
-from huginn.management.domain.professional_profile import (
+from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.professional_profile import (
     NewProfessionalProfile,
     ProfessionalProfileChanges,
 )
-from huginn.management.domain.user import (
-    NewUser,
-    UserChanges,
-)
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.professional_profile import (
+from huginn.management.domain.value_objects.user import NewUser, UserChanges
+from huginn.management.persistence.database.client import PsycopgDatabaseSession
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
 
 
 def test_profile_repositories_validate_jsonb_map_partial_updates_and_leave_rollback(
@@ -26,9 +24,11 @@ def test_profile_repositories_validate_jsonb_map_partial_updates_and_leave_rollb
     username = f"Profile-{uuid4()}"
     with psycopg.connect(management_database_url) as connection:
         connection.execute("SAVEPOINT user_profile_repositories")
-        accounts = PostgresAccountRepository(connection)
-        users = PostgresUserRepository(connection)
-        profiles = PostgresProfessionalProfileRepository(connection)
+        accounts = PostgresAccountRepository(PsycopgDatabaseSession(connection))
+        users = PostgresUserRepository(PsycopgDatabaseSession(connection))
+        profiles = PostgresProfessionalProfileRepository(
+            PsycopgDatabaseSession(connection)
+        )
         account = accounts.create(NewAccount(username, "scrypt$placeholder"))
         user = users.create(
             NewUser(

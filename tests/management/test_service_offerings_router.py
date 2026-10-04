@@ -5,23 +5,23 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
+from huginn.management.application.services.authentication import AuthenticatedSession
 from huginn.management.config import ManagementConfig
-from huginn.management.domain.common import (
-    Page,
-    Principal,
-)
-from huginn.management.domain.service_offering import (
-    NewServiceOffering,
-    ServiceOffering,
-    ServiceOfferingChanges,
-)
-from huginn.management.domain.session import Session
-from huginn.management.errors.domain import (
+from huginn.management.domain.entities.service_offering import ServiceOffering
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.errors.errors import (
     ConflictError,
     NotFoundError,
 )
-from huginn.management.routers.service_offerings import router
-from huginn.management.services.authentication import AuthenticatedSession
+from huginn.management.domain.value_objects.common import (
+    Page,
+    Principal,
+)
+from huginn.management.domain.value_objects.service_offering import (
+    NewServiceOffering,
+    ServiceOfferingChanges,
+)
+from huginn.management.presentation.api.routers.service_offerings import router
 
 SESSION_COOKIE = "huginn_management_session"
 SESSION_TOKEN = "test-session-token"

@@ -3,9 +3,11 @@ from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
-from huginn.management.errors.domain import ValidationDomainError
-from huginn.management.errors.handlers import register_exception_handlers
-from huginn.management.openapi_responses import error_responses
+from huginn.management.domain.errors.errors import ValidationDomainError
+from huginn.management.presentation.api.errors.handlers import (
+    register_exception_handlers,
+)
+from huginn.management.presentation.api.openapi.responses import error_responses
 
 
 def _document(config: ManagementConfig | None = None) -> dict:

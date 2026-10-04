@@ -7,52 +7,69 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from huginn.management.application.services.account_admin import AccountAdminService
+from huginn.management.application.services.account_management import (
+    AccountAdministrationServices,
+)
+from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.application.services.discovery_strategies import (
+    ClientDiscoveryStrategyService,
+)
+from huginn.management.application.services.ideal_client_profiles import (
+    IdealClientProfileService,
+)
+from huginn.management.application.services.provisioning import (
+    IdentityProvisioningService,
+)
+from huginn.management.application.services.service_offerings import (
+    ServiceOfferingService,
+)
+from huginn.management.application.services.user_profile import UserProfileService
+from huginn.management.application.throttling.failed_login import FailedLoginThrottle
 from huginn.management.config import ManagementConfig, load_config
-from huginn.management.database import (
+from huginn.management.persistence.database.client import (
     ManagementConnectionFactory,
     PostgresReadiness,
-    UnitOfWork,
 )
-from huginn.management.errors.handlers import (
+from huginn.management.persistence.database.unit_of_work import UnitOfWork
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.discovery_strategy import (
+    PostgresClientDiscoveryStrategyRepository,
+)
+from huginn.management.persistence.repositories.ideal_client_profile import (
+    PostgresIdealClientProfileRepository,
+)
+from huginn.management.persistence.repositories.professional_profile import (
+    PostgresProfessionalProfileRepository,
+)
+from huginn.management.persistence.repositories.service_offering import (
+    PostgresServiceOfferingRepository,
+)
+from huginn.management.persistence.repositories.session import PostgresSessionRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
+from huginn.management.presentation.api.errors.handlers import (
     register_exception_handlers,
     suppress_handled_server_error_tracebacks,
 )
-from huginn.management.openapi_customization import customize_openapi
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.discovery_strategy import (
-    PostgresClientDiscoveryStrategyRepository,
+from huginn.management.presentation.api.openapi.customization import customize_openapi
+from huginn.management.presentation.api.routers.current_user import (
+    router as current_user_router,
 )
-from huginn.management.repositories.postgres.ideal_client_profile import (
-    PostgresIdealClientProfileRepository,
-)
-from huginn.management.repositories.postgres.professional_profile import (
-    PostgresProfessionalProfileRepository,
-)
-from huginn.management.repositories.postgres.service_offering import (
-    PostgresServiceOfferingRepository,
-)
-from huginn.management.repositories.postgres.session import PostgresSessionRepository
-from huginn.management.repositories.postgres.user import PostgresUserRepository
-from huginn.management.routers.current_user import router as current_user_router
-from huginn.management.routers.discovery_strategies import (
+from huginn.management.presentation.api.routers.discovery_strategies import (
     router as discovery_strategies_router,
 )
-from huginn.management.routers.health import router as health_router
-from huginn.management.routers.ideal_client_profiles import (
+from huginn.management.presentation.api.routers.health import router as health_router
+from huginn.management.presentation.api.routers.ideal_client_profiles import (
     router as ideal_client_profiles_router,
 )
-from huginn.management.routers.service_offerings import (
+from huginn.management.presentation.api.routers.service_offerings import (
     router as service_offerings_router,
 )
-from huginn.management.routers.sessions import router as sessions_router
-from huginn.management.services.authentication import AuthenticationService
-from huginn.management.services.discovery_strategies import (
-    ClientDiscoveryStrategyService,
+from huginn.management.presentation.api.routers.sessions import (
+    router as sessions_router,
 )
-from huginn.management.services.ideal_client_profiles import IdealClientProfileService
-from huginn.management.services.service_offerings import ServiceOfferingService
-from huginn.management.services.user_profile import UserProfileService
-from huginn.management.throttle import FailedLoginThrottle
+from huginn.management.security.passwords import hash_password, verify_password
+from huginn.management.security.tokens import generate_token
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +88,38 @@ class ManagementDependencies:
     ideal_client_profile_service: Any
     discovery_strategy_service: Any
     clock: Callable[[], datetime] | None = None
+
+
+def create_account_administration_services(
+    config: ManagementConfig | None = None,
+) -> AccountAdministrationServices:
+    """Wire owner CLI services lazily, without opening a database connection."""
+    resolved = config if config is not None else load_config()
+    factory = ManagementConnectionFactory(resolved.database_url)
+
+    def make_uow() -> UnitOfWork:
+        return UnitOfWork(factory)
+
+    def accounts(work: UnitOfWork) -> PostgresAccountRepository:
+        return PostgresAccountRepository(work.connection)
+
+    return AccountAdministrationServices(
+        provisioning=IdentityProvisioningService(
+            make_uow,
+            accounts_factory=accounts,
+            users_factory=lambda work: PostgresUserRepository(work.connection),
+            profiles_factory=lambda work: PostgresProfessionalProfileRepository(
+                work.connection
+            ),
+            hash_password_fn=hash_password,
+        ),
+        lifecycle=AccountAdminService(
+            make_uow,
+            accounts_factory=accounts,
+            sessions_factory=lambda work: PostgresSessionRepository(work.connection),
+            hash_password_fn=hash_password,
+        ),
+    )
 
 
 def create_app(
@@ -117,6 +166,9 @@ def create_app(
             accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
             sessions_factory=make_sessions,
             clock=clock,
+            token_generator=generate_token,
+            verify_password_fn=verify_password,
+            hash_password_fn=hash_password,
         )
     )
     login = login_service if login_service is not None else auth

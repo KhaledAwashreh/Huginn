@@ -7,15 +7,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field
 
-from huginn.management.errors.domain import (
+from huginn.management.application.errors.errors import (
     AuthenticationError,
     AuthorizationError,
+    RateLimitError,
+)
+from huginn.management.domain.errors.errors import (
     ConflictError,
     NotFoundError,
-    RateLimitError,
     ValidationDomainError,
 )
-from huginn.management.errors.handlers import register_exception_handlers
+from huginn.management.presentation.api.errors.handlers import (
+    register_exception_handlers,
+)
 
 
 class Payload(BaseModel):

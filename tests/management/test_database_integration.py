@@ -1,6 +1,6 @@
 import psycopg
 
-from huginn.management.database import PostgresReadiness
+from huginn.management.persistence.database.client import PostgresReadiness
 from tests.postgres_harness import SCHEMA_DIR, SCHEMA_FILES
 
 

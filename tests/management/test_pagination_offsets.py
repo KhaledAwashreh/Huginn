@@ -2,12 +2,16 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain.common import Principal
-from huginn.management.services.discovery_strategies import (
+from huginn.management.application.services.discovery_strategies import (
     ClientDiscoveryStrategyService,
 )
-from huginn.management.services.ideal_client_profiles import IdealClientProfileService
-from huginn.management.services.service_offerings import ServiceOfferingService
+from huginn.management.application.services.ideal_client_profiles import (
+    IdealClientProfileService,
+)
+from huginn.management.application.services.service_offerings import (
+    ServiceOfferingService,
+)
+from huginn.management.domain.value_objects.common import Principal
 
 TOO_LARGE_OFFSET = 9_223_372_036_854_775_808
 
