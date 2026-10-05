@@ -3,19 +3,19 @@ import re
 
 import pytest
 
-from huginn.management.constants.authentication import (
+from huginn.management.domain.value_objects.targeting import ICP_DIMENSION_FIELDS
+from huginn.management.persistence.contracts.postgresql import POSTGRES_BIGINT_MAX
+from huginn.management.persistence.database.policy import MANAGEMENT_SCHEMA
+from huginn.management.presentation.api.constants.http import SENSITIVE_FIELDS
+from huginn.management.presentation.api.constants.pagination import (
+    DEFAULT_PAGE_LIMIT,
+    MAX_PAGE_LIMIT,
+)
+from huginn.management.security.password_policy import (
     PASSWORD_HASH_METHOD,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
 )
-from huginn.management.constants.database import MANAGEMENT_SCHEMA
-from huginn.management.constants.http import SENSITIVE_FIELDS
-from huginn.management.constants.pagination import (
-    DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
-    POSTGRES_BIGINT_MAX,
-)
-from huginn.management.constants.targeting import ICP_DIMENSION_FIELDS
 from huginn.management.security.passwords import (
     Password,
     hash_password,

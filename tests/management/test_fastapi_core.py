@@ -5,15 +5,15 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
-from huginn.management.config import ManagementConfig
-from huginn.management.domain.common import Principal
-from huginn.management.domain.session import Session
-from huginn.management.services.authentication import (
+from huginn.management.application.services.authentication import (
     AuthenticatedSession as ServiceAuthenticatedSession,
 )
-from huginn.management.services.authentication import (
+from huginn.management.application.services.authentication import (
     IssuedSession,
 )
+from huginn.management.config import ManagementConfig
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.value_objects.common import Principal
 
 SESSION_TOKEN = "test-session-token"
 CSRF_TOKEN = "test-csrf-token"

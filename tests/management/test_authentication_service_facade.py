@@ -1,10 +1,10 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from huginn.management.domain.common import Principal
-from huginn.management.domain.session import Session
+from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.value_objects.common import Principal
 from huginn.management.security.tokens import digest_token
-from huginn.management.services.authentication import AuthenticationService
 
 
 class UnitOfWork:

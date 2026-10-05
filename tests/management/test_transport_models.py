@@ -4,37 +4,43 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.domain.client_discovery_strategy import (
+from huginn.management.domain.entities.service_offering import ServiceOffering
+from huginn.management.domain.value_objects.client_discovery_strategy import (
     NewClientDiscoveryStrategy,
 )
-from huginn.management.domain.common import Page
-from huginn.management.domain.ideal_client_profile import (
+from huginn.management.domain.value_objects.common import Page
+from huginn.management.domain.value_objects.ideal_client_profile import (
     IdealClientProfileChanges,
     NewIdealClientProfile,
 )
-from huginn.management.domain.service_offering import (
+from huginn.management.domain.value_objects.service_offering import (
     NewServiceOffering,
-    ServiceOffering,
     ServiceOfferingChanges,
 )
-from huginn.management.errors.handlers import sanitized_validation_shape
-from huginn.management.requests.authentication import LoginRequest
-from huginn.management.requests.discovery_strategy import DiscoveryStrategyCreateRequest
-from huginn.management.requests.ideal_client_profile import (
-    IdealClientProfileCreateRequest,
-    IdealClientProfileUpdateRequest,
+from huginn.management.presentation.api.errors.handlers import (
+    sanitized_validation_shape,
 )
-from huginn.management.requests.service_offering import (
-    ServiceOfferingCreateRequest,
-    ServiceOfferingUpdateRequest,
-)
-from huginn.management.responses.authentication import LoginResponse
-from huginn.management.responses.common import PageResponse
-from huginn.management.responses.service_offering import ServiceOfferingResponse
-from huginn.management.transport import (
+from huginn.management.presentation.api.mapping import (
     request_to_changes,
     request_to_domain,
     response_from_domain,
+)
+from huginn.management.presentation.api.requests.authentication import LoginRequest
+from huginn.management.presentation.api.requests.discovery_strategy import (
+    DiscoveryStrategyCreateRequest,
+)
+from huginn.management.presentation.api.requests.ideal_client_profile import (
+    IdealClientProfileCreateRequest,
+    IdealClientProfileUpdateRequest,
+)
+from huginn.management.presentation.api.requests.service_offering import (
+    ServiceOfferingCreateRequest,
+    ServiceOfferingUpdateRequest,
+)
+from huginn.management.presentation.api.responses.authentication import LoginResponse
+from huginn.management.presentation.api.responses.common import PageResponse
+from huginn.management.presentation.api.responses.service_offering import (
+    ServiceOfferingResponse,
 )
 
 

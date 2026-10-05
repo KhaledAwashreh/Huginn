@@ -6,24 +6,30 @@ from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
-from huginn.management.dependencies.authentication import (
+from huginn.management.domain.entities.client_discovery_strategy import (
+    ClientDiscoveryStrategy,
+)
+from huginn.management.domain.entities.ideal_client_profile import IdealClientProfile
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.errors.errors import (
+    ConflictError,
+    NotFoundError,
+)
+from huginn.management.domain.value_objects.common import (
+    Page,
+    Principal,
+)
+from huginn.management.presentation.api.dependencies.authentication import (
     AuthenticatedSession,
     get_authenticated_session,
     require_csrf,
 )
-from huginn.management.domain.client_discovery_strategy import ClientDiscoveryStrategy
-from huginn.management.domain.common import (
-    Page,
-    Principal,
+from huginn.management.presentation.api.routers.discovery_strategies import (
+    router as strategies_router,
 )
-from huginn.management.domain.ideal_client_profile import IdealClientProfile
-from huginn.management.domain.session import Session
-from huginn.management.errors.domain import (
-    ConflictError,
-    NotFoundError,
+from huginn.management.presentation.api.routers.ideal_client_profiles import (
+    router as profiles_router,
 )
-from huginn.management.routers.discovery_strategies import router as strategies_router
-from huginn.management.routers.ideal_client_profiles import router as profiles_router
 
 NOW = datetime(2026, 10, 3, tzinfo=UTC)
 CSRF = "test-csrf"

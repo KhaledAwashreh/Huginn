@@ -1,0 +1,1 @@
+"""persistence contracts package."""

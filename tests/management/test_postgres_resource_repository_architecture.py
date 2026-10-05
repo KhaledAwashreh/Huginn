@@ -1,21 +1,21 @@
-from huginn.management.repositories.postgres.discovery_strategy import (
+from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
-from huginn.management.repositories.postgres.ideal_client_profile import (
+from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
 
 
 def test_resource_postgres_implementations_live_in_resource_modules():
     assert PostgresServiceOfferingRepository.__module__.endswith(
-        ".repositories.postgres.service_offering"
+        ".persistence.repositories.service_offering"
     )
     assert PostgresIdealClientProfileRepository.__module__.endswith(
-        ".repositories.postgres.ideal_client_profile"
+        ".persistence.repositories.ideal_client_profile"
     )
     assert PostgresClientDiscoveryStrategyRepository.__module__.endswith(
-        ".repositories.postgres.discovery_strategy"
+        ".persistence.repositories.discovery_strategy"
     )

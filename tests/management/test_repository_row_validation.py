@@ -4,13 +4,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.repositories.postgres.discovery_strategy import (
+from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
-from huginn.management.repositories.postgres.ideal_client_profile import (
+from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.repositories.postgres.professional_profile import (
+from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
 

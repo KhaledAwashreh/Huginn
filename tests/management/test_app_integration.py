@@ -4,16 +4,19 @@ import psycopg
 from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
+from huginn.management.application.commands.provisioning import ProvisionIdentity
+from huginn.management.application.services.provisioning import (
+    IdentityProvisioningService,
+)
 from huginn.management.config import ManagementConfig
-from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.domain.provisioning import ProvisionIdentity
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.professional_profile import (
+from huginn.management.persistence.database.client import ManagementConnectionFactory
+from huginn.management.persistence.database.unit_of_work import UnitOfWork
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
 from huginn.management.security.tokens import digest_token
-from huginn.management.services.provisioning import IdentityProvisioningService
 
 
 def _provision_identity(factory, **values):

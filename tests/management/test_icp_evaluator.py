@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain.ideal_client_profile import IdealClientProfile
-from huginn.management.services.ideal_client_profiles import evaluate_icp
+from huginn.management.application.services.icp_evaluation import evaluate_icp
+from huginn.management.domain.entities.ideal_client_profile import IdealClientProfile
 
 
 class CandidateSpy:

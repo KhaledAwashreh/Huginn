@@ -3,7 +3,7 @@
 import hashlib
 import secrets
 
-from huginn.management.constants.authentication import SESSION_TOKEN_BYTES
+from huginn.management.security.token_policy import SESSION_TOKEN_BYTES
 
 
 def generate_token() -> str:

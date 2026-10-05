@@ -1,26 +1,32 @@
 from uuid import uuid4
 
-from huginn.management.domain.client_discovery_strategy import (
+from huginn.management.domain.value_objects.client_discovery_strategy import (
     ClientDiscoveryStrategyChanges,
 )
-from huginn.management.domain.ideal_client_profile import IdealClientProfileChanges
-from huginn.management.domain.professional_profile import ProfessionalProfileChanges
-from huginn.management.domain.service_offering import ServiceOfferingChanges
-from huginn.management.domain.user import UserChanges
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.discovery_strategy import (
+from huginn.management.domain.value_objects.ideal_client_profile import (
+    IdealClientProfileChanges,
+)
+from huginn.management.domain.value_objects.professional_profile import (
+    ProfessionalProfileChanges,
+)
+from huginn.management.domain.value_objects.service_offering import (
+    ServiceOfferingChanges,
+)
+from huginn.management.domain.value_objects.user import UserChanges
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
-from huginn.management.repositories.postgres.ideal_client_profile import (
+from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.repositories.postgres.professional_profile import (
+from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
 
 
 class Cursor:

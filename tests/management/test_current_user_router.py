@@ -5,15 +5,15 @@ from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
-from huginn.management.dependencies.authentication import (
+from huginn.management.domain.entities.professional_profile import ProfessionalProfile
+from huginn.management.domain.entities.session import Session
+from huginn.management.domain.entities.user import User
+from huginn.management.domain.value_objects.common import Principal
+from huginn.management.presentation.api.dependencies.authentication import (
     AuthenticatedSession,
     get_authenticated_session,
 )
-from huginn.management.domain.common import Principal
-from huginn.management.domain.professional_profile import ProfessionalProfile
-from huginn.management.domain.session import Session
-from huginn.management.domain.user import User
-from huginn.management.routers.current_user import router
+from huginn.management.presentation.api.routers.current_user import router
 from huginn.management.security.tokens import digest_token
 
 CSRF = "test-csrf-value"

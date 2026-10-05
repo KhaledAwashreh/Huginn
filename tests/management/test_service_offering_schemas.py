@@ -4,13 +4,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.requests.service_offering import (
+from huginn.management.presentation.api.requests.service_offering import (
     ServiceOfferingCreateRequest as OfferingCreate,
 )
-from huginn.management.requests.service_offering import (
+from huginn.management.presentation.api.requests.service_offering import (
     ServiceOfferingUpdateRequest as OfferingPatch,
 )
-from huginn.management.responses.service_offering import (
+from huginn.management.presentation.api.responses.service_offering import (
     ServiceOfferingResponse as OfferingRead,
 )
 

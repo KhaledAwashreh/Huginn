@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from huginn.management.requests.ideal_client_profile import (
+from huginn.management.presentation.api.requests.ideal_client_profile import (
     CompanySize,
     Exclusion,
     Geography,

@@ -4,17 +4,19 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.requests.professional_profile import (
+from huginn.management.presentation.api.requests.professional_profile import (
     ProfessionalCollectionsRequest as ProfessionalCollections,
 )
-from huginn.management.requests.professional_profile import (
+from huginn.management.presentation.api.requests.professional_profile import (
     ProfessionalProfileUpdateRequest as ProfessionalProfilePatch,
 )
-from huginn.management.requests.user import UserUpdateRequest as UserPatch
-from huginn.management.responses.professional_profile import (
+from huginn.management.presentation.api.requests.user import (
+    UserUpdateRequest as UserPatch,
+)
+from huginn.management.presentation.api.responses.professional_profile import (
     ProfessionalProfileResponse as ProfessionalProfileRead,
 )
-from huginn.management.responses.user import UserResponse as UserRead
+from huginn.management.presentation.api.responses.user import UserResponse as UserRead
 
 
 def test_user_and_profile_read_models_expose_safe_public_fields_only():
@@ -116,7 +118,7 @@ def test_profile_patch_reuses_experience_validation(experience):
     ],
 )
 def test_profile_patch_rejects_extra_fields_and_coercion(payload):
-    from huginn.management.requests.professional_profile import (
+    from huginn.management.presentation.api.requests.professional_profile import (
         ProfessionalProfileUpdateRequest as ProfessionalProfilePatch,
     )
 

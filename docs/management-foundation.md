@@ -63,6 +63,55 @@ The application adds no ORM or automatic migrations.
    `detail` array. Submitted values and validation context are removed to
    protect credentials.
 
+## Management package layers
+
+`huginn.management.app` is the composition root. It chooses concrete database,
+repository, and security adapters and supplies application services to the HTTP
+and owner CLI presentation layers. Construction opens no database connection.
+The documented `python -m huginn.management.admin` command remains a thin
+launcher; its input, output, and secret handling live in `presentation/cli`.
+
+```text
+huginn/management/
+├── app.py, config.py, __main__.py, admin.py
+├── presentation/
+│   ├── api/{routers,dependencies,requests,responses,errors,openapi,constants}/
+│   │   ├── primitives.py
+│   │   └── mapping.py
+│   └── cli/account_admin.py
+├── application/
+│   ├── services/
+│   ├── commands/
+│   ├── errors/
+│   ├── throttling/
+│   └── authentication_policy.py
+├── domain/{entities,value_objects,services,errors}/
+├── persistence/
+│   ├── contracts/{repositories,database.py,unit_of_work.py,postgresql.py}
+│   ├── repositories/
+│   ├── row_models/
+│   ├── errors/
+│   └── database/{client.py,unit_of_work.py,policy.py}
+└── security/{passwords.py,tokens.py,password_policy.py,token_policy.py}
+```
+
+Presentation depends on application services and domain values. Application
+services depend on persistence contracts, domain values, and credential helpers.
+Domain imports only the standard library and other domain modules. Persistence
+owns both resource-specific repository contracts and SQL implementations, plus
+row validation, sessions, and transaction contracts; it is a first-class layer.
+Security imports neither presentation nor persistence. Import-graph tests
+enforce these boundaries, and package initializers do not re-export their APIs.
+
+Only `persistence/database/client.py` imports psycopg. It adapts connections,
+cursors, JSONB parameters, and driver failures to persistence-owned contracts
+and safe structured SQLSTATE metadata. Repositories execute and map rows;
+application use cases control commit and rollback through a unit of work.
+PostgreSQL remains the selected database engine. Handwritten PostgreSQL SQL,
+JSONB, constraints, and row locks stay in the repositories. The client boundary
+allows replacing the Python driver; it does not promise another SQL dialect.
+Internal imports use the layered paths directly, with no legacy aliases.
+
 ## Identity and storage
 
 | Entity | Owns | Key relationships |
@@ -109,8 +158,10 @@ and duplicates. Explicit null collections are rejected. `Skill` contains only
 | `PreviousProject` | `name`, `description` | None |
 | `ProfessionalCollections` | None | `skills = []`, `experience = []`, `previous_projects = []` |
 
-The directional models in `huginn.management.requests.professional_profile`
-and `huginn.management.responses.professional_profile` are strict and frozen.
+The directional models in
+`huginn.management.presentation.api.requests.professional_profile` and
+`huginn.management.presentation.api.responses.professional_profile` are strict
+and frozen.
 Request models reject unknown fields and unwanted type coercion. Required
 strings are stripped and must remain nonblank. Optional strings may be omitted
 or null but must remain nonblank when supplied. Months use `YYYY-MM` from

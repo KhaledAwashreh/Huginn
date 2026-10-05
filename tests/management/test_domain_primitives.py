@@ -3,8 +3,9 @@ import inspect
 from types import SimpleNamespace
 from typing import Any, get_type_hints
 
-from huginn.management import domain, primitives
-from huginn.management.repositories import protocols
+from huginn.management import domain
+from huginn.management.persistence.contracts import repositories as protocols
+from huginn.management.presentation.api import primitives
 
 
 def test_application_and_domain_modules_do_not_import_flask():
@@ -26,7 +27,7 @@ def test_application_and_domain_modules_do_not_import_flask():
 def test_page_result_and_principal_are_typed_immutable_values():
     from uuid import uuid4
 
-    from huginn.management.domain.common import (
+    from huginn.management.domain.value_objects.common import (
         Page,
         Principal,
     )
@@ -40,7 +41,7 @@ def test_page_result_and_principal_are_typed_immutable_values():
 
 
 def test_domain_errors_have_stable_types_and_safe_messages():
-    from huginn.management.errors.domain import (
+    from huginn.management.domain.errors.errors import (
         ConflictError,
         NotFoundError,
     )
@@ -50,21 +51,25 @@ def test_domain_errors_have_stable_types_and_safe_messages():
 
 
 def test_repository_ports_are_protocols():
-    from huginn.management.repositories.protocols.account import AccountRepository
-    from huginn.management.repositories.protocols.discovery_strategy import (
+    from huginn.management.persistence.contracts.repositories.account import (
+        AccountRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.discovery_strategy import (
         ClientDiscoveryStrategyRepository,
     )
-    from huginn.management.repositories.protocols.ideal_client_profile import (
+    from huginn.management.persistence.contracts.repositories.ideal_client_profile import (
         IdealClientProfileRepository,
     )
-    from huginn.management.repositories.protocols.professional_profile import (
+    from huginn.management.persistence.contracts.repositories.professional_profile import (
         ProfessionalProfileRepository,
     )
-    from huginn.management.repositories.protocols.service_offering import (
+    from huginn.management.persistence.contracts.repositories.service_offering import (
         ServiceOfferingRepository,
     )
-    from huginn.management.repositories.protocols.session import SessionRepository
-    from huginn.management.repositories.protocols.user import UserRepository
+    from huginn.management.persistence.contracts.repositories.session import (
+        SessionRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.user import UserRepository
 
     for port in (
         AccountRepository,
@@ -79,21 +84,25 @@ def test_repository_ports_are_protocols():
 
 
 def test_repository_ports_cover_documented_operations_with_typed_results():
-    from huginn.management.repositories.protocols.account import AccountRepository
-    from huginn.management.repositories.protocols.discovery_strategy import (
+    from huginn.management.persistence.contracts.repositories.account import (
+        AccountRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.discovery_strategy import (
         ClientDiscoveryStrategyRepository,
     )
-    from huginn.management.repositories.protocols.ideal_client_profile import (
+    from huginn.management.persistence.contracts.repositories.ideal_client_profile import (
         IdealClientProfileRepository,
     )
-    from huginn.management.repositories.protocols.professional_profile import (
+    from huginn.management.persistence.contracts.repositories.professional_profile import (
         ProfessionalProfileRepository,
     )
-    from huginn.management.repositories.protocols.service_offering import (
+    from huginn.management.persistence.contracts.repositories.service_offering import (
         ServiceOfferingRepository,
     )
-    from huginn.management.repositories.protocols.session import SessionRepository
-    from huginn.management.repositories.protocols.user import UserRepository
+    from huginn.management.persistence.contracts.repositories.session import (
+        SessionRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.user import UserRepository
 
     ports = SimpleNamespace(
         AccountRepository=AccountRepository,
@@ -104,15 +113,19 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
         SessionRepository=SessionRepository,
         UserRepository=UserRepository,
     )
-    from huginn.management.domain.account import Account
-    from huginn.management.domain.client_discovery_strategy import (
+    from huginn.management.domain.entities.account import Account
+    from huginn.management.domain.entities.client_discovery_strategy import (
         ClientDiscoveryStrategy,
     )
-    from huginn.management.domain.ideal_client_profile import IdealClientProfile
-    from huginn.management.domain.professional_profile import ProfessionalProfile
-    from huginn.management.domain.service_offering import ServiceOffering
-    from huginn.management.domain.session import Session
-    from huginn.management.domain.user import User
+    from huginn.management.domain.entities.ideal_client_profile import (
+        IdealClientProfile,
+    )
+    from huginn.management.domain.entities.professional_profile import (
+        ProfessionalProfile,
+    )
+    from huginn.management.domain.entities.service_offering import ServiceOffering
+    from huginn.management.domain.entities.session import Session
+    from huginn.management.domain.entities.user import User
 
     expected = {
         ports.AccountRepository: {

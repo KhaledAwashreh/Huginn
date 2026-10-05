@@ -3,17 +3,19 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain.common import (
+from huginn.management.application.services.service_offerings import (
+    ServiceOfferingService,
+)
+from huginn.management.domain.entities.service_offering import ServiceOffering
+from huginn.management.domain.errors.errors import NotFoundError
+from huginn.management.domain.value_objects.common import (
     Page,
     Principal,
 )
-from huginn.management.domain.service_offering import (
+from huginn.management.domain.value_objects.service_offering import (
     NewServiceOffering,
-    ServiceOffering,
     ServiceOfferingChanges,
 )
-from huginn.management.errors.domain import NotFoundError
-from huginn.management.services.service_offerings import ServiceOfferingService
 
 
 class Uow:

@@ -2,7 +2,7 @@
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from huginn.management.constants.authentication import (
+from huginn.management.security.password_policy import (
     PASSWORD_HASH_METHOD,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,

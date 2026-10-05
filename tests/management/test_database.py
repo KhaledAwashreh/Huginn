@@ -3,7 +3,7 @@ import logging
 import psycopg
 import pytest
 
-from huginn.management import database
+from huginn.management.persistence.database import client as database
 
 DATABASE_URL = "postgresql://manager:secret@management.test/huginn"
 EXPECTED_PROBES = (

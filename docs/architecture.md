@@ -370,6 +370,17 @@ sanitized HTTP 422 validation, and synchronous psycopg calls in FastAPI's
 worker threads. Werkzeug is an explicit dependency for scrypt password
 hashing. The API has an inert application factory, readiness probes, and
 authenticated User/Profile, offering, ICP, and discovery-strategy workflows.
+Its package roots are `presentation` (HTTP and owner CLI), `application`
+(use cases), `domain` (pure entities, values, and policy), `persistence`
+(repository contracts and implementations, row models, and database/transaction
+contracts), and `security` (passwords and tokens). Presentation calls application
+services; application depends on persistence contracts and domain values.
+Persistence repositories depend on domain and database contracts. Only
+`persistence/database/client.py` imports psycopg; `app.py` selects and wires the
+concrete adapters without startup I/O. Persistence is a first-class layer.
+The replaceable client boundary preserves the fixed PostgreSQL dialect,
+handwritten SQL, JSONB, constraints, and row locks. See the
+[management package tree](management-foundation.md#management-package-layers).
 Unique foreign keys enforce at most one User per Account and at most one
 ProfessionalProfile per User; owner provisioning creates the full aggregate
 atomically. Its login throttle is process-local, so the runtime is
