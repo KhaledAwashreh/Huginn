@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from types import TracebackType
 from typing import Any, Self
 
@@ -111,6 +112,12 @@ def _call(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         ) from None
 
 
+def _close_preserving_active_error(cursor: Any) -> None:
+    """Close a cursor without replacing the error already being raised."""
+    with suppress(BaseException):
+        _call(cursor.close)
+
+
 class _Cursor:
     def __init__(self, cursor: Any, *, close_after_fetch: bool = False) -> None:
         self._cursor = cursor
@@ -125,7 +132,10 @@ class _Cursor:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool:
-        _call(self._cursor.close)
+        if exc_value is None:
+            _call(self._cursor.close)
+        else:
+            _close_preserving_active_error(self._cursor)
         return False
 
     def execute(self, query: str, params: Parameters = ()) -> None:
@@ -137,17 +147,25 @@ class _Cursor:
 
     def fetchone(self) -> Row | None:
         try:
-            return _call(self._cursor.fetchone)
-        finally:
+            row = _call(self._cursor.fetchone)
+        except BaseException:
             if self._close_after_fetch:
-                _call(self._cursor.close)
+                _close_preserving_active_error(self._cursor)
+            raise
+        if self._close_after_fetch:
+            _call(self._cursor.close)
+        return row
 
     def fetchall(self) -> list[Row]:
         try:
-            return _call(self._cursor.fetchall)
-        finally:
+            rows = _call(self._cursor.fetchall)
+        except BaseException:
             if self._close_after_fetch:
-                _call(self._cursor.close)
+                _close_preserving_active_error(self._cursor)
+            raise
+        if self._close_after_fetch:
+            _call(self._cursor.close)
+        return rows
 
 
 class PsycopgDatabaseSession:
@@ -164,7 +182,7 @@ class PsycopgDatabaseSession:
         try:
             cursor.execute(query, params)
         except BaseException:
-            _call(cursor._cursor.close)
+            _close_preserving_active_error(cursor._cursor)
             raise
         return cursor
 

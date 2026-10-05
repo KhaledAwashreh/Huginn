@@ -1,5 +1,6 @@
 """Explicit management transaction lifecycle, independent of its driver."""
 
+from contextlib import suppress
 from types import TracebackType
 from typing import Self
 
@@ -29,11 +30,28 @@ class UnitOfWork:
         traceback: TracebackType | None,
     ) -> bool:
         connection = self._require_connection()
+        if exc_value is not None:
+            if not self._finished:
+                self._finished = True
+                with suppress(BaseException):
+                    connection.rollback()
+            with suppress(BaseException):
+                connection.close()
+            self.connection = None
+            return False
+
         try:
             if not self._finished:
                 self.rollback()
-        finally:
+        except BaseException:
+            self._finished = True
+            with suppress(BaseException):
+                connection.close()
+            self.connection = None
+            raise
+        try:
             connection.close()
+        finally:
             self.connection = None
         return False
 
@@ -44,8 +62,9 @@ class UnitOfWork:
         try:
             connection.commit()
         except BaseException:
-            connection.rollback()
             self._finished = True
+            with suppress(BaseException):
+                connection.rollback()
             raise
         self._finished = True
 

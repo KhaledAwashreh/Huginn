@@ -14,7 +14,8 @@ reviews:
     - '!docs/**'
     - '!README.md'
     - '!**/__init__.py'
-    # Response DTOs were mechanically relocated without behavioral changes.
+    # Response DTOs stay excluded to keep the review below 100 selected files.
+    # Their router success schemas are asserted in tests/management/test_openapi.py.
     - '!src/huginn/management/presentation/api/responses/**'
   auto_review:
     enabled: true

@@ -8,8 +8,10 @@ from huginn.management.persistence.database.unit_of_work import UnitOfWork
 
 
 class FakeConnection:
-    def __init__(self, commit_error=None):
+    def __init__(self, commit_error=None, rollback_error=None, close_error=None):
         self.commit_error = commit_error
+        self.rollback_error = rollback_error
+        self.close_error = close_error
         self.commits = 0
         self.rollbacks = 0
         self.closed = False
@@ -21,9 +23,13 @@ class FakeConnection:
 
     def rollback(self):
         self.rollbacks += 1
+        if self.rollback_error:
+            raise self.rollback_error
 
     def close(self):
         self.closed = True
+        if self.close_error:
+            raise self.close_error
 
 
 def _factory_for(connection):
@@ -85,6 +91,72 @@ def test_unit_of_work_rolls_back_commit_failure_and_closes_connection():
     ):
         unit.commit()
     assert (connection.commits, connection.rollbacks, connection.closed) == (1, 1, True)
+
+
+def test_unit_of_work_preserves_commit_failure_when_rollback_also_fails():
+    commit_error = RuntimeError("commit failed")
+    connection = FakeConnection(
+        commit_error,
+        RuntimeError("rollback failed"),
+        RuntimeError("close failed"),
+    )
+
+    with (
+        pytest.raises(RuntimeError, match="commit failed") as raised,
+        UnitOfWork(_factory_for(connection)) as unit,
+    ):
+        unit.commit()
+
+    assert raised.value is commit_error
+    assert (connection.commits, connection.rollbacks, connection.closed) == (1, 1, True)
+
+
+def test_unit_of_work_preserves_body_failure_when_cleanup_fails():
+    body_error = ValueError("body failed")
+    connection = FakeConnection(
+        rollback_error=RuntimeError("rollback failed"),
+        close_error=RuntimeError("close failed"),
+    )
+
+    with (
+        pytest.raises(ValueError, match="body failed") as raised,
+        UnitOfWork(_factory_for(connection)),
+    ):
+        raise body_error
+
+    assert raised.value is body_error
+    assert (connection.commits, connection.rollbacks, connection.closed) == (0, 1, True)
+
+
+def test_unit_of_work_preserves_rollback_failure_when_close_also_fails():
+    rollback_error = RuntimeError("rollback failed")
+    connection = FakeConnection(
+        rollback_error=rollback_error,
+        close_error=RuntimeError("close failed"),
+    )
+
+    with (
+        pytest.raises(RuntimeError, match="rollback failed") as raised,
+        UnitOfWork(_factory_for(connection)),
+    ):
+        pass
+
+    assert raised.value is rollback_error
+    assert (connection.commits, connection.rollbacks, connection.closed) == (0, 1, True)
+
+
+def test_unit_of_work_propagates_close_failure_without_an_active_error():
+    close_error = RuntimeError("close failed")
+    connection = FakeConnection(close_error=close_error)
+
+    with (
+        pytest.raises(RuntimeError, match="close failed") as raised,
+        UnitOfWork(_factory_for(connection)) as unit,
+    ):
+        unit.commit()
+
+    assert raised.value is close_error
+    assert (connection.commits, connection.rollbacks, connection.closed) == (1, 0, True)
 
 
 def test_connection_factory_is_lazy_and_returns_connection():
