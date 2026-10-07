@@ -126,3 +126,6 @@ CREATE TABLE gold.company_signal (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (source, source_stable_id)
 );
+
+CREATE INDEX company_signal_company_occurred_at_idx
+    ON gold.company_signal (company_id, occurred_at);

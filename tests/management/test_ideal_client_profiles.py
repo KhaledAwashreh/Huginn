@@ -29,9 +29,6 @@ from huginn.management.requests.ideal_client_profile import (
     IdealClientProfileUpdateRequest as IcpPatch,
 )
 from huginn.management.responses.ideal_client_profile import IdealClientProfileResponse
-from huginn.management.services.ideal_client_profiles import (
-    evaluate_icp,
-)
 from huginn.management.transport import request_to_changes, request_to_domain
 
 
@@ -90,26 +87,6 @@ def test_icp_response_serializes_company_exclusion_uuid():
     assert response.model_dump(mode="json")["exclusions"] == [
         {"kind": "company", "company_id": str(company_id)}
     ]
-
-
-def test_incomplete_icp_short_circuits_and_complete_filter_stays_flat():
-    class Candidates:
-        calls = []
-
-        def find_candidates(self, criteria):
-            self.calls.append(criteria)
-            return ["candidate"]
-
-    candidates = Candidates()
-    for field in ("industries", "company_sizes", "geographies"):
-        assert evaluate_icp(_profile(**{field: ()}), candidates) == []
-    assert candidates.calls == []
-    assert evaluate_icp(_profile(), candidates) == ["candidate"]
-    criteria = candidates.calls[0]
-    assert criteria.industries == ({"name": "SaaS"},)
-    assert criteria.company_sizes == ({"band": "11-100"},)
-    assert criteria.geographies == ({"kind": "country", "value": "DE"},)
-    assert criteria.exclusions == ({"kind": "industry", "name": "Gambling"},)
 
 
 def test_icp_repository_crud_ownership_validation_and_referenced_delete(

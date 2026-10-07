@@ -1,0 +1,2 @@
+COMPANY_SIZE_BANDS = ("0-10", "11-100", "101-1000", "1001+")
+UNKNOWN_INDUSTRY = "Unspecified"

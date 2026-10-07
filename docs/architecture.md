@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The domain, scoring, and digest layers above Gold are not yet built. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; scoring, ranking, and digest delivery remain unbuilt. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -10,8 +10,8 @@ Architecture at a glance:
 1. Storage: one Postgres database. Three ELT schemas (bronze, silver, gold) feed a separate operational schema.
 2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
-4. Scoring: two stages. v0 ranks by recency alone. The weighted composite (v1) is deferred until there is real filtered-data volume to design against.
-5. Delivery: a weekly email digest to a single user, on a data model that is multi-user from day one.
+4. Matching: a synchronous operator batch creates missing per-User Matches from current ICPs and recent Gold signals. Scoring and ranking are future work.
+5. Delivery: a weekly email digest is the product direction; digest composition and delivery are not implemented.
 6. Out of scope this phase: everything above the domain layer (chatbot, dashboard, memory).
 
 ---
@@ -40,7 +40,7 @@ Non-goals for this phase:
 3. No scraped LinkedIn profile data. Search-link only. `hiQ v. LinkedIn` is the standing reason, and the same caution extends to person-level scraping generally (section 6).
 4. No real-time alerts. Weekly batch by design.
 5. No graph-traversal or ML model predicting a company's current needs. Team-composition signal, where it exists at all, is a hand-authored heuristic drawn only from company-owned pages and press releases.
-6. No weighted composite score at launch. v0 ranks by recency alone (section 7).
+6. No scoring or ranking in the current matching slice (section 7).
 7. No public registration, role-based access control, or billing. KAN-71 only
    establishes the Account/User/Profile storage and management runtime. KAN-72
    adds owner-only atomic provisioning and password hashing; KAN-73 adds login,
@@ -66,7 +66,7 @@ flowchart TB
 
     subgraph DOMAIN["Domain"]
         direction LR
-        AUTH["Auth"] ~~~ CRUD["CRUD and business processes"] ~~~ SCORE["Matching and scoring"]
+        AUTH["Auth"] ~~~ CRUD["CRUD and business processes"] ~~~ SCORE["Match creation; scoring future"]
     end
 
     subgraph AGENT["Agentic workflow, deferred"]
@@ -96,7 +96,7 @@ database so management bootstrap work does not disturb concurrent ELT work;
 that database receives all six bootstrap files because operational foreign
 keys still reference Gold.
 
-Scoring lives in the domain layer, not the agentic layer: it is batch work, it must stay explainable per feature because the digest renders its reasoning, and both the digest and any future chatbot read its output rather than each other's.
+Future scoring belongs in the domain layer: it is batch work, it must stay explainable per feature because a future digest may render its reasoning, and future consumers should read its output rather than each other's.
 
 ## 4. Data pipeline: bronze, silver, gold
 
@@ -124,7 +124,7 @@ flowchart TB
         GD -.->|"superseded values move here"| GH
     end
 
-    MATCH["Matching step, deferred, KAN-18"]
+    MATCH["Match creation, current; scoring deferred"]
 
     SRC --> BR --> SS
     SR --> GF
@@ -154,7 +154,7 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 
 A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0012, below).
 
-`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0012 removed `IcpFilterPass` for exactly that reason; the verdict belongs to the matching step's per-user records (section 9, `Match`, whose grain is one row per user and company but which carries no unique constraint on that pair yet).
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0012 removed `IcpFilterPass` for exactly that reason; durable Match identity belongs to the per-User `Match` rows, with one row per User and Company enforced by `match_user_company_unique`.
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
@@ -168,7 +168,25 @@ Column-by-column Type 1 / Type 2 classification is pending the concrete schema (
 
 ### 4.4 Matching
 
-Matching, the step that turns a Gold row into an operational `Match`, is explicitly out of scope for this document. It needs to check a company against previously sent matches, so a signal still inside its recency window does not resurface week after week, and reapply the user's current ICP and preferences. Deferred and tracked as Jira KAN-18.
+The first matching slice is a synchronous Python batch capability in
+`huginn.matchmaking`. It reads each requested User's active discovery
+strategies and current ICPs, checks shared Gold companies against a required
+signal window, and inserts new rows into `operational.match`. One transaction
+covers each User; a unique `(user_id, company_id)` constraint makes repeated
+runs safe and preserves existing Match status and notes.
+
+Matchmaking is a sibling of management and ELT. Its explicit application APIs
+are `MatchmakingService.execute(MatchmakingRequest) -> MatchmakingResponse`
+and `MatchmakingBatchService.execute(BatchMatchmakingRequest) -> BatchMatchmakingResponse`.
+`StrategyConfiguration`, `UserAvailability`, and `CompanyCandidate` are
+application read models. SQL adapters own row validation; domain rules consume
+criteria values and do not depend on application projections.
+
+This slice does not rank candidates or deliver a digest. Existing Matches are
+left unchanged, so this is creation-only matching and does not implement
+resurfacing, sent-history checks, evidence snapshots, or reevaluation. The
+operator entry point and required schema setup are documented in
+[`matchmaking.md`](matchmaking.md). Scheduler integration remains future work.
 
 ## 5. Ingestion
 
@@ -234,14 +252,17 @@ This recipe was researched and adopted without the author's own background in en
 
 ## 7. Digest and scoring
 
-Composite scoring ships in two stages, not one shot:
+Scoring and delivery remain future work. The matching slice currently returns
+new Matches in deterministic Company UUID order and does not calculate scores,
+compose digest items, or send email. The following design records the intended
+direction; it is not implemented behavior:
 
-1. v0 ranks by recency alone, freshest qualifying signal first, among companies that already passed the ICP filter. With no `MatchFeedback` history to check them against, inventing feature weights now would be guessing, where recency is free and defensible. v0 is a shippable product, not a spike: it sends real digests and generates the usage data v1 needs. The user sees the plain underlying signal, "posted 2 days ago" or "raised a Series A 11 days ago," never a manufactured score.
-2. v1 adds a weighted composite once v0 has produced enough filtered-data volume to design weights against. Its inputs (stage, sector, funding recency, source quality, the team-composition signal) and how they combine are left deliberately open (Jira KAN-8), since locking numbers now defeats the point of waiting. The user then sees a qualitative tier ("Strong / Good / Fair match"), not a raw number, which would claim a precision the weights will not have.
+1. A future first ranking may order eligible companies by their freshest qualifying signal. No ranking is produced by the current module.
+2. A later weighted score may be considered after real filtered-data volume exists. Its inputs and weights remain open (Jira KAN-8); the current schema and service do not produce a score or qualitative tier.
 
-A `Match`'s score snapshots at creation and freezes permanently once it is `Sent`: a sent digest is what the user actually saw, and any future feedback analysis needs to compare against that, not a version revised in hindsight. A still-pending `Match` can be recomputed, triggered by late-arriving enrichment data or by a global weight retune once feedback exists. Each recompute is versioned rather than overwritten in place, mirroring the versioning already present elsewhere in the schema (`CommunicationVersion`, `CommunicationRevision`).
+Future evidence, recommendation occurrences, and sent-digest snapshots need separate lifecycle design. The current Match stores workflow status and notes, and later matching runs leave those fields unchanged. It has no score snapshot or sent-state freeze.
 
-The feedback loop itself, a positive or negative rating on `MatchFeedback` adjusting future weights, is schema-ready but not wired to anything yet.
+The feedback loop and digest delivery are not wired to the matching service.
 
 ## 8. Agentic workflow, retrieval, presentation: deferred
 
@@ -249,11 +270,13 @@ Out of scope for this phase and deliberately abstract pending a decision later. 
 
 1. A chatbot agent and digest composition would sit on a shared harness: an explicit, named tool contract, plus the model routing in section 10. Two experimental memory side-channels, MuninnDB and Letta, are named as candidates for soft context only, and the system has to keep working with both absent.
 2. Retrieval, if a chatbot ships, would narrow with a structured filter before re-ranking by vector similarity, on the `pgvector` storage in section 10.
-3. Presentation is a weekly email digest for now. Dashboard scope is undecided; with one user, the realistic version is a simple page alongside email, not a full application.
+3. User-facing presentation remains deferred. A JSON operator CLI exists for
+   explicitly requested batch runs; it is not a digest or dashboard. Dashboard
+   scope is undecided.
 
 ## 9. Data model
 
-`docs/entities.md` holds the schema in progress and is the source for the diagram below, which shows identifying fields only. Its "Gold" heading predates this document's pipeline layering and mixes two things this document separates: the ELT Gold layer (section 4), which is `Company`, `CompanyHistory`, and `CompanySignal`, and the operational schema below them, written by the matching step (sections 4, 7) rather than by the ELT pipeline.
+`docs/entities.md` holds the domain schema and is the source for the diagram below, which shows identifying fields only. Its "Gold" heading predates this document's pipeline layering and mixes two things this document separates: the ELT Gold layer (section 4), which is `Company`, `CompanyHistory`, and `CompanySignal`, and the operational schema below them, including Match rows written by the matching module rather than the ELT pipeline.
 
 ```mermaid
 erDiagram

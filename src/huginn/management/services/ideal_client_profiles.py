@@ -1,8 +1,7 @@
-"""Owned IdealClientProfile use cases and framework-independent evaluation."""
+"""Owned IdealClientProfile CRUD use cases."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 
 from huginn.management.constants.pagination import POSTGRES_BIGINT_MAX
@@ -19,42 +18,6 @@ from huginn.management.errors.domain import NotFoundError
 from huginn.management.repositories.protocols.ideal_client_profile import (
     IdealClientProfileRepository,
 )
-
-
-@dataclass(frozen=True)
-class IcpCandidateFilter:
-    """Flat dimensions preserve OR-within and AND-across evaluation."""
-
-    industries: tuple[dict[str, Any], ...]
-    company_sizes: tuple[dict[str, Any], ...]
-    geographies: tuple[dict[str, Any], ...]
-    exclusions: tuple[dict[str, Any], ...]
-
-
-class CandidateRepository(Protocol):
-    def find_candidates(self, criteria: IcpCandidateFilter) -> list[Any]: ...
-
-
-def evaluate_icp(
-    profile: IdealClientProfile, candidates: CandidateRepository
-) -> list[Any]:
-    """Return no candidates before querying when any positive dimension is empty.
-
-    Candidate selection receives the three independent dimensions and a single
-    global exclusion set. It must implement OR within each dimension, AND
-    across dimensions, then apply exclusions as global vetoes. No Cartesian
-    combinations are assembled here.
-    """
-    if not profile.industries or not profile.company_sizes or not profile.geographies:
-        return []
-    return candidates.find_candidates(
-        IcpCandidateFilter(
-            profile.industries,
-            profile.company_sizes,
-            profile.geographies,
-            profile.exclusions,
-        )
-    )
 
 
 class IdealClientProfileService:

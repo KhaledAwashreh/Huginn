@@ -106,13 +106,27 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 - UpdatedOn: DateTimeOffset
 
 ## Match
-- Id: GUID
-- UserId: GUID
-- CompanyId: GUID
-- Status: Enum (New, Contacted, Responded, Dismissed, Converted)
-- Notes: String
-- CreatedOn: DateTimeOffset
-- UpdatedOn: DateTimeOffset
+`operational.match` is the durable User–Company identity. The current
+matchmaking slice inserts only new rows and leaves every existing row,
+including dismissed or contacted rows, unchanged. The database enforces one
+row per `(user_id, company_id)` with `match_user_company_unique`.
+
+- `id`: UUID primary key
+- `user_id`: UUID foreign key to `operational.users`
+- `company_id`: UUID foreign key to `gold.company`
+- `status`: text (`new`, `contacted`, `responded`, `dismissed`, or `converted`), defaults to `new`
+- `notes`: nullable text
+- `created_at`: timezone-aware timestamp, database default
+- `updated_at`: timezone-aware timestamp, database default
+
+The matchmaking service does not write `match_score`, `match_feedback`,
+evidence, digest, or delivery records. Scoring, sent snapshots, and
+resurfacing remain future design work.
+
+`huginn.matchmaking` owns Match creation independently of management CRUD.
+Its Request/Response APIs return committed creations; `StrategyConfiguration`,
+`UserAvailability`, and `CompanyCandidate` are application read projections,
+not additional persisted domain entities.
 
 ## MatchScore
 - Id: GUID
