@@ -149,7 +149,8 @@ CREATE TABLE operational.match (
     status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'responded', 'dismissed', 'converted')),
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT match_user_company_unique UNIQUE (user_id, company_id)
 );
 
 -- A single row per match today. Section 7's recompute design needs this

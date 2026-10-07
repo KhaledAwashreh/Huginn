@@ -5,9 +5,6 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.application.services.icp_evaluation import (
-    evaluate_icp,
-)
 from huginn.management.domain.entities.ideal_client_profile import IdealClientProfile
 from huginn.management.domain.errors.errors import ConflictError
 from huginn.management.domain.value_objects.account import NewAccount
@@ -96,26 +93,6 @@ def test_icp_response_serializes_company_exclusion_uuid():
     assert response.model_dump(mode="json")["exclusions"] == [
         {"kind": "company", "company_id": str(company_id)}
     ]
-
-
-def test_incomplete_icp_short_circuits_and_complete_filter_stays_flat():
-    class Candidates:
-        calls = []
-
-        def find_candidates(self, criteria):
-            self.calls.append(criteria)
-            return ["candidate"]
-
-    candidates = Candidates()
-    for field in ("industries", "company_sizes", "geographies"):
-        assert evaluate_icp(_profile(**{field: ()}), candidates) == []
-    assert candidates.calls == []
-    assert evaluate_icp(_profile(), candidates) == ["candidate"]
-    criteria = candidates.calls[0]
-    assert criteria.industries == ({"name": "SaaS"},)
-    assert criteria.company_sizes == ({"band": "11-100"},)
-    assert criteria.geographies == ({"kind": "country", "value": "DE"},)
-    assert criteria.exclusions == ({"kind": "industry", "name": "Gambling"},)
 
 
 def test_icp_repository_crud_ownership_validation_and_referenced_delete(

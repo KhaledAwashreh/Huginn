@@ -1,4 +1,4 @@
-"""Owned IdealClientProfile use cases and framework-independent evaluation."""
+"""Owned IdealClientProfile CRUD use cases."""
 
 from collections.abc import Callable
 from uuid import UUID
