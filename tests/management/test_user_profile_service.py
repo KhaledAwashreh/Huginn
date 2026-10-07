@@ -3,17 +3,15 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain.common import Principal
-from huginn.management.domain.professional_profile import (
-    ProfessionalProfile,
+from huginn.management.application.services.user_profile import UserProfileService
+from huginn.management.domain.entities.professional_profile import ProfessionalProfile
+from huginn.management.domain.entities.user import User
+from huginn.management.domain.errors.errors import NotFoundError
+from huginn.management.domain.value_objects.common import Principal
+from huginn.management.domain.value_objects.professional_profile import (
     ProfessionalProfileChanges,
 )
-from huginn.management.domain.user import (
-    User,
-    UserChanges,
-)
-from huginn.management.errors.domain import NotFoundError
-from huginn.management.services.user_profile import UserProfileService
+from huginn.management.domain.value_objects.user import UserChanges
 
 
 class FakeUnitOfWork:

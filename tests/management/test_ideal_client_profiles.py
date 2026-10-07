@@ -5,31 +5,37 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.domain.account import NewAccount
-from huginn.management.domain.ideal_client_profile import (
-    IdealClientProfile,
+from huginn.management.domain.entities.ideal_client_profile import IdealClientProfile
+from huginn.management.domain.errors.errors import ConflictError
+from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.ideal_client_profile import (
     IdealClientProfileChanges,
     NewIdealClientProfile,
 )
-from huginn.management.domain.service_offering import NewServiceOffering
-from huginn.management.domain.user import NewUser
-from huginn.management.errors.domain import ConflictError
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.ideal_client_profile import (
+from huginn.management.domain.value_objects.service_offering import NewServiceOffering
+from huginn.management.domain.value_objects.user import NewUser
+from huginn.management.persistence.database.client import PsycopgDatabaseSession
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
-from huginn.management.requests.ideal_client_profile import (
+from huginn.management.persistence.repositories.user import PostgresUserRepository
+from huginn.management.presentation.api.mapping import (
+    request_to_changes,
+    request_to_domain,
+)
+from huginn.management.presentation.api.requests.ideal_client_profile import (
     IdealClientProfileCreateRequest as IcpCreate,
 )
-from huginn.management.requests.ideal_client_profile import (
+from huginn.management.presentation.api.requests.ideal_client_profile import (
     IdealClientProfileUpdateRequest as IcpPatch,
 )
-from huginn.management.responses.ideal_client_profile import IdealClientProfileResponse
-from huginn.management.transport import request_to_changes, request_to_domain
+from huginn.management.presentation.api.responses.ideal_client_profile import (
+    IdealClientProfileResponse,
+)
 
 
 def _profile(**overrides):
@@ -94,8 +100,8 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
 ):
     username = f"icp-{uuid4()}"
     with psycopg.connect(management_database_url) as connection:
-        accounts = PostgresAccountRepository(connection)
-        users = PostgresUserRepository(connection)
+        accounts = PostgresAccountRepository(PsycopgDatabaseSession(connection))
+        users = PostgresUserRepository(PsycopgDatabaseSession(connection))
         owner = users.create(
             NewUser(
                 accounts.create(NewAccount(username, "placeholder")).id,
@@ -116,7 +122,7 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
                 "US",
             )
         )
-        repo = PostgresIdealClientProfileRepository(connection)
+        repo = PostgresIdealClientProfileRepository(PsycopgDatabaseSession(connection))
         profile = repo.create(
             NewIdealClientProfile(
                 owner.id,
@@ -150,9 +156,9 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
             "WHERE id=%s",
             (profile.id,),
         )
-        offering = PostgresServiceOfferingRepository(connection).create(
-            NewServiceOffering(owner.id, "Consulting", "Audit")
-        )
+        offering = PostgresServiceOfferingRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
         connection.execute(
             "INSERT INTO operational.client_discovery_strategies "
             "(user_id,name,service_offering_id,ideal_client_profile_id) "
@@ -168,8 +174,8 @@ def test_icp_company_exclusion_uuid_round_trips_jsonb_crud(management_database_u
     username = f"icp-company-{uuid4()}"
     company_id = uuid4()
     with psycopg.connect(management_database_url) as connection:
-        accounts = PostgresAccountRepository(connection)
-        users = PostgresUserRepository(connection)
+        accounts = PostgresAccountRepository(PsycopgDatabaseSession(connection))
+        users = PostgresUserRepository(PsycopgDatabaseSession(connection))
         owner = users.create(
             NewUser(
                 accounts.create(NewAccount(username, "placeholder")).id,
@@ -180,7 +186,7 @@ def test_icp_company_exclusion_uuid_round_trips_jsonb_crud(management_database_u
                 "US",
             )
         )
-        repo = PostgresIdealClientProfileRepository(connection)
+        repo = PostgresIdealClientProfileRepository(PsycopgDatabaseSession(connection))
         create = IcpCreate.model_validate(
             {
                 "name": "Target",

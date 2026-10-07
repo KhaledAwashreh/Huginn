@@ -8,14 +8,14 @@ import pytest
 
 DOMAIN_MODULES = (
     "__init__",
-    "common",
-    "account",
-    "user",
-    "professional_profile",
-    "session",
-    "service_offering",
-    "ideal_client_profile",
-    "client_discovery_strategy",
+    "value_objects.common",
+    "entities.account",
+    "entities.user",
+    "entities.professional_profile",
+    "entities.session",
+    "entities.service_offering",
+    "entities.ideal_client_profile",
+    "entities.client_discovery_strategy",
 )
 
 
@@ -48,34 +48,35 @@ def test_domain_resource_modules_have_no_transport_or_infrastructure_imports(
 
 def test_domain_values_are_defined_in_entity_modules_without_package_reexports():
     from huginn.management import domain
-    from huginn.management.domain.account import Account, NewAccount
-    from huginn.management.domain.common import Page, Principal
-    from huginn.management.domain.user import User
+    from huginn.management.domain.entities.account import Account
+    from huginn.management.domain.entities.user import User
+    from huginn.management.domain.value_objects.account import NewAccount
+    from huginn.management.domain.value_objects.common import Page, Principal
 
     assert all(
         not hasattr(domain, name)
         for name in ("Account", "NewAccount", "Page", "Principal", "User")
     )
-    assert NewAccount.__module__ == "huginn.management.domain.account"
-    assert Page.__module__ == "huginn.management.domain.common"
-    assert Principal.__module__ == "huginn.management.domain.common"
-    assert Account.__module__ == "huginn.management.domain.account"
-    assert User.__module__ == "huginn.management.domain.user"
+    assert NewAccount.__module__ == "huginn.management.domain.value_objects.account"
+    assert Page.__module__ == "huginn.management.domain.value_objects.common"
+    assert Principal.__module__ == "huginn.management.domain.value_objects.common"
+    assert Account.__module__ == "huginn.management.domain.entities.account"
+    assert User.__module__ == "huginn.management.domain.entities.user"
 
 
 def test_domain_errors_are_separate_from_transport_and_keep_stable_hierarchy():
-    from huginn.management.errors.domain import (
+    from huginn.management.domain.errors.errors import (
         ConflictError,
         ManagementDomainError,
         NotFoundError,
     )
-    from huginn.management.errors.domain import (
+    from huginn.management.domain.errors.errors import (
         ConflictError as CanonicalConflictError,
     )
-    from huginn.management.errors.domain import (
+    from huginn.management.domain.errors.errors import (
         ManagementDomainError as CanonicalManagementDomainError,
     )
-    from huginn.management.errors.domain import (
+    from huginn.management.domain.errors.errors import (
         NotFoundError as CanonicalNotFoundError,
     )
 
@@ -99,11 +100,17 @@ def test_domain_errors_are_separate_from_transport_and_keep_stable_hierarchy():
     ),
 )
 def test_domain_error_shape_mapping_is_stable(exception_name, status, code):
-    from huginn.management.errors.domain import ManagementDomainError
-    from huginn.management.errors.shapes import domain_error_shape
+    from huginn.management.domain.errors.errors import ManagementDomainError
+    from huginn.management.presentation.api.errors.shapes import domain_error_shape
 
     error_type = getattr(
-        importlib.import_module("huginn.management.errors.domain"), exception_name
+        importlib.import_module(
+            "huginn.management.application.errors.errors"
+            if exception_name
+            in {"AuthenticationError", "AuthorizationError", "RateLimitError"}
+            else "huginn.management.domain.errors.errors"
+        ),
+        exception_name,
     )
     shape = domain_error_shape(error_type("private detail"))
     assert shape.status_code == status
@@ -117,7 +124,7 @@ def test_framework_error_mapping_uses_sanitized_details():
     from fastapi.exceptions import RequestValidationError
     from starlette.requests import Request
 
-    from huginn.management.errors.handlers import (
+    from huginn.management.presentation.api.errors.handlers import (
         register_exception_handlers,
         validation_error_shape,
     )
@@ -176,7 +183,9 @@ def test_registering_handlers_preserves_native_starlette_http_exceptions():
     from fastapi import FastAPI
     from starlette.exceptions import HTTPException as StarletteHTTPException
 
-    from huginn.management.errors.handlers import register_exception_handlers
+    from huginn.management.presentation.api.errors.handlers import (
+        register_exception_handlers,
+    )
 
     app = FastAPI()
     default_http_exception_handler = app.exception_handlers[StarletteHTTPException]
@@ -191,11 +200,11 @@ def test_registered_fastapi_handlers_return_the_domain_error_shape():
     from fastapi import FastAPI
     from starlette.requests import Request
 
-    from huginn.management.errors.domain import (
-        AuthenticationError,
-        ManagementDomainError,
+    from huginn.management.application.errors.errors import AuthenticationError
+    from huginn.management.domain.errors.errors import ManagementDomainError
+    from huginn.management.presentation.api.errors.handlers import (
+        register_exception_handlers,
     )
-    from huginn.management.errors.handlers import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)

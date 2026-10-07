@@ -9,7 +9,9 @@ def test_identity_and_password_compatibility_modules_are_removed():
 
 
 def test_postgres_repositories_import_domain_and_protocol_contracts():
-    package = Path(__file__).parents[2] / "src/huginn/management/repositories/postgres"
+    package = (
+        Path(__file__).parents[2] / "src/huginn/management/persistence/repositories"
+    )
     expected_protocols = {
         "account.py": "AccountRepository",
         "user.py": "UserRepository",
@@ -34,7 +36,7 @@ def test_postgres_repositories_import_domain_and_protocol_contracts():
 
 
 def test_postgres_package_does_not_reexport_repository_implementations():
-    from huginn.management.repositories import postgres
+    from huginn.management.persistence import repositories as postgres
 
     assert not hasattr(postgres, "PostgresAccountRepository")
     assert not hasattr(postgres, "PostgresSessionRepository")

@@ -5,36 +5,42 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.domain.account import NewAccount
-from huginn.management.domain.client_discovery_strategy import (
+from huginn.management.application.services.discovery_strategies import (
+    ClientDiscoveryStrategyService,
+)
+from huginn.management.domain.errors.errors import NotFoundError
+from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.client_discovery_strategy import (
     ClientDiscoveryStrategyChanges,
     NewClientDiscoveryStrategy,
 )
-from huginn.management.domain.common import Principal
-from huginn.management.domain.ideal_client_profile import NewIdealClientProfile
-from huginn.management.domain.service_offering import NewServiceOffering
-from huginn.management.domain.user import NewUser
-from huginn.management.errors.domain import NotFoundError
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.discovery_strategy import (
+from huginn.management.domain.value_objects.common import Principal
+from huginn.management.domain.value_objects.ideal_client_profile import (
+    NewIdealClientProfile,
+)
+from huginn.management.domain.value_objects.service_offering import NewServiceOffering
+from huginn.management.domain.value_objects.user import NewUser
+from huginn.management.persistence.database.client import (
+    ManagementConnectionFactory,
+    PsycopgDatabaseSession,
+)
+from huginn.management.persistence.database.unit_of_work import UnitOfWork
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
-from huginn.management.repositories.postgres.ideal_client_profile import (
+from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
-from huginn.management.requests.discovery_strategy import (
+from huginn.management.persistence.repositories.user import PostgresUserRepository
+from huginn.management.presentation.api.requests.discovery_strategy import (
     DiscoveryStrategyCreateRequest as StrategyCreate,
 )
-from huginn.management.requests.discovery_strategy import (
+from huginn.management.presentation.api.requests.discovery_strategy import (
     DiscoveryStrategyUpdateRequest as StrategyPatch,
-)
-from huginn.management.services.discovery_strategies import (
-    ClientDiscoveryStrategyService,
 )
 
 
@@ -60,8 +66,8 @@ def test_strategy_repository_supports_shared_active_references_and_filtering(
     username = f"strategy-{uuid4()}"
     with psycopg.connect(management_database_url) as connection:
         accounts, users = (
-            PostgresAccountRepository(connection),
-            PostgresUserRepository(connection),
+            PostgresAccountRepository(PsycopgDatabaseSession(connection)),
+            PostgresUserRepository(PsycopgDatabaseSession(connection)),
         )
         owner = users.create(
             NewUser(
@@ -83,13 +89,15 @@ def test_strategy_repository_supports_shared_active_references_and_filtering(
                 "US",
             )
         )
-        offering = PostgresServiceOfferingRepository(connection).create(
-            NewServiceOffering(owner.id, "Consulting", "Audit")
+        offering = PostgresServiceOfferingRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
+        profile = PostgresIdealClientProfileRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(NewIdealClientProfile(owner.id, "Target", (), (), (), ()))
+        repo = PostgresClientDiscoveryStrategyRepository(
+            PsycopgDatabaseSession(connection)
         )
-        profile = PostgresIdealClientProfileRepository(connection).create(
-            NewIdealClientProfile(owner.id, "Target", (), (), (), ())
-        )
-        repo = PostgresClientDiscoveryStrategyRepository(connection)
         first = repo.create(
             NewClientDiscoveryStrategy(owner.id, "One", offering.id, profile.id, True)
         )
@@ -196,8 +204,8 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
     username = f"strategy-delete-race-{uuid4()}"
     with psycopg.connect(management_database_url) as connection:
         accounts, users = (
-            PostgresAccountRepository(connection),
-            PostgresUserRepository(connection),
+            PostgresAccountRepository(PsycopgDatabaseSession(connection)),
+            PostgresUserRepository(PsycopgDatabaseSession(connection)),
         )
         account = accounts.create(NewAccount(username, "placeholder"))
         owner = users.create(
@@ -210,13 +218,15 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
                 "US",
             )
         )
-        offering = PostgresServiceOfferingRepository(connection).create(
-            NewServiceOffering(owner.id, "Consulting", "Audit")
-        )
-        profile = PostgresIdealClientProfileRepository(connection).create(
-            NewIdealClientProfile(owner.id, "Target", (), (), (), ())
-        )
-        strategy = PostgresClientDiscoveryStrategyRepository(connection).create(
+        offering = PostgresServiceOfferingRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
+        profile = PostgresIdealClientProfileRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(NewIdealClientProfile(owner.id, "Target", (), (), (), ()))
+        strategy = PostgresClientDiscoveryStrategyRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(
             NewClientDiscoveryStrategy(
                 owner.id, "Weekly", offering.id, profile.id, False
             )
@@ -243,7 +253,7 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
             assert state["preflighted"]
             with psycopg.connect(management_database_url) as delete_connection:
                 state["deleted"] = PostgresClientDiscoveryStrategyRepository(
-                    delete_connection
+                    PsycopgDatabaseSession(delete_connection)
                 ).delete_owned(user_id, strategy_id)
                 delete_connection.commit()
             return self.repository.update_owned(user_id, strategy_id, changes)

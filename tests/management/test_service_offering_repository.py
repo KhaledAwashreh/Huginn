@@ -2,8 +2,10 @@ from uuid import uuid4
 
 import pytest
 
-from huginn.management.domain.service_offering import ServiceOfferingChanges
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.domain.value_objects.service_offering import (
+    ServiceOfferingChanges,
+)
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
 

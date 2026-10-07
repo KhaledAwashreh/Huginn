@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from huginn.management.primitives import (
+from huginn.management.presentation.api.primitives import (
     E164Phone,
     Email,
     IanaTimezone,

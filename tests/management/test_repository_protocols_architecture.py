@@ -18,7 +18,7 @@ PROTOCOL_MODULES = (
 def _protocols():
     for module_name in PROTOCOL_MODULES:
         module = importlib.import_module(
-            f"huginn.management.repositories.protocols.{module_name}"
+            f"huginn.management.persistence.contracts.repositories.{module_name}"
         )
         yield from (
             value
@@ -29,7 +29,10 @@ def _protocols():
 
 
 def test_protocol_modules_do_not_import_infrastructure_or_transport():
-    package = Path(__file__).parents[2] / "src/huginn/management/repositories/protocols"
+    package = (
+        Path(__file__).parents[2]
+        / "src/huginn/management/persistence/contracts/repositories"
+    )
     forbidden_roots = {
         "fastapi",
         "starlette",

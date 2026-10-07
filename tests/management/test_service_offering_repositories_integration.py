@@ -3,18 +3,19 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from huginn.management.domain.account import NewAccount
-from huginn.management.domain.service_offering import (
+from huginn.management.domain.errors.errors import ConflictError
+from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.service_offering import (
     NewServiceOffering,
     ServiceOfferingChanges,
 )
-from huginn.management.domain.user import NewUser
-from huginn.management.errors.domain import ConflictError
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.service_offering import (
+from huginn.management.domain.value_objects.user import NewUser
+from huginn.management.persistence.database.client import PsycopgDatabaseSession
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
-from huginn.management.repositories.postgres.user import PostgresUserRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
 
 
 def test_offering_repository_crud_pagination_timestamp_and_ownership(
@@ -24,8 +25,8 @@ def test_offering_repository_crud_pagination_timestamp_and_ownership(
     with psycopg.connect(management_database_url) as connection:
         connection.execute("SAVEPOINT offering_repository")
         accounts, users = (
-            PostgresAccountRepository(connection),
-            PostgresUserRepository(connection),
+            PostgresAccountRepository(PsycopgDatabaseSession(connection)),
+            PostgresUserRepository(PsycopgDatabaseSession(connection)),
         )
         owner = users.create(
             NewUser(
@@ -48,7 +49,7 @@ def test_offering_repository_crud_pagination_timestamp_and_ownership(
                 "US",
             )
         )
-        repo = PostgresServiceOfferingRepository(connection)
+        repo = PostgresServiceOfferingRepository(PsycopgDatabaseSession(connection))
         a = repo.create(NewServiceOffering(owner.id, "A", "First"))
         b = repo.create(NewServiceOffering(owner.id, "B", "Second"))
         connection.execute(

@@ -3,9 +3,11 @@ from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
-from huginn.management.errors.domain import ValidationDomainError
-from huginn.management.errors.handlers import register_exception_handlers
-from huginn.management.openapi_responses import error_responses
+from huginn.management.domain.errors.errors import ValidationDomainError
+from huginn.management.presentation.api.errors.handlers import (
+    register_exception_handlers,
+)
+from huginn.management.presentation.api.openapi.responses import error_responses
 
 
 def _document(config: ManagementConfig | None = None) -> dict:
@@ -98,6 +100,90 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
     assert by_name["limit"]["schema"]["default"] == 50
     assert by_name["offset"]["schema"]["minimum"] == 0
     assert by_name["offset"]["schema"]["maximum"] == 9_223_372_036_854_775_807
+
+
+def test_openapi_documents_every_success_response_model():
+    document = _document()
+    expected = {
+        ("/api/v1/sessions", "post", "200"): "LoginResponse",
+        ("/api/v1/me", "get", "200"): "UserResponse",
+        ("/api/v1/me", "patch", "200"): "UserResponse",
+        (
+            "/api/v1/me/professional-profile",
+            "get",
+            "200",
+        ): "ProfessionalProfileResponse",
+        (
+            "/api/v1/me/professional-profile",
+            "patch",
+            "200",
+        ): "ProfessionalProfileResponse",
+        (
+            "/api/v1/offerings",
+            "get",
+            "200",
+        ): "PageResponse_ServiceOfferingResponse_",
+        ("/api/v1/offerings", "post", "201"): "ServiceOfferingResponse",
+        (
+            "/api/v1/offerings/{offering_id}",
+            "get",
+            "200",
+        ): "ServiceOfferingResponse",
+        (
+            "/api/v1/offerings/{offering_id}",
+            "patch",
+            "200",
+        ): "ServiceOfferingResponse",
+        (
+            "/api/v1/ideal-client-profiles",
+            "get",
+            "200",
+        ): "PageResponse_IdealClientProfileResponse_",
+        (
+            "/api/v1/ideal-client-profiles",
+            "post",
+            "201",
+        ): "IdealClientProfileResponse",
+        (
+            "/api/v1/ideal-client-profiles/{profile_id}",
+            "get",
+            "200",
+        ): "IdealClientProfileResponse",
+        (
+            "/api/v1/ideal-client-profiles/{profile_id}",
+            "patch",
+            "200",
+        ): "IdealClientProfileResponse",
+        (
+            "/api/v1/discovery-strategies",
+            "get",
+            "200",
+        ): "PageResponse_DiscoveryStrategyResponse_",
+        (
+            "/api/v1/discovery-strategies",
+            "post",
+            "201",
+        ): "DiscoveryStrategyResponse",
+        (
+            "/api/v1/discovery-strategies/{strategy_id}",
+            "get",
+            "200",
+        ): "DiscoveryStrategyResponse",
+        (
+            "/api/v1/discovery-strategies/{strategy_id}",
+            "patch",
+            "200",
+        ): "DiscoveryStrategyResponse",
+    }
+
+    actual = {}
+    for path, method, status in expected:
+        schema = document["paths"][path][method]["responses"][status]["content"][
+            "application/json"
+        ]["schema"]
+        actual[path, method, status] = schema["$ref"].rsplit("/", 1)[1]
+
+    assert actual == expected
 
 
 def test_openapi_documents_configured_session_cookie_and_clearing():

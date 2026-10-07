@@ -8,30 +8,37 @@ import psycopg
 import pytest
 
 from huginn.management.admin import main as admin_main
-from huginn.management.config import ManagementConfig
-from huginn.management.database import ManagementConnectionFactory, UnitOfWork
-from huginn.management.domain.account import NewAccount
-from huginn.management.domain.professional_profile import NewProfessionalProfile
-from huginn.management.domain.provisioning import ProvisionIdentity
-from huginn.management.domain.session import NewSession
-from huginn.management.domain.user import NewUser
-from huginn.management.errors.domain import (
-    AuthenticationError,
-    ConflictError,
-)
-from huginn.management.repositories.postgres.account import PostgresAccountRepository
-from huginn.management.repositories.postgres.professional_profile import (
-    PostgresProfessionalProfileRepository,
-)
-from huginn.management.repositories.postgres.session import PostgresSessionRepository
-from huginn.management.repositories.postgres.user import PostgresUserRepository
-from huginn.management.security.passwords import Password, verify_password
-from huginn.management.security.tokens import digest_token, generate_token
-from huginn.management.services.account_admin import AccountAdminService
-from huginn.management.services.authentication import (
+from huginn.management.application.commands.provisioning import ProvisionIdentity
+from huginn.management.application.errors.errors import AuthenticationError
+from huginn.management.application.services.account_admin import AccountAdminService
+from huginn.management.application.services.authentication import (
     AuthenticationService,
 )
-from huginn.management.services.provisioning import IdentityProvisioningService
+from huginn.management.application.services.provisioning import (
+    IdentityProvisioningService,
+)
+from huginn.management.config import ManagementConfig
+from huginn.management.domain.errors.errors import ConflictError
+from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.professional_profile import (
+    NewProfessionalProfile,
+)
+from huginn.management.domain.value_objects.session import NewSession
+from huginn.management.domain.value_objects.user import NewUser
+from huginn.management.persistence.database.client import (
+    ManagementConnectionFactory,
+    PsycopgDatabaseSession,
+)
+from huginn.management.persistence.database.unit_of_work import UnitOfWork
+from huginn.management.persistence.errors.database import DatabaseError
+from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.professional_profile import (
+    PostgresProfessionalProfileRepository,
+)
+from huginn.management.persistence.repositories.session import PostgresSessionRepository
+from huginn.management.persistence.repositories.user import PostgresUserRepository
+from huginn.management.security.passwords import Password, verify_password
+from huginn.management.security.tokens import digest_token, generate_token
 
 
 def test_live_identity_repositories_mapping_defaults_and_case_conflict(
@@ -39,9 +46,11 @@ def test_live_identity_repositories_mapping_defaults_and_case_conflict(
 ):
     with psycopg.connect(management_database_url) as connection:
         connection.execute("SAVEPOINT identity_repositories")
-        accounts = PostgresAccountRepository(connection)
-        users = PostgresUserRepository(connection)
-        profiles = PostgresProfessionalProfileRepository(connection)
+        accounts = PostgresAccountRepository(PsycopgDatabaseSession(connection))
+        users = PostgresUserRepository(PsycopgDatabaseSession(connection))
+        profiles = PostgresProfessionalProfileRepository(
+            PsycopgDatabaseSession(connection)
+        )
         username = f"Owner-{uuid4()}"
         account = accounts.create(NewAccount(username, "encoded-test-hash"))
         assert (
@@ -78,7 +87,7 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
 ):
     username = f"Login-race-{uuid4()}"
     with psycopg.connect(management_database_url) as connection:
-        account = PostgresAccountRepository(connection).create(
+        account = PostgresAccountRepository(PsycopgDatabaseSession(connection)).create(
             NewAccount(username, "old-hash")
         )
 
@@ -187,7 +196,7 @@ def test_live_password_change_rechecks_hash_after_owner_reset_lock(
     old_password = "old password is long enough"
     reset_password = "reset password is long enough"
     with psycopg.connect(management_database_url) as connection:
-        account = PostgresAccountRepository(connection).create(
+        account = PostgresAccountRepository(PsycopgDatabaseSession(connection)).create(
             NewAccount(username, generate_password_hash(old_password))
         )
 
@@ -215,7 +224,7 @@ def test_live_password_change_rechecks_hash_after_owner_reset_lock(
     worker = Thread(target=change_with_stale_old_password)
     try:
         with psycopg.connect(management_database_url) as reset_connection:
-            repo = PostgresAccountRepository(reset_connection)
+            repo = PostgresAccountRepository(PsycopgDatabaseSession(reset_connection))
             locked = repo.get_by_id_for_update(account.id)
             assert locked is not None
             assert (
@@ -245,7 +254,9 @@ def test_live_password_change_rechecks_hash_after_owner_reset_lock(
         assert not worker.is_alive()
         assert len(outcome) == 1 and isinstance(outcome[0], AuthenticationError)
         with psycopg.connect(management_database_url) as connection:
-            persisted = PostgresAccountRepository(connection).get_by_id(account.id)
+            persisted = PostgresAccountRepository(
+                PsycopgDatabaseSession(connection)
+            ).get_by_id(account.id)
             assert persisted is not None
             assert verify_password(Password(reset_password), persisted.password_hash)
             assert not verify_password(
@@ -346,7 +357,7 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
 
         for stage in stages:
             username = f"Failed-{stage}-{uuid4()}"
-            with pytest.raises(psycopg.Error, match="injected identity failure"):
+            with pytest.raises(DatabaseError, match="database operation failed"):
                 service(stage).provision(
                     ProvisionIdentity(**provision_values(username))
                 )
@@ -367,7 +378,7 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
     management_database_url, monkeypatch, capsys
 ):
     monkeypatch.setattr(
-        "huginn.management.admin.load_config",
+        "huginn.management.app.load_config",
         lambda: ManagementConfig(management_database_url),
     )
     username = f"Owner-{uuid4()}"
@@ -517,7 +528,7 @@ def test_live_cli_disable_and_reset_roll_back_when_session_revocation_fails(
         connection.commit()
 
     monkeypatch.setattr(
-        "huginn.management.admin.load_config",
+        "huginn.management.app.load_config",
         lambda: ManagementConfig(management_database_url),
     )
     try:
@@ -588,7 +599,7 @@ def test_live_sessions_persist_only_digests_and_enforce_active_state_transaction
     )
 
     with psycopg.connect(management_database_url) as connection:
-        repository = PostgresSessionRepository(connection)
+        repository = PostgresSessionRepository(PsycopgDatabaseSession(connection))
         now = datetime.now(UTC)
 
         def create_session():
