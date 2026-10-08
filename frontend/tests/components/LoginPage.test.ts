@@ -16,7 +16,7 @@ it('preserves username and explains rejected login without duplicate submission'
     calls++;
     return Promise.resolve(
       Response.json(
-        { error: { code: 'authentication_required', message: 'Invalid credentials' } },
+        { error: { code: 'authentication_required', message: 'Request could not be completed' } },
         { status: 401 },
       ),
     );
@@ -31,7 +31,8 @@ it('preserves username and explains rejected login without duplicate submission'
   await wrapper.get('#login-password').setValue('wrong-password');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
-  expect(wrapper.text()).toContain('Invalid credentials');
+  expect(wrapper.text()).toContain('Check your username and password');
+  expect(wrapper.text()).toContain('verify your email first');
   expect((wrapper.get('#login-username').element as HTMLInputElement).value).toBe('ada');
   expect((wrapper.get('#login-password').element as HTMLInputElement).value).toBe('');
   expect(calls).toBe(1);

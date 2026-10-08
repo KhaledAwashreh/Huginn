@@ -52,6 +52,10 @@ def error_shape(
 
 
 def error_shape_for_status(status_code: int) -> ErrorShape:
+    if status_code == 503:
+        return error_shape(
+            503, "service_unavailable", "The service is temporarily unavailable"
+        )
     code, message = ERROR_MESSAGES_BY_STATUS.get(
         status_code,
         (f"http_{status_code}", "Request could not be completed"),

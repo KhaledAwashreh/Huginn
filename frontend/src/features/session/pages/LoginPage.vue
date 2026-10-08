@@ -26,7 +26,9 @@ async function submit(): Promise<void> {
   } catch (error) {
     message.value =
       error instanceof ApiError
-        ? error.message
+        ? error.status === 401
+          ? 'Unable to sign in. Check your username and password. If you just created an account, verify your email first.'
+          : error.message
         : 'Sign in could not be completed. Check your connection and try again.';
   } finally {
     draft.password = '';
@@ -71,6 +73,8 @@ async function submit(): Promise<void> {
         <FieldFeedback id="login-error" :message="message" />
         <Button type="submit" label="Sign in" :loading="pending" :disabled="pending" />
       </form>
+      <p><RouterLink to="/create-account">Create account</RouterLink></p>
+      <p><RouterLink to="/forgot-password">Forgot password</RouterLink></p>
     </section>
   </main>
 </template>

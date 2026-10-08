@@ -11,12 +11,16 @@ from huginn.management.application.authentication_policy import (
     SESSION_TTL_SECONDS,
 )
 from huginn.management.application.errors.errors import AuthenticationError
+from huginn.management.application.errors.lifecycle import LifecycleIntegrityError
 from huginn.management.domain.entities.session import Session
 from huginn.management.domain.errors.errors import ValidationDomainError
 from huginn.management.domain.value_objects.common import Principal
 from huginn.management.domain.value_objects.session import NewSession
 from huginn.management.persistence.contracts.repositories.account import (
     AccountRepository,
+)
+from huginn.management.persistence.contracts.repositories.account_recovery_identity import (
+    AccountRecoveryIdentityRepository,
 )
 from huginn.management.persistence.contracts.repositories.session import (
     SessionRepository,
@@ -118,6 +122,10 @@ class AuthenticationService:
         *,
         accounts_factory: Callable[[UnitOfWorkProtocol], AccountRepository]
         | None = None,
+        recovery_identities_factory: Callable[
+            [UnitOfWorkProtocol], AccountRecoveryIdentityRepository
+        ]
+        | None = None,
         sessions_factory: Callable[[UnitOfWorkProtocol], SessionRepository]
         | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -132,6 +140,7 @@ class AuthenticationService:
         self._config = config
         self._throttle = throttle
         self._accounts_factory = accounts_factory
+        self._recovery_identities_factory = recovery_identities_factory
         self._sessions_factory = sessions_factory
         self._clock = clock
         self._token_generator = token_generator
@@ -194,6 +203,24 @@ class AuthenticationService:
                     else self._dummy_password_hash
                 )
                 verified = self._verify_password(secret, encoded_hash)
+                recovery = None
+                if account is not None and account.status == "active":
+                    if self._recovery_identities_factory is None:
+                        raise LifecycleIntegrityError(
+                            "account recovery identity is unavailable"
+                        )
+                    recovery = self._recovery_identities_factory(uow).get_by_account_id(
+                        account.id
+                    )
+                    if recovery is None:
+                        raise LifecycleIntegrityError(
+                            "account recovery identity is unavailable"
+                        )
+                    if (
+                        recovery.verification_required
+                        and recovery.verified_email is None
+                    ):
+                        verified = False
                 if account is None or account.status != "active" or not verified:
                     self._throttle.record_failure(client_ip, username, reservation)
                     completed = True

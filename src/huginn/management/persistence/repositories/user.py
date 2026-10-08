@@ -33,6 +33,14 @@ class PostgresUserRepository(PostgresIdentityRepository, UserRepository):
         )
         return self._map(row) if row else None
 
+    def get_by_email(self, email: str) -> User | None:
+        row = self._one(
+            f"SELECT {self._columns} FROM operational.users "
+            "WHERE lower(btrim(email)) = %s",
+            (email.strip().lower(),),
+        )
+        return self._map(row) if row else None
+
     def create(self, user: NewUser) -> User:
         try:
             row = self._write(
@@ -43,7 +51,7 @@ class PostgresUserRepository(PostgresIdentityRepository, UserRepository):
                     user.account_id,
                     user.first_name,
                     user.last_name,
-                    user.email,
+                    user.email.strip().lower(),
                     user.phone_number,
                     user.country_of_residence,
                     user.timezone,
@@ -69,7 +77,12 @@ class PostgresUserRepository(PostgresIdentityRepository, UserRepository):
             raise ValueError("unsupported User update field")
         fields = sorted(supplied)
         assignments = ", ".join(f"{columns[name]} = %s" for name in fields)
-        parameters = tuple(changes.values[name] for name in fields)
+        parameters = tuple(
+            changes.values[name].strip().lower()
+            if name == "email" and isinstance(changes.values[name], str)
+            else changes.values[name]
+            for name in fields
+        )
         try:
             row = self._one(
                 f"UPDATE operational.users SET {assignments}, updated_at = clock_timestamp() "

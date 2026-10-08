@@ -10,6 +10,7 @@ from huginn.management.app import create_account_administration_services, create
 from huginn.management.application.commands.provisioning import ProvisionIdentity
 from huginn.management.config import ManagementConfig
 from huginn.management.security.tokens import digest_token
+from tests.browser_lifecycle_mail import browser_lifecycle_mail
 from tests.postgres_harness import provisioned_postgres
 
 PASSWORD = "browser-only-correct-horse-battery"
@@ -47,9 +48,13 @@ def main() -> None:
                     datetime.now(UTC) + timedelta(hours=1),
                 ),
             )
-        uvicorn.run(
-            create_app(config), host="127.0.0.1", port=8000, log_level="warning"
-        )
+        with browser_lifecycle_mail(config) as lifecycle_config:
+            uvicorn.run(
+                create_app(lifecycle_config),
+                host="127.0.0.1",
+                port=8000,
+                log_level="warning",
+            )
 
 
 if __name__ == "__main__":

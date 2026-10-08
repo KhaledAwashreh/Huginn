@@ -8,6 +8,28 @@ afterEach(() => {
 });
 
 describe('JSON transport', () => {
+  it.each([
+    [400, /Reload/],
+    [401, /Sign in/],
+    [404, /no longer available/],
+    [409, /conflict/],
+    [422, /Check/],
+  ])(
+    'replaces generic server feedback for status %s with recovery guidance',
+    async (status, guidance) => {
+      vi.stubGlobal('fetch', () =>
+        Promise.resolve(
+          Response.json(
+            { error: { code: 'request_failed', message: 'Request could not be completed' } },
+            { status: Number(status) },
+          ),
+        ),
+      );
+      await expect(apiRequest('/api/v1/me')).rejects.toMatchObject({
+        message: expect.stringMatching(guidance as RegExp),
+      });
+    },
+  );
   it.each([403, 429])(
     'keeps actionable status %s guidance with generic server envelopes',
     async (status) => {

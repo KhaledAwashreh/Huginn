@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Signup */
+        post: operations["signup_api_v1_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery-strategies": {
         parameters: {
             query?: never;
@@ -39,6 +56,40 @@ export interface paths {
         head?: never;
         /** Update Discovery Strategy */
         patch: operations["update_discovery_strategy_api_v1_discovery_strategies__strategy_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/email-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Email */
+        post: operations["verify_email_api_v1_email_verifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email-verifications/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend Verification */
+        post: operations["resend_verification_api_v1_email_verifications_resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/ideal-client-profiles": {
@@ -96,6 +147,23 @@ export interface paths {
         patch: operations["update_current_user_api_v1_me_patch"];
         trace?: never;
     };
+    "/api/v1/me/account-security": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Account Security */
+        get: operations["get_account_security_api_v1_me_account_security_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/password": {
         parameters: {
             query?: never;
@@ -129,6 +197,23 @@ export interface paths {
         head?: never;
         /** Update Current Professional Profile */
         patch: operations["update_current_professional_profile_api_v1_me_professional_profile_patch"];
+        trace?: never;
+    };
+    "/api/v1/me/recovery-email-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enroll Recovery Email */
+        post: operations["enroll_recovery_email_api_v1_me_recovery_email_verifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/offerings": {
@@ -166,6 +251,40 @@ export interface paths {
         head?: never;
         /** Update Offering */
         patch: operations["update_offering_api_v1_offerings__offering_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/password-resets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forgot Password */
+        post: operations["forgot_password_api_v1_password_resets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/password-resets/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Password */
+        post: operations["reset_password_api_v1_password_resets_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/sessions": {
@@ -241,6 +360,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountSecurityResponse */
+        AccountSecurityResponse: {
+            /** Email Verification Required */
+            email_verification_required: boolean;
+            /** Email Verified */
+            email_verified: boolean;
+            /** Recovery Email */
+            recovery_email: string | null;
+            /** Username */
+            username: string;
+        };
         /** CompanyExclusion */
         CompanyExclusion: {
             /**
@@ -381,6 +511,8 @@ export interface components {
             /** Service Offering Id */
             service_offering_id?: string | null;
         };
+        /** EnrollRecoveryEmailRequest */
+        EnrollRecoveryEmailRequest: Record<string, never>;
         /** Experience */
         Experience: {
             /** End Month */
@@ -413,6 +545,11 @@ export interface components {
             start_month: string | null;
             /** Summary */
             summary: string | null;
+        };
+        /** ForgotPasswordRequest */
+        ForgotPasswordRequest: {
+            /** Email */
+            email: string;
         };
         /** GeographyExclusion */
         GeographyExclusion: {
@@ -531,6 +668,11 @@ export interface components {
         IndustryResponse: {
             /** Name */
             name: string;
+        };
+        /** LifecycleReceiptResponse */
+        LifecycleReceiptResponse: {
+            /** Message */
+            message: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -659,6 +801,18 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** ResendVerificationRequest */
+        ResendVerificationRequest: {
+            /** Email */
+            email: string;
+        };
+        /** ResetPasswordRequest */
+        ResetPasswordRequest: {
+            /** New Password */
+            new_password: string;
+            /** Token */
+            token: string;
+        };
         /** ServiceOfferingCreateRequest */
         ServiceOfferingCreateRequest: {
             /** Description */
@@ -699,6 +853,25 @@ export interface components {
             description?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /** SignupRequest */
+        SignupRequest: {
+            /** Country Of Residence */
+            country_of_residence: string;
+            /** Email */
+            email: string;
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /** Password */
+            password: string;
+            /** Phone Number */
+            phone_number: string;
+            /** Timezone */
+            timezone?: string | null;
+            /** Username */
+            username: string;
         };
         /** Skill */
         Skill: {
@@ -755,6 +928,11 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** VerifyEmailRequest */
+        VerifyEmailRequest: {
+            /** Token */
+            token: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -764,6 +942,111 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    signup_api_v1_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     list_discovery_strategies_api_v1_discovery_strategies_get: {
         parameters: {
             query?: {
@@ -1281,6 +1564,199 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    verify_email_api_v1_email_verifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    resend_verification_api_v1_email_verifications_resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];
@@ -2049,6 +2525,71 @@ export interface operations {
             };
         };
     };
+    get_account_security_api_v1_me_account_security_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountSecurityResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     change_current_password_api_v1_me_password_patch: {
         parameters: {
             query?: never;
@@ -2333,6 +2874,128 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    enroll_recovery_email_api_v1_me_recovery_email_verifications_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollRecoveryEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];
@@ -2874,6 +3537,199 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    forgot_password_api_v1_password_resets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    reset_password_api_v1_password_resets_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];

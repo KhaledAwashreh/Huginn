@@ -13,13 +13,23 @@ export function normalizeApiError(status: number, value: unknown): ApiError {
           ? 'This action was forbidden. Reload before trying again.'
           : status === 429
             ? 'Too many attempts. Wait before trying again.'
-            : 'The request could not be completed.';
+            : status === 404
+              ? 'This item is no longer available. Reload the page to continue.'
+              : status === 409
+                ? 'These details conflict with an existing record. Check your entries and try again.'
+                : status === 422
+                  ? 'Check the information you entered and try again.'
+                  : 'Reload the page and try again. If the problem continues, try again later.';
   if (status >= 500 || !record(value)) return new ApiError(status, 'request_failed', fallback);
   if (record(value.error) && typeof value.error.message === 'string') {
     return new ApiError(
       status,
       typeof value.error.code === 'string' ? value.error.code : 'request_failed',
-      status === 403 || status === 429 ? fallback : value.error.message,
+      status === 403 ||
+        status === 429 ||
+        /^\s*(?:the )?request could not be completed\.?\s*$/i.test(value.error.message)
+        ? fallback
+        : value.error.message,
     );
   }
   const fields: FieldError[] = [];

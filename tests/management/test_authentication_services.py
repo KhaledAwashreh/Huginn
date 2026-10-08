@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -128,9 +129,14 @@ def make_login(
     uow=None,
     dummy_hash="dummy-hash",
     use_werkzeug_rehash=False,
+    recovery_identity=...,
 ):
     uow, repos = uow or Uow(), Accounts(account)
     sessions, throttle = sessions or Sessions(), throttle or Throttle()
+    if recovery_identity is ...:
+        recovery_identity = SimpleNamespace(
+            verification_required=False, verified_email=None
+        )
     verified = []
 
     def verifier(password, encoded):
@@ -142,6 +148,9 @@ def make_login(
         ManagementConfig("postgresql://ignored", session_ttl=timedelta(hours=2)),
         throttle,
         accounts_factory=lambda _: repos,
+        recovery_identities_factory=lambda _: SimpleNamespace(
+            get_by_account_id=lambda _: recovery_identity
+        ),
         sessions_factory=lambda _: sessions,
         clock=lambda: NOW,
         token_generator=iter(("session-secret", "csrf-secret")).__next__,

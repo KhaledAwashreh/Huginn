@@ -12,6 +12,14 @@ interface ApiRequestOptions {
   anonymous?: boolean;
 }
 let configuration: ApiClientConfiguration = {};
+const publicMutationPaths = new Set([
+  '/api/v1/sessions',
+  '/api/v1/accounts',
+  '/api/v1/email-verifications',
+  '/api/v1/email-verifications/resend',
+  '/api/v1/password-resets',
+  '/api/v1/password-resets/complete',
+]);
 export function configureApiClient(next: ApiClientConfiguration): void {
   configuration = next;
 }
@@ -23,6 +31,12 @@ export async function apiRequest<T = void>(
   if (!path.startsWith('/api/') || path.startsWith('//') || path.includes('\\'))
     throw new Error('Only local API paths are allowed.');
   const method = options.method ?? 'GET';
+  if (
+    options.anonymous &&
+    method !== 'GET' &&
+    (method !== 'POST' || !publicMutationPaths.has(path))
+  )
+    throw new Error('A session is required for this action.');
   const requestConfiguration = configuration;
   const identityVersion = requestConfiguration.getIdentityVersion?.();
   const headers = new Headers({ Accept: 'application/json' });

@@ -21,6 +21,13 @@ def _document(config: ManagementConfig | None = None) -> dict:
 def test_openapi_covers_registered_paths_methods_models_and_errors():
     document = _document()
     expected = {
+        "/api/v1/accounts": {"post"},
+        "/api/v1/email-verifications": {"post"},
+        "/api/v1/email-verifications/resend": {"post"},
+        "/api/v1/password-resets": {"post"},
+        "/api/v1/password-resets/complete": {"post"},
+        "/api/v1/me/account-security": {"get"},
+        "/api/v1/me/recovery-email-verifications": {"post"},
         "/health": {"get"},
         "/ready": {"get"},
         "/api/v1/sessions": {"post"},
@@ -53,7 +60,14 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
             assert "operationId" in operation
             assert "responses" in operation
             assert "default" in operation["responses"]
-            if path.startswith("/api/") and path != "/api/v1/sessions":
+            if path.startswith("/api/") and path not in {
+                "/api/v1/sessions",
+                "/api/v1/accounts",
+                "/api/v1/email-verifications",
+                "/api/v1/email-verifications/resend",
+                "/api/v1/password-resets",
+                "/api/v1/password-resets/complete",
+            }:
                 assert any("SessionCookie" in item for item in operation["security"])
                 if method in {"post", "patch", "put", "delete"}:
                     assert any("csrfHeader" in item for item in operation["security"])

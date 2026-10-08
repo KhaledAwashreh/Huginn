@@ -15,7 +15,7 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 def _validate_email(value: str) -> str:
     if not _EMAIL_PATTERN.fullmatch(value):
         raise ValueError("invalid email address")
-    return value
+    return value.lower()
 
 
 def _validate_timezone(value: str) -> str:

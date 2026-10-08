@@ -1,3 +1,6 @@
+import { defineComponent, h } from 'vue';
+import { accountLifecycleRoutes } from '../features/account-lifecycle/routes';
+import RecoveryEmailEnrollment from '../features/account-lifecycle/components/RecoveryEmailEnrollment.vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import { useSession } from '../features/session/composables/useSession';
 import LoginPage from '../features/session/pages/LoginPage.vue';
@@ -10,11 +13,17 @@ export const router = createRouter({
     {
       path: '/',
       name: 'workspace',
-      component: PageHeader,
-      props: { title: 'Your workspace', description: 'A place for your work.' },
+      component: defineComponent({
+        setup: () => () =>
+          h('div', [
+            h(PageHeader, { title: 'Your workspace', description: 'A place for your work.' }),
+            h(RecoveryEmailEnrollment),
+          ]),
+      }),
       meta: { requiresAuth: true, navigationLabel: 'Workspace' },
     },
     { path: '/login', name: 'login', component: LoginPage },
+    ...accountLifecycleRoutes,
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',

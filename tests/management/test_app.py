@@ -123,6 +123,13 @@ def test_management_routes_are_registered():
     }
 
     assert routes == {
+        ("/api/v1/accounts", "POST"),
+        ("/api/v1/email-verifications", "POST"),
+        ("/api/v1/email-verifications/resend", "POST"),
+        ("/api/v1/password-resets", "POST"),
+        ("/api/v1/password-resets/complete", "POST"),
+        ("/api/v1/me/account-security", "GET"),
+        ("/api/v1/me/recovery-email-verifications", "POST"),
         ("/health", "GET"),
         ("/ready", "GET"),
         ("/api/v1/sessions", "POST"),

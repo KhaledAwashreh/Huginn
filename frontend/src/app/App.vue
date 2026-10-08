@@ -18,6 +18,8 @@ router.afterEach(() => {
 </script>
 
 <template>
-  <AppShell v-if="session.isAuthenticated.value"><RouterView /></AppShell>
+  <AppShell v-if="session.isAuthenticated.value && route.meta.requiresAuth"
+    ><RouterView
+  /></AppShell>
   <RouterView v-else />
 </template>
