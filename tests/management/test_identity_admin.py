@@ -104,6 +104,18 @@ class FakeRepository:
         )
 
 
+class FakeRecoveryIdentityRepository:
+    def __init__(self, *, fail=False):
+        self.fail = fail
+        self.created = []
+
+    def create(self, account_id, *, verification_required, pending_email=None):
+        self.created.append((account_id, verification_required, pending_email))
+        if self.fail:
+            raise RuntimeError("injected recovery identity failure")
+        return object()
+
+
 def _provision(
     service,
     *,
@@ -138,6 +150,7 @@ def test_provisioning_injected_failure_rolls_back_each_stage(failure):
         accounts_factory=lambda _: repos[0],
         users_factory=lambda _: repos[1],
         profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: FakeRecoveryIdentityRepository(),
         hash_password_fn=lambda _: "scrypt$hash",
     )
     with pytest.raises(RuntimeError, match="injected"):
@@ -147,14 +160,39 @@ def test_provisioning_injected_failure_rolls_back_each_stage(failure):
     assert [len(repo.created) for repo in repos] == [int(i <= stage) for i in range(3)]
 
 
-def test_provisioning_returns_all_ids_and_preserves_username_spelling():
+def test_provisioning_recovery_identity_failure_rolls_back_every_identity_write():
     uow = FakeUow()
     repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
+    recovery = FakeRecoveryIdentityRepository(fail=True)
     service = IdentityProvisioningService(
         lambda: uow,
         accounts_factory=lambda _: repos[0],
         users_factory=lambda _: repos[1],
         profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: recovery,
+        hash_password_fn=lambda _: "scrypt$hash",
+    )
+
+    with pytest.raises(RuntimeError, match="recovery identity"):
+        _provision(service)
+
+    assert (uow.commits, uow.rollbacks) == (0, 1)
+    assert [len(repo.created) for repo in repos] == [1, 1, 1]
+    assert len(recovery.created) == 1
+    assert isinstance(recovery.created[0][0], UUID)
+    assert recovery.created[0][1:] == (False, None)
+
+
+def test_provisioning_returns_all_ids_and_preserves_username_spelling():
+    uow = FakeUow()
+    repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
+    recovery = FakeRecoveryIdentityRepository()
+    service = IdentityProvisioningService(
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: recovery,
         hash_password_fn=lambda _: "scrypt$hash",
     )
     result = _provision(service, username="Alice")
@@ -165,6 +203,7 @@ def test_provisioning_returns_all_ids_and_preserves_username_spelling():
     )
     assert not hasattr(result, "password_hash")
     assert (uow.commits, uow.rollbacks) == (1, 0)
+    assert recovery.created == [(result.account_id, False, None)]
 
 
 def test_domain_provisioning_service_accepts_command_value():
@@ -175,6 +214,7 @@ def test_domain_provisioning_service_accepts_command_value():
         accounts_factory=lambda _: repos[0],
         users_factory=lambda _: repos[1],
         profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: FakeRecoveryIdentityRepository(),
         hash_password_fn=lambda _: "scrypt$hash",
     )
     result = service.provision(
@@ -204,6 +244,7 @@ def test_invalid_password_names_password_without_echoing_value():
                 accounts_factory=lambda _: FakeRepository("account"),
                 users_factory=lambda _: FakeRepository("user"),
                 profiles_factory=lambda _: FakeRepository("profile"),
+                recovery_identities_factory=lambda _: FakeRecoveryIdentityRepository(),
             ),
             password="short",
         )
@@ -233,6 +274,7 @@ def test_provisioning_rejects_invalid_identity_fields_before_opening_uow(field, 
         accounts_factory=lambda _: FakeRepository("account"),
         users_factory=lambda _: FakeRepository("user"),
         profiles_factory=lambda _: FakeRepository("profile"),
+        recovery_identities_factory=lambda _: FakeRecoveryIdentityRepository(),
     )
     identity = ProvisionIdentity(
         "Alice",
@@ -258,6 +300,7 @@ def test_provisioning_normalizes_identity_fields_before_persistence():
         accounts_factory=lambda _: repos[0],
         users_factory=lambda _: repos[1],
         profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: FakeRecoveryIdentityRepository(),
         hash_password_fn=lambda _: "scrypt$hash",
     )
     service.provision(

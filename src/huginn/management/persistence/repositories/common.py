@@ -30,4 +30,9 @@ class PostgresIdentityRepository:
         constraint = exc.constraint_name or ""
         if constraint == "accounts_username_lower_key":
             return ConflictError("username is already in use")
+        if constraint in {
+            "users_email_lower_key",
+            "account_recovery_identity_email_lower_key",
+        }:
+            return ConflictError("email is already in use")
         return ValidationDomainError("identity data violates a database constraint")

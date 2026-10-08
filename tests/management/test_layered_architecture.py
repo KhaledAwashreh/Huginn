@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[2] / "src/huginn/management"
-LAYERS = {"presentation", "application", "domain", "persistence", "security"}
+LAYERS = {
+    "presentation",
+    "application",
+    "domain",
+    "persistence",
+    "security",
+    "delivery",
+}
 
 
 def _imports(path, root=ROOT):
@@ -56,7 +63,30 @@ def _allowed_import(relative, imported):
         return root in sys.stdlib_module_names or _within(local, ("domain",))
     if layer == "security":
         return root not in {"fastapi", "starlette", "pydantic"} and (
-            not management or _within(local, ("security",))
+            not management
+            or _within(local, ("security",))
+            or (
+                relative.as_posix() == "security/encrypted_proof_cipher.py"
+                and local
+                in {
+                    "application.protocols.proof_cipher",
+                    "application.read_models.lifecycle_mail_message",
+                }
+            )
+        )
+    if layer == "delivery":
+        return root not in {"fastapi", "starlette", "pydantic"} and (
+            not management
+            or _within(
+                local,
+                (
+                    "delivery",
+                    "application.protocols",
+                    "application.read_models",
+                    "application.constants",
+                ),
+            )
+            or local == "config"
         )
     if layer == "application":
         return root not in {"fastapi", "starlette", "pydantic"} and (
@@ -81,12 +111,21 @@ def _allowed_import(relative, imported):
                 ),
             )
             or local == "config"
+            or (
+                relative.as_posix() == "presentation/cli/lifecycle_mail_worker.py"
+                and _within(
+                    local,
+                    ("persistence.database", "persistence.repositories", "delivery"),
+                )
+            )
         )
     if layer == "persistence":
         section = relative.parts[1]
         allowed_packages = {
             "contracts": ("persistence.contracts", "persistence.errors", "domain"),
             "repositories": (
+                "application.protocols",
+                "application.read_models",
                 "persistence.repositories",
                 "persistence.contracts",
                 "persistence.row_models",
@@ -161,6 +200,15 @@ def test_management_import_graph_points_downward():
         ),
         ("domain/entities/account.py", "pydantic"),
         ("security/tokens.py", "psycopg"),
+        (
+            "domain/entities/account.py",
+            "huginn.management.application.read_models.account_security",
+        ),
+        ("security/tokens.py", "huginn.management.application.services.signup_service"),
+        (
+            "delivery/smtp_lifecycle_mail_sender.py",
+            "huginn.management.presentation.api.requests.signup",
+        ),
     ),
 )
 def test_import_graph_rejects_forbidden_edges(tmp_path, path, imported):

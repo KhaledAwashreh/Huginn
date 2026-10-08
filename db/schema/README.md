@@ -1,7 +1,8 @@
 # Database schema
 
-These files are a fresh-database bootstrap, not migrations. No migration
-framework has been chosen. Apply all seven files to a new database in this
+The seven base files are a fresh-database bootstrap. Named upgrade files
+below are explicit operator migrations; no migration framework has been
+chosen. Apply all seven base files to a new database in this
 order:
 
 1. `00_extensions.sql`
@@ -17,6 +18,52 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-tra
 ```
 
 `ON_ERROR_STOP` and the single transaction make any SQL error fail the bootstrap without committing a partial schema. The management development database still receives every ELT schema because retained operational tables reference `gold.company`. Use a new, dedicated, disposable database; this bootstrap does not authorize dropping or resetting an existing database.
+
+## Public account lifecycle upgrade
+
+Existing management databases require the additive lifecycle upgrade before
+public signup or the mail worker is enabled:
+
+```bash
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-account-lifecycle.sql
+```
+
+This file owns its transaction. It creates `account_recovery_identity`,
+`account_lifecycle_proofs`, `lifecycle_mail_outbox`, and `lifecycle_throttle`
+under `operational`, locks account writes during the trusted legacy backfill,
+and preserves existing account, user, password, and active/disabled state.
+Backfilled accounts receive `verification_required=false` with no pending or
+verified email. Contact email is never assumed to prove recovery ownership.
+Reapplying the file preserves existing recovery rows, including pending
+public signups and verified destinations. Fresh installs already receive
+these tables from `operational.sql` and need no separate upgrade.
+
+Contact emails and pending-or-verified recovery destinations now have normalized
+case-insensitive unique indexes. If existing data contains duplicate normalized
+values, the migration aborts its transaction with operator guidance. Inspect
+and resolve account ownership explicitly before rerunning; no rows are merged,
+deleted or silently verified. A conflicting contact-email update rolls back.
+
+Deploy writers that create an explicit recovery identity in the account
+transaction before allowing account creation after the migration. The schema
+has no trigger that silently trusts future accounts, and the login service
+must treat a missing recovery identity as an integrity error. Normal startup
+does not apply DDL. Configure the authenticated-encryption key, SMTP settings,
+and trusted web origin before enabling lifecycle delivery. The outbox stores
+its recipient snapshot and raw proof together inside `encrypted_payload`;
+terminal delivery states require the ciphertext to be scrubbed. Proof rows
+retain their exact destination binding, and throttle rows store normalized
+username/email/client-IP digests rather than submitted plaintext identifiers.
+
+`tests/management/test_account_lifecycle_migration.py` exercises legacy upgrade,
+repeat backfill preservation, fresh-schema column/constraint/index parity,
+and persistence safeguards against disposable PostgreSQL 16 provisioned by
+`tests.postgres_harness`. It never uses a shared deployment database.
+
+Rollback disables public lifecycle routes and the mail worker while retaining
+these additive tables. Keep the verification login gate for public accounts
+or disable their login operationally; an older server without the gate would
+allow unverified public accounts to log in.
 
 ## Existing Pre-KAN-83 Databases
 

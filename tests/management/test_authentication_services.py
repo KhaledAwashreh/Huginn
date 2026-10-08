@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,7 @@ from huginn.management.application.errors.errors import (
 from huginn.management.application.services.authentication import AuthenticationService
 from huginn.management.config import ManagementConfig
 from huginn.management.domain.entities.account import Account
+from huginn.management.security.csrf import derive_csrf_token
 
 NOW = datetime(2026, 1, 2, tzinfo=UTC)
 PASSWORD = "correct horse battery staple"
@@ -127,9 +129,14 @@ def make_login(
     uow=None,
     dummy_hash="dummy-hash",
     use_werkzeug_rehash=False,
+    recovery_identity=...,
 ):
     uow, repos = uow or Uow(), Accounts(account)
     sessions, throttle = sessions or Sessions(), throttle or Throttle()
+    if recovery_identity is ...:
+        recovery_identity = SimpleNamespace(
+            verification_required=False, verified_email=None
+        )
     verified = []
 
     def verifier(password, encoded):
@@ -141,6 +148,9 @@ def make_login(
         ManagementConfig("postgresql://ignored", session_ttl=timedelta(hours=2)),
         throttle,
         accounts_factory=lambda _: repos,
+        recovery_identities_factory=lambda _: SimpleNamespace(
+            get_by_account_id=lambda _: recovery_identity
+        ),
         sessions_factory=lambda _: sessions,
         clock=lambda: NOW,
         token_generator=iter(("session-secret", "csrf-secret")).__next__,
@@ -202,7 +212,8 @@ def test_login_success_persists_digest_session_commits_then_resets_throttle():
     result = service.login(username="Owner", password=PASSWORD, client_ip="192.0.2.1")
     assert result.account_id == account_value.id
     assert (
-        result.session_token == "session-secret" and result.csrf_token == "csrf-secret"
+        result.session_token == "session-secret"
+        and result.csrf_token == derive_csrf_token("session-secret")
     )
     assert "session-secret" not in repr(result) and "csrf-secret" not in repr(result)
     assert len(sessions.created) == 1

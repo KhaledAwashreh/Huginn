@@ -12,8 +12,20 @@ from huginn.management.application.services.account_management import (
     AccountAdministrationServices,
 )
 from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.application.services.current_session_service import (
+    CurrentSessionService,
+)
 from huginn.management.application.services.discovery_strategies import (
     ClientDiscoveryStrategyService,
+)
+from huginn.management.application.services.enroll_recovery_email_service import (
+    EnrollRecoveryEmailService,
+)
+from huginn.management.application.services.forgot_password_service import (
+    ForgotPasswordService,
+)
+from huginn.management.application.services.get_account_security_service import (
+    GetAccountSecurityService,
 )
 from huginn.management.application.services.ideal_client_profiles import (
     IdealClientProfileService,
@@ -21,10 +33,20 @@ from huginn.management.application.services.ideal_client_profiles import (
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
 )
+from huginn.management.application.services.resend_verification_service import (
+    ResendVerificationService,
+)
+from huginn.management.application.services.reset_password_service import (
+    ResetPasswordService,
+)
 from huginn.management.application.services.service_offerings import (
     ServiceOfferingService,
 )
+from huginn.management.application.services.signup_service import SignupService
 from huginn.management.application.services.user_profile import UserProfileService
+from huginn.management.application.services.verify_email_service import (
+    VerifyEmailService,
+)
 from huginn.management.application.throttling.failed_login import FailedLoginThrottle
 from huginn.management.config import ManagementConfig, load_config
 from huginn.management.persistence.database.client import (
@@ -33,11 +55,23 @@ from huginn.management.persistence.database.client import (
 )
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.account_lifecycle_proof import (
+    PostgresAccountLifecycleProofRepository,
+)
+from huginn.management.persistence.repositories.account_recovery_identity import (
+    PostgresAccountRecoveryIdentityRepository,
+)
 from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
 from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
+)
+from huginn.management.persistence.repositories.lifecycle_mail_outbox import (
+    PostgresLifecycleMailOutboxRepository,
+)
+from huginn.management.persistence.repositories.lifecycle_throttle import (
+    PostgresLifecycleThrottleRepository,
 )
 from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
@@ -52,6 +86,12 @@ from huginn.management.presentation.api.errors.handlers import (
     suppress_handled_server_error_tracebacks,
 )
 from huginn.management.presentation.api.openapi.customization import customize_openapi
+from huginn.management.presentation.api.routers.account_lifecycle import (
+    router as account_lifecycle_router,
+)
+from huginn.management.presentation.api.routers.account_security import (
+    router as account_security_router,
+)
 from huginn.management.presentation.api.routers.current_user import (
     router as current_user_router,
 )
@@ -68,6 +108,8 @@ from huginn.management.presentation.api.routers.service_offerings import (
 from huginn.management.presentation.api.routers.sessions import (
     router as sessions_router,
 )
+from huginn.management.presentation.api.static_assets import mount_frontend_assets
+from huginn.management.security.encrypted_proof_cipher import EncryptedProofCipher
 from huginn.management.security.passwords import hash_password, verify_password
 from huginn.management.security.tokens import generate_token
 
@@ -87,6 +129,14 @@ class ManagementDependencies:
     service_offering_service: Any
     ideal_client_profile_service: Any
     discovery_strategy_service: Any
+    current_session_service: Any = None
+    signup_service: Any = None
+    verify_email_service: Any = None
+    resend_verification_service: Any = None
+    enroll_recovery_email_service: Any = None
+    forgot_password_service: Any = None
+    reset_password_service: Any = None
+    get_account_security_service: Any = None
     clock: Callable[[], datetime] | None = None
 
 
@@ -107,6 +157,9 @@ def create_account_administration_services(
         provisioning=IdentityProvisioningService(
             make_uow,
             accounts_factory=accounts,
+            recovery_identities_factory=lambda work: (
+                PostgresAccountRecoveryIdentityRepository(work.connection)
+            ),
             users_factory=lambda work: PostgresUserRepository(work.connection),
             profiles_factory=lambda work: PostgresProfessionalProfileRepository(
                 work.connection
@@ -135,6 +188,7 @@ def create_app(
     service_offering_service: Any | None = None,
     ideal_client_profile_service: Any | None = None,
     discovery_strategy_service: Any | None = None,
+    current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     throttle: Any | None = None,
 ) -> FastAPI:
@@ -164,6 +218,9 @@ def create_app(
             resolved_config,
             login_throttle,
             accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+            recovery_identities_factory=lambda uow: (
+                PostgresAccountRecoveryIdentityRepository(uow.connection)
+            ),
             sessions_factory=make_sessions,
             clock=clock,
             token_generator=generate_token,
@@ -175,7 +232,55 @@ def create_app(
     change_password = (
         password_change_service if password_change_service is not None else auth
     )
+    lifecycle_arguments = {
+        "cipher": EncryptedProofCipher(resolved_config.lifecycle_proof_key)
+        if resolved_config.lifecycle_proof_key
+        else None,
+        "accounts_factory": lambda uow: PostgresAccountRepository(uow.connection),
+        "users_factory": lambda uow: PostgresUserRepository(uow.connection),
+        "profiles_factory": lambda uow: PostgresProfessionalProfileRepository(
+            uow.connection
+        ),
+        "recovery_identities_factory": lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
+        ),
+        "proofs_factory": lambda uow: PostgresAccountLifecycleProofRepository(
+            uow.connection
+        ),
+        "outbox_factory": lambda uow: PostgresLifecycleMailOutboxRepository(
+            uow.connection
+        ),
+        "throttle_factory": lambda uow: PostgresLifecycleThrottleRepository(
+            uow.connection
+        ),
+        "sessions_factory": make_sessions,
+        "clock": clock,
+    }
     dependencies = ManagementDependencies(
+        signup_service=SignupService(make_uow, resolved_config, **lifecycle_arguments),
+        verify_email_service=VerifyEmailService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        resend_verification_service=ResendVerificationService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        enroll_recovery_email_service=EnrollRecoveryEmailService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        forgot_password_service=ForgotPasswordService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        reset_password_service=ResetPasswordService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        get_account_security_service=GetAccountSecurityService(
+            make_uow, resolved_config, **lifecycle_arguments
+        ),
+        current_session_service=current_session_service
+        if current_session_service is not None
+        else CurrentSessionService(
+            make_uow, sessions_factory=make_sessions, clock=clock
+        ),
         config=resolved_config,
         readiness=probe,
         unit_of_work_factory=make_uow,
@@ -234,5 +339,8 @@ def create_app(
     app.include_router(service_offerings_router)
     app.include_router(ideal_client_profiles_router)
     app.include_router(discovery_strategies_router)
+    app.include_router(account_lifecycle_router)
+    app.include_router(account_security_router)
+    mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

@@ -4,10 +4,20 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
-from huginn.management.presentation.api.dependencies.authentication import CsrfProtected
+from huginn.management.application.requests.current_session_request import (
+    CurrentSessionRequest,
+)
+from huginn.management.presentation.api.dependencies.authentication import (
+    Authenticated,
+    CsrfProtected,
+)
+from huginn.management.presentation.api.dependencies.browser_origin import (
+    require_same_origin_browser_mutation,
+)
 from huginn.management.presentation.api.dependencies.services import (
     Management,
     get_authentication_service,
+    get_current_session_service,
     get_login_service,
     get_password_change_service,
 )
@@ -17,6 +27,9 @@ from huginn.management.presentation.api.requests.authentication import (
     PasswordChangeRequest,
 )
 from huginn.management.presentation.api.responses.authentication import LoginResponse
+from huginn.management.presentation.api.responses.current_session import (
+    CurrentSessionResponse,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
@@ -48,7 +61,8 @@ def _clear_session_cookie(response: Response, dependencies: Any) -> None:
 @router.post(
     "/sessions",
     response_model=LoginResponse,
-    responses=error_responses(400, 401, 422, 429),
+    responses=error_responses(400, 401, 403, 422, 429),
+    dependencies=[Depends(require_same_origin_browser_mutation)],
 )
 def create_session(
     body: LoginRequest,
@@ -103,3 +117,30 @@ def change_current_password(
     _clear_session_cookie(response, dependencies)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
+
+
+@router.get(
+    "/sessions/current",
+    response_model=CurrentSessionResponse,
+    responses=error_responses(401),
+)
+def get_current_session(
+    authenticated: Authenticated,
+    service: Annotated[Any, Depends(get_current_session_service)],
+    response: Response,
+) -> CurrentSessionResponse:
+    result = service.execute(
+        CurrentSessionRequest(
+            authenticated.principal,
+            authenticated.session.id,
+            authenticated.token,
+        )
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Cookie"
+    return CurrentSessionResponse(
+        account_id=result.account_id,
+        user_id=result.user_id,
+        csrf_token=result.csrf_token,
+        expires_at=result.expires_at,
+    )

@@ -10,6 +10,9 @@
 # unexpectedly transmit the diff to a service.
 set -uo pipefail
 
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
 # A dirty working tree (uncommitted changes) isn't necessarily what's
 # actually about to be pushed: git push sends committed objects, not
 # working-tree state. Refuse to run checks against a state that might not
@@ -39,6 +42,13 @@ echo
 echo "== uv run ruff format --check . =="
 if ! uv run ruff format --check .; then
     echo "ruff format --check failed." >&2
+    fail=1
+fi
+
+echo
+echo "== conditional frontend checks =="
+if ! "$repo_root/scripts/frontend-review.sh" pre-push; then
+    echo "conditional frontend checks failed. Push blocked." >&2
     fail=1
 fi
 

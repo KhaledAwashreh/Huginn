@@ -36,7 +36,14 @@ def customize_openapi(app: FastAPI) -> None:
         }
         for path, operations in document["paths"].items():
             for method, operation in operations.items():
-                if path.startswith("/api/") and path != "/api/v1/sessions":
+                if path.startswith("/api/") and path not in {
+                    "/api/v1/sessions",
+                    "/api/v1/accounts",
+                    "/api/v1/email-verifications",
+                    "/api/v1/email-verifications/resend",
+                    "/api/v1/password-resets",
+                    "/api/v1/password-resets/complete",
+                }:
                     requirements = operation.setdefault("security", [])
                     if method in {"post", "patch", "put", "delete"}:
                         requirement = next(

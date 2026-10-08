@@ -12,6 +12,8 @@ from huginn.management.presentation.api.constants.pagination import (
     MAX_PAGE_LIMIT,
 )
 from huginn.management.security.password_policy import (
+    NEW_PASSWORD_MAX_LENGTH,
+    NEW_PASSWORD_MIN_LENGTH,
     PASSWORD_HASH_METHOD,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
@@ -26,7 +28,8 @@ from huginn.management.security.tokens import digest_token, generate_token
 
 
 def test_constants_are_grouped_by_semantic_owner():
-    assert (PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH) == (12, 1024)
+    assert (PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH) == (8, 1024)
+    assert (NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MAX_LENGTH) == (8, 16)
     assert PASSWORD_HASH_METHOD == "scrypt"
     assert MANAGEMENT_SCHEMA == "operational"
     assert {"password", "password_hash", "token_digest"} <= SENSITIVE_FIELDS
@@ -44,7 +47,7 @@ def test_constants_are_grouped_by_semantic_owner():
 
 
 def test_password_validation_and_redaction():
-    assert Password("p" * PASSWORD_MIN_LENGTH).value == "p" * 12
+    assert Password("p" * PASSWORD_MIN_LENGTH).value == "p" * 8
     assert Password("p" * PASSWORD_MAX_LENGTH).value == "p" * 1024
     with pytest.raises(ValueError):
         Password("p" * (PASSWORD_MIN_LENGTH - 1))

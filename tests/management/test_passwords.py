@@ -11,12 +11,12 @@ from huginn.management.security.passwords import (
 )
 
 
-@pytest.mark.parametrize("length", [12, 1024])
+@pytest.mark.parametrize("length", [8, 1024])
 def test_password_accepts_inclusive_length_boundaries(length):
     assert len(Password("p" * length).value) == length
 
 
-@pytest.mark.parametrize("length", [11, 1025])
+@pytest.mark.parametrize("length", [7, 1025])
 def test_password_rejects_values_outside_length_boundaries(length):
     with pytest.raises(ValueError):
         Password("p" * length)
@@ -65,3 +65,31 @@ def test_password_cannot_be_serialized_into_a_response_value():
 
     with pytest.raises(TypeError):
         json.dumps({"credential": password})
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["Pass123!", "Password1234567!", "A1!abcde", "Abcdefghijklm1!😀", "Abcdef1! "],
+)
+def test_new_password_accepts_user_requested_composition(value):
+    from huginn.management.security.passwords import validate_new_password
+
+    assert validate_new_password(value).value == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Aa1!abc",
+        "Password12345678!",
+        "Password!",
+        "Password123",
+        "1234567!",
+        "Pass123 ",
+    ],
+)
+def test_new_password_rejects_length_or_missing_composition(value):
+    from huginn.management.security.passwords import validate_new_password
+
+    with pytest.raises(ValueError):
+        validate_new_password(value)

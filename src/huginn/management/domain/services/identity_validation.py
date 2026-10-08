@@ -18,6 +18,13 @@ def _required_text(field: str, value: object) -> str:
     return normalized
 
 
+def normalized_email(value: object) -> str:
+    email = _required_text("email", value).lower()
+    if not 3 <= len(email) <= 254 or not _EMAIL_PATTERN.fullmatch(email):
+        raise ValidationDomainError("invalid identity field: email")
+    return email
+
+
 def validated_identity_fields(
     *,
     username: object,
@@ -32,7 +39,7 @@ def validated_identity_fields(
     username = _required_text("username", username)
     first_name = _required_text("first_name", first_name)
     last_name = _required_text("last_name", last_name)
-    email = _required_text("email", email)
+    email = normalized_email(email)
     if not 3 <= len(email) <= 254 or not _EMAIL_PATTERN.fullmatch(email):
         raise ValidationDomainError("invalid identity field: email")
 

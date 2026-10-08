@@ -120,3 +120,18 @@ def test_load_config_rejects_invalid_auth_environment(monkeypatch, key, value):
     monkeypatch.setenv(key, value)
     with pytest.raises(RuntimeError, match="^invalid management configuration$"):
         config.load_config()
+
+
+def test_load_config_reads_lifecycle_deployment_settings(monkeypatch):
+    monkeypatch.setattr("huginn.management.config.load_dotenv", lambda: False)
+    from cryptography.fernet import Fernet
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "unused")
+    monkeypatch.setenv("HUGINN_LIFECYCLE_PROOF_KEY", key)
+    monkeypatch.setenv("HUGINN_WEB_ORIGIN", "http://localhost:4173")
+    monkeypatch.setenv("HUGINN_SMTP_PORT", "2525")
+    loaded = config.load_config()
+    assert loaded.lifecycle_proof_key == key
+    assert loaded.web_origin == "http://localhost:4173"
+    assert loaded.smtp_port == 2525

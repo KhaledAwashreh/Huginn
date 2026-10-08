@@ -20,6 +20,9 @@ from huginn.management.domain.value_objects.user import NewUser
 from huginn.management.persistence.contracts.repositories.account import (
     AccountRepository,
 )
+from huginn.management.persistence.contracts.repositories.account_recovery_identity import (
+    AccountRecoveryIdentityRepository,
+)
 from huginn.management.persistence.contracts.repositories.professional_profile import (
     ProfessionalProfileRepository,
 )
@@ -38,7 +41,7 @@ class ProvisionedIdentity:
 
 
 class IdentityProvisioningService:
-    """Create Account, User, and ProfessionalProfile atomically."""
+    """Create Account, User, profile, and trusted recovery identity atomically."""
 
     def __init__(
         self,
@@ -47,12 +50,16 @@ class IdentityProvisioningService:
         accounts_factory: Callable[[UnitOfWorkProtocol], AccountRepository],
         users_factory: Callable[[UnitOfWorkProtocol], UserRepository],
         profiles_factory: Callable[[UnitOfWorkProtocol], ProfessionalProfileRepository],
+        recovery_identities_factory: Callable[
+            [UnitOfWorkProtocol], AccountRecoveryIdentityRepository
+        ],
         hash_password_fn: Callable[[Password], str] | None = None,
     ) -> None:
         self._uow_factory = unit_of_work_factory
         self._accounts_factory = accounts_factory
         self._users_factory = users_factory
         self._profiles_factory = profiles_factory
+        self._recovery_identities_factory = recovery_identities_factory
         self._hash_password = hash_password_fn or hash_password
 
     def provision(
@@ -85,6 +92,7 @@ class IdentityProvisioningService:
             accounts = self._accounts_factory(uow)
             users = self._users_factory(uow)
             profiles = self._profiles_factory(uow)
+            recovery_identities = self._recovery_identities_factory(uow)
             if accounts.get_by_normalized_username(username):
                 raise ConflictError("username is already in use")
             account = accounts.create(NewAccount(username, self._hash_password(secret)))
@@ -100,6 +108,7 @@ class IdentityProvisioningService:
                 )
             )
             profile = profiles.create(NewProfessionalProfile(user.id))
+            recovery_identities.create(account.id, verification_required=False)
             uow.commit()
             return ProvisionedIdentity(
                 account.id, user.id, profile.id, account.username, account.status

@@ -32,6 +32,9 @@ from huginn.management.persistence.database.client import (
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.errors.database import DatabaseError
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.account_recovery_identity import (
+    PostgresAccountRecoveryIdentityRepository,
+)
 from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
@@ -90,6 +93,9 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
         account = PostgresAccountRepository(PsycopgDatabaseSession(connection)).create(
             NewAccount(username, "old-hash")
         )
+        PostgresAccountRecoveryIdentityRepository(
+            PsycopgDatabaseSession(connection)
+        ).create(account.id, verification_required=False)
 
     factory = ManagementConnectionFactory(management_database_url)
     entered_session_create, allow_login_commit = Event(), Event()
@@ -125,6 +131,9 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
         Throttle(),
         accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
         sessions_factory=PausingSessions,
+        recovery_identities_factory=lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
+        ),
         verify_password_fn=lambda *_: True,
         needs_rehash_fn=lambda _: False,
         token_generator=iter(("login-token", "csrf-token")).__next__,
@@ -181,6 +190,10 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
         with psycopg.connect(management_database_url) as connection:
             connection.execute(
                 "DELETE FROM operational.sessions WHERE account_id = %s", (account.id,)
+            )
+            connection.execute(
+                "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
+                (account.id,),
             )
             connection.execute(
                 "DELETE FROM operational.accounts WHERE id = %s", (account.id,)
@@ -313,6 +326,9 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
             profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
                 uow.connection
             ),
+            recovery_identities_factory=lambda uow: (
+                PostgresAccountRecoveryIdentityRepository(uow.connection)
+            ),
             hash_password_fn=lambda _: "test-scrypt-hash",
         )
 
@@ -421,6 +437,12 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
             "WHERE a.username = %s",
             (username,),
         ).fetchone()
+        recovery_state = connection.execute(
+            "SELECT verification_required, pending_email, verified_email, verified_at "
+            "FROM operational.account_recovery_identity WHERE account_id = %s",
+            (account_id,),
+        ).fetchone()
+    assert recovery_state == (False, None, None, None)
     assert all(
         str(identifier) in output for identifier in (account_id, user_id, profile_id)
     )
@@ -487,6 +509,9 @@ def test_live_cli_disable_and_reset_roll_back_when_session_revocation_fails(
         users_factory=lambda uow: PostgresUserRepository(uow.connection),
         profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
             uow.connection
+        ),
+        recovery_identities_factory=lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
         ),
         hash_password_fn=lambda _: "old-hash",
     )
@@ -581,6 +606,9 @@ def test_live_sessions_persist_only_digests_and_enforce_active_state_transaction
         users_factory=lambda uow: PostgresUserRepository(uow.connection),
         profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
             uow.connection
+        ),
+        recovery_identities_factory=lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
         ),
         hash_password_fn=lambda _: "session-test-hash",
     )

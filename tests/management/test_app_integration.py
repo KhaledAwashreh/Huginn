@@ -12,6 +12,9 @@ from huginn.management.config import ManagementConfig
 from huginn.management.persistence.database.client import ManagementConnectionFactory
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.account_recovery_identity import (
+    PostgresAccountRecoveryIdentityRepository,
+)
 from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
@@ -26,6 +29,9 @@ def _provision_identity(factory, **values):
         users_factory=lambda uow: PostgresUserRepository(uow.connection),
         profiles_factory=lambda uow: PostgresProfessionalProfileRepository(
             uow.connection
+        ),
+        recovery_identities_factory=lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
         ),
     )
     return service.provision(ProvisionIdentity(**values))
@@ -188,6 +194,10 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
     finally:
         with psycopg.connect(management_database_url) as connection:
             connection.execute(
+                "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
+                (identity.account_id,),
+            )
+            connection.execute(
                 "DELETE FROM operational.sessions WHERE account_id = %s",
                 (identity.account_id,),
             )
@@ -274,6 +284,10 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
         )
     finally:
         with psycopg.connect(management_database_url) as connection:
+            connection.execute(
+                "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
+                (identity.account_id,),
+            )
             connection.execute(
                 "DELETE FROM operational.sessions WHERE account_id = %s",
                 (identity.account_id,),
@@ -440,6 +454,10 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
             connection.execute(
                 "DELETE FROM operational.professional_profiles WHERE user_id=ANY(%s)",
                 (list(user_ids),),
+            )
+            connection.execute(
+                "DELETE FROM operational.account_recovery_identity WHERE account_id=ANY(%s)",
+                (list(account_ids),),
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE id=ANY(%s)", (list(user_ids),)

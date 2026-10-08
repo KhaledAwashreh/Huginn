@@ -6,3 +6,8 @@ __pycache__/
 .env
 .worktrees/
 .idea/
+frontend/node_modules/
+frontend/dist/
+frontend/reports/
+frontend/playwright-report/
+frontend/test-results/

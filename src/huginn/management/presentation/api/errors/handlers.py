@@ -3,10 +3,12 @@
 import logging
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from huginn.management.application.errors.lifecycle import LifecycleRateLimitError
 from huginn.management.domain.errors.errors import ManagementDomainError
 from huginn.management.persistence.errors.database import DatabaseError, IntegrityError
 from huginn.management.presentation.api.errors.shapes import (
@@ -72,13 +74,35 @@ def validation_error_shape(error: RequestValidationError) -> ErrorShape:
 def register_exception_handlers(app: FastAPI) -> None:
     """Register framework handlers; app composition calls this in task 5.9."""
 
+    @app.exception_handler(HTTPException)
+    async def handle_http_error(request: Request, error: HTTPException):
+        if error.status_code == 503:
+            shape = error_shape_for_status(503)
+            return JSONResponse(
+                status_code=shape.status_code,
+                content=shape.body,
+                headers={"Cache-Control": "no-store"},
+            )
+        return await http_exception_handler(request, error)
+
     @app.exception_handler(ManagementDomainError)
     async def handle_domain_error(
         request: Request, error: ManagementDomainError
     ) -> JSONResponse:
-        del request
         shape = domain_error_shape(error)
-        return JSONResponse(status_code=shape.status_code, content=shape.body)
+        headers = (
+            {"Cache-Control": "no-store", "Vary": "Cookie"}
+            if request.url.path == "/api/v1/sessions/current"
+            else None
+        )
+        if isinstance(error, LifecycleRateLimitError):
+            headers = {
+                "Retry-After": str(error.retry_after_seconds),
+                "Cache-Control": "no-store",
+            }
+        return JSONResponse(
+            status_code=shape.status_code, content=shape.body, headers=headers
+        )
 
     @app.exception_handler(IntegrityError)
     async def handle_integrity_error(
