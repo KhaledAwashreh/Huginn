@@ -11,6 +11,7 @@ from huginn.management.application.errors.errors import (
 from huginn.management.application.services.authentication import AuthenticationService
 from huginn.management.config import ManagementConfig
 from huginn.management.domain.entities.account import Account
+from huginn.management.security.csrf import derive_csrf_token
 
 NOW = datetime(2026, 1, 2, tzinfo=UTC)
 PASSWORD = "correct horse battery staple"
@@ -202,7 +203,8 @@ def test_login_success_persists_digest_session_commits_then_resets_throttle():
     result = service.login(username="Owner", password=PASSWORD, client_ip="192.0.2.1")
     assert result.account_id == account_value.id
     assert (
-        result.session_token == "session-secret" and result.csrf_token == "csrf-secret"
+        result.session_token == "session-secret"
+        and result.csrf_token == derive_csrf_token("session-secret")
     )
     assert "session-secret" not in repr(result) and "csrf-secret" not in repr(result)
     assert len(sessions.created) == 1

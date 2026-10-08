@@ -1,0 +1,54 @@
+{
+  "name": "huginn-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "npm@12.2.0",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint . --max-warnings 0",
+    "format:check": "prettier . --check",
+    "format": "prettier . --write",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "build": "npm run typecheck && vite build",
+    "api:export": "cd .. && uv run python scripts/export-management-openapi.py --output frontend/src/api/generated/openapi.json",
+    "api:generate": "npm run api:export && openapi-typescript src/api/generated/openapi.json -o src/api/generated/schema.d.ts",
+    "api:check": "node scripts/checkApiTypes.mjs",
+    "check": "npm run api:check && npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run build"
+  },
+  "dependencies": {
+    "@primeuix/themes": "1.2.5",
+    "@tanstack/vue-query": "5.104.1",
+    "primevue": "4.5.5",
+    "vue": "3.5.43",
+    "vue-router": "5.4.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.19.1",
+    "@vitejs/plugin-vue": "6.0.9",
+    "@vue/test-utils": "2.5.1",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-vue": "10.11.1",
+    "jsdom": "30.1.2",
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.9.9",
+    "playwright": "1.64.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.3",
+    "vitest": "5.0.3",
+    "vue-eslint-parser": "10.4.1",
+    "vue-tsc": "3.3.12"
+  },
+  "allowScripts": {
+    "vue-demi@0.14.10": true
+  }
+}

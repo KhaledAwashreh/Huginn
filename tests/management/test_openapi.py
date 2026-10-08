@@ -24,7 +24,7 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
         "/health": {"get"},
         "/ready": {"get"},
         "/api/v1/sessions": {"post"},
-        "/api/v1/sessions/current": {"delete"},
+        "/api/v1/sessions/current": {"delete", "get"},
         "/api/v1/me": {"get", "patch"},
         "/api/v1/me/password": {"patch"},
         "/api/v1/me/professional-profile": {"get", "patch"},

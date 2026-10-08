@@ -26,3 +26,7 @@ def get_password_change_service(dependencies: Management) -> Any:
 
 def get_readiness(dependencies: Management) -> Any:
     return dependencies.readiness
+
+
+def get_current_session_service(dependencies: Management) -> Any:
+    return dependencies.current_session_service

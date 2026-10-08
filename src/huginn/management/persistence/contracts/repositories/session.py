@@ -15,5 +15,14 @@ class SessionRepository(Protocol):
     def get_active_principal_by_token_digest(
         self, token_digest: str, now: datetime
     ) -> Principal | None: ...
+    def initialize_csrf_digest(
+        self,
+        session_id: UUID,
+        token_digest: str,
+        principal: Principal,
+        expected_digest: str,
+        csrf_digest: str,
+        now: datetime,
+    ) -> Session | None: ...
     def revoke_current(self, session_id: UUID, revoked_at: datetime) -> None: ...
     def revoke_for_account(self, account_id: UUID, revoked_at: datetime) -> None: ...

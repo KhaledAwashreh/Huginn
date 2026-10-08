@@ -22,6 +22,7 @@ from huginn.management.persistence.contracts.repositories.session import (
     SessionRepository,
 )
 from huginn.management.persistence.contracts.unit_of_work import UnitOfWorkProtocol
+from huginn.management.security.csrf import derive_csrf_token
 from huginn.management.security.password_policy import PASSWORD_HASH_METHOD
 from huginn.management.security.passwords import (
     Password,
@@ -78,7 +79,7 @@ class _SessionOperations:
 
     def create(self, account_id: UUID) -> IssuedSession:
         token = self._token_generator()
-        csrf = self._token_generator()
+        csrf = derive_csrf_token(token)
         expires_at = self._now() + self._ttl
         self._sessions.create(
             NewSession(account_id, self.digest(token), self.digest(csrf), expires_at)

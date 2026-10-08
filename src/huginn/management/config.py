@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -26,6 +27,7 @@ class ManagementConfig:
     login_throttle_failures: int = 5
     login_throttle_window: timedelta = timedelta(minutes=15)
     environment: str = "local"
+    frontend_assets_path: Path | None = None
 
     def __post_init__(self) -> None:
         if self.cookie_secure is not None and not isinstance(self.cookie_secure, bool):
@@ -91,6 +93,11 @@ def load_config() -> ManagementConfig:
             login_throttle_failures=throttle_failures,
             login_throttle_window=timedelta(seconds=throttle_window_seconds),
             environment=environment,
+            frontend_assets_path=(
+                Path(value)
+                if (value := os.environ.get("HUGINN_FRONTEND_ASSETS_PATH", "").strip())
+                else None
+            ),
         )
     except (TypeError, ValueError) as exc:
         raise RuntimeError("invalid management configuration") from exc

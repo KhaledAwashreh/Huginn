@@ -12,6 +12,9 @@ from huginn.management.application.services.account_management import (
     AccountAdministrationServices,
 )
 from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.application.services.current_session_service import (
+    CurrentSessionService,
+)
 from huginn.management.application.services.discovery_strategies import (
     ClientDiscoveryStrategyService,
 )
@@ -68,6 +71,7 @@ from huginn.management.presentation.api.routers.service_offerings import (
 from huginn.management.presentation.api.routers.sessions import (
     router as sessions_router,
 )
+from huginn.management.presentation.api.static_assets import mount_frontend_assets
 from huginn.management.security.passwords import hash_password, verify_password
 from huginn.management.security.tokens import generate_token
 
@@ -87,6 +91,7 @@ class ManagementDependencies:
     service_offering_service: Any
     ideal_client_profile_service: Any
     discovery_strategy_service: Any
+    current_session_service: Any = None
     clock: Callable[[], datetime] | None = None
 
 
@@ -135,6 +140,7 @@ def create_app(
     service_offering_service: Any | None = None,
     ideal_client_profile_service: Any | None = None,
     discovery_strategy_service: Any | None = None,
+    current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     throttle: Any | None = None,
 ) -> FastAPI:
@@ -176,6 +182,11 @@ def create_app(
         password_change_service if password_change_service is not None else auth
     )
     dependencies = ManagementDependencies(
+        current_session_service=current_session_service
+        if current_session_service is not None
+        else CurrentSessionService(
+            make_uow, sessions_factory=make_sessions, clock=clock
+        ),
         config=resolved_config,
         readiness=probe,
         unit_of_work_factory=make_uow,
@@ -234,5 +245,6 @@ def create_app(
     app.include_router(service_offerings_router)
     app.include_router(ideal_client_profiles_router)
     app.include_router(discovery_strategies_router)
+    mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

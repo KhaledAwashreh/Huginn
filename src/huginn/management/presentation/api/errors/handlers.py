@@ -76,9 +76,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_domain_error(
         request: Request, error: ManagementDomainError
     ) -> JSONResponse:
-        del request
         shape = domain_error_shape(error)
-        return JSONResponse(status_code=shape.status_code, content=shape.body)
+        headers = (
+            {"Cache-Control": "no-store", "Vary": "Cookie"}
+            if request.url.path == "/api/v1/sessions/current"
+            else None
+        )
+        return JSONResponse(
+            status_code=shape.status_code, content=shape.body, headers=headers
+        )
 
     @app.exception_handler(IntegrityError)
     async def handle_integrity_error(

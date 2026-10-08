@@ -127,6 +127,7 @@ def test_management_routes_are_registered():
         ("/ready", "GET"),
         ("/api/v1/sessions", "POST"),
         ("/api/v1/sessions/current", "DELETE"),
+        ("/api/v1/sessions/current", "GET"),
         ("/api/v1/me/password", "PATCH"),
         ("/api/v1/me", "GET"),
         ("/api/v1/me", "PATCH"),

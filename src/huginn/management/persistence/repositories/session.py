@@ -59,6 +59,54 @@ class PostgresSessionRepository(PostgresIdentityRepository, SessionRepository):
         )
         return Principal(*row) if row else None
 
+    def initialize_csrf_digest(
+        self,
+        session_id: UUID,
+        token_digest: str,
+        principal: Principal,
+        expected_digest: str,
+        csrf_digest: str,
+        now: datetime,
+    ) -> Session | None:
+        # Lock in the same account-before-session order as password changes and
+        # administrator revocation. Waiting callers recheck disabled state.
+        account = self._one(
+            "SELECT a.id FROM operational.accounts a "
+            "JOIN operational.users u ON u.account_id = a.id "
+            "WHERE a.id = %s AND u.id = %s AND a.status = 'active' "
+            "FOR UPDATE OF a",
+            (principal.account_id, principal.user_id),
+        )
+        if account is None:
+            return None
+        # UPDATE evaluates WHERE before waiting for a tuple lock. Take the
+        # session lock first so the subsequent expiry check uses the clock
+        # after all lock waits, including a holder that changes no row values.
+        locked_session = self._one(
+            "SELECT id, csrf_digest FROM operational.sessions "
+            "WHERE id = %s AND account_id = %s AND token_digest = %s FOR UPDATE",
+            (session_id, principal.account_id, token_digest),
+        )
+        if locked_session is None:
+            return None
+        row = self._one(
+            "UPDATE operational.sessions SET csrf_digest = %s "
+            "WHERE id = %s AND account_id = %s AND token_digest = %s "
+            "AND revoked_at IS NULL AND expires_at > GREATEST(%s, clock_timestamp()) "
+            "AND (csrf_digest = %s OR csrf_digest = %s) "
+            f"RETURNING {self._columns}",
+            (
+                csrf_digest,
+                session_id,
+                principal.account_id,
+                token_digest,
+                now,
+                expected_digest,
+                csrf_digest,
+            ),
+        )
+        return self._map(row) if row else None
+
     def revoke_current(self, session_id: UUID, revoked_at: datetime) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
