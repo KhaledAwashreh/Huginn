@@ -6,9 +6,16 @@ architecture document section 4.3.
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from huginn.elt.gold.dimensional import apply_company_update
 from huginn.elt.gold.ports import CompanyRepositoryPort
+from huginn.pipeline_control.application.read_models.tracking_context import (
+    TrackingContext,
+)
+from huginn.pipeline_control.infrastructure.invocation_company_result_writer import (
+    InvocationCompanyResultWriter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +83,7 @@ def parse_all_locations(all_locations: str | None) -> tuple[str | None, str | No
 
 def write_company(
     repository: CompanyRepositoryPort, domain: str, new_values: dict
-) -> None:
+) -> UUID:
     """Read the current gold.company row for `domain` (None on first
     occurrence), apply `new_values` via apply_company_update, and write
     the result back. See ADR-0002 and `huginn.elt.gold.dimensional` for
@@ -105,7 +112,7 @@ def write_company(
     # row with company_id = NULL (current.get("id") on an empty dict),
     # violating that column's NOT NULL constraint.
     should_write_history = current is not None and result.history_snapshot is not None
-    repository.upsert_company(
+    company_id = repository.upsert_company(
         domain, result.new_values, bump_current_since=should_write_history
     )
 
@@ -117,6 +124,8 @@ def write_company(
             snapshot=snapshot,
             valid_from=current["current_since"],
         )
+
+    return company_id
 
 
 class CompanyWriter:
@@ -155,7 +164,7 @@ class CompanyWriter:
     def __init__(self, repository: CompanyRepositoryPort) -> None:
         self._repository = repository
 
-    def write_all(self) -> int:
+    def write_all(self, tracking_context: TrackingContext | None = None) -> int:
         """Upsert every distinct company found among domain-normalized
         signals, returning the count of companies written.
 
@@ -189,6 +198,11 @@ class CompanyWriter:
         had been named there, icp_filter_pass, because an ICP verdict is
         per-user and does not belong on a shared dimension.
         """
+        if (
+            tracking_context is not None
+            and tracking_context.stage_name != "gold.company"
+        ):
+            raise ValueError("invalid_company_tracking_context")
         with self._repository:
             signals = self._repository.read_domain_normalized_signals()
             values_by_domain: dict[str, dict[str, object]] = {}
@@ -233,7 +247,11 @@ class CompanyWriter:
                 if ordered_notes:
                     values_by_domain[domain]["notes"] = "; ".join(ordered_notes)
             for domain, new_values in values_by_domain.items():
-                write_company(self._repository, domain, new_values)
+                company_id = write_company(self._repository, domain, new_values)
+                if tracking_context is not None:
+                    InvocationCompanyResultWriter(self._repository).write(
+                        tracking_context, company_id
+                    )
             written = len(values_by_domain)
 
         logger.info("gold.company write_all: %d written", written)

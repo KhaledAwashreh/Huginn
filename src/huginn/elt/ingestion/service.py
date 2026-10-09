@@ -99,6 +99,8 @@ class IngestionService:
         try:
             self._job_run_writer.write(job_run)
         except Exception:
+            if getattr(self._job_run_writer, "strict_tracking", False):
+                raise
             logger.exception(
                 "source %s: failed to persist job_run state (id=%s, status=%s)",
                 job_run.source,

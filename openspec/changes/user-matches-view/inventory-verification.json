@@ -1,0 +1,199 @@
+{
+  "python_count": 32,
+  "frontend_count": 16,
+  "files": [
+    {
+      "path": "src/huginn/management/domain/value_objects/match_status.py",
+      "sha256": "04c980fb60b51800377d0042ff4bf639f10def05b2f4255fba822cb0b492f01a"
+    },
+    {
+      "path": "src/huginn/management/application/read_models/current_company.py",
+      "sha256": "f6c03e69692c12ca90e0f8c4f705a82be1f7491579bcb05a52d7c58c3d769814"
+    },
+    {
+      "path": "src/huginn/management/application/read_models/user_match.py",
+      "sha256": "a65c2d70530e42551ad2dcf3a39a9cf0bc0024558d968fc7236245abbae5678a"
+    },
+    {
+      "path": "src/huginn/management/application/read_models/current_company_signal.py",
+      "sha256": "0418ac5deef9a2b9501fd85d8e5ce2561d32873c8b9eaad2cd18d4c6246c8271"
+    },
+    {
+      "path": "src/huginn/management/application/read_models/evaluation_summary.py",
+      "sha256": "4470495fa989f9d45fee2d1ea1230a8d70c3705328d7febeeaafa10779cc1faf"
+    },
+    {
+      "path": "src/huginn/management/application/read_models/matches_overview.py",
+      "sha256": "b86e63407c0164a40811fd0fcd22b09bb2d32781e823e4bd2e1fede41c4ebdb7"
+    },
+    {
+      "path": "src/huginn/management/application/requests/list_matches_request.py",
+      "sha256": "6417a9b1a3b3329107ed63a6e404a7dc6ef0900b7bf005949e4559e3aa9889fe"
+    },
+    {
+      "path": "src/huginn/management/application/requests/get_match_request.py",
+      "sha256": "795e76323677ff5e6b60c6c7941cdc31d646d3110da586769e15f557e55fffad"
+    },
+    {
+      "path": "src/huginn/management/application/requests/list_match_signals_request.py",
+      "sha256": "ee003247b8ecfc98601caedeb68d4046470118440cda8dd1234d782d09a27e5b"
+    },
+    {
+      "path": "src/huginn/management/application/requests/get_matches_overview_request.py",
+      "sha256": "8c034ed85bfa2feed0069521fbc57e579c96483224156e208db03d71fb36a298"
+    },
+    {
+      "path": "src/huginn/management/application/responses/list_matches_response.py",
+      "sha256": "c1e85df3ba126a2f8a618384899ca90a6c100a7ab2b67dba650ab5e307acdba7"
+    },
+    {
+      "path": "src/huginn/management/application/responses/get_match_response.py",
+      "sha256": "b3e36977d185e7d618efbc7a2e9f1f454f0607e7290e8f91e146b4ec5db8606b"
+    },
+    {
+      "path": "src/huginn/management/application/responses/list_match_signals_response.py",
+      "sha256": "512683d786ae0605d65189420ef5c1fa83999ca2f8cc0d338c59a8d352647134"
+    },
+    {
+      "path": "src/huginn/management/application/responses/get_matches_overview_response.py",
+      "sha256": "d463b4e1d3685c7df1fb20ff6d7a35917f55e4635abf1c9a4b6fd22013b1fc9d"
+    },
+    {
+      "path": "src/huginn/management/application/services/list_matches_service.py",
+      "sha256": "dd31611e131e34b017a41ce558fdc399afac494c674f908788d21a7fed2d71c5"
+    },
+    {
+      "path": "src/huginn/management/application/services/get_match_service.py",
+      "sha256": "618f36d9eac9c0308c0f112b72bf4967e4bac76bfee5c5543262941d1d364a17"
+    },
+    {
+      "path": "src/huginn/management/application/services/list_match_signals_service.py",
+      "sha256": "5adfb897f0490b00aae01137f65f7b5bba599539aa8d936a444019079009e736"
+    },
+    {
+      "path": "src/huginn/management/application/services/get_matches_overview_service.py",
+      "sha256": "ed78187084b4dbac8b24362692da21301e5e88f7de8beef8ebd1b8d16e221d88"
+    },
+    {
+      "path": "src/huginn/management/application/protocols/matches_query.py",
+      "sha256": "9a39d8fa41dccedd26071086716705f33b1b8f8ab46762c2bcbf16c854c8d016"
+    },
+    {
+      "path": "src/huginn/management/persistence/row_models/current_company.py",
+      "sha256": "6acf657e6bfe80ab28461b89df1cca58cbafea6358f7075b7245555394a826c4"
+    },
+    {
+      "path": "src/huginn/management/persistence/row_models/user_match.py",
+      "sha256": "2174c75f475a839bd499956470eff2442adcb3bb749f18352c2f004c28bdaf52"
+    },
+    {
+      "path": "src/huginn/management/persistence/row_models/current_company_signal.py",
+      "sha256": "57616d6cd495c1c2dd3810838fba07e0bd4dd5f6dce3b5f4d10c6a7f626a74a5"
+    },
+    {
+      "path": "src/huginn/management/persistence/row_models/evaluation_summary.py",
+      "sha256": "dfe2789ea5c64223b0b37080f26d9599388a5541f38bd9f261d013bba6339279"
+    },
+    {
+      "path": "src/huginn/management/persistence/row_models/matches_overview.py",
+      "sha256": "07d03003e7ae1c039d9e51726d1d422174b270dcbfea24aa98c940339d111f51"
+    },
+    {
+      "path": "src/huginn/management/persistence/queries/matches_query.py",
+      "sha256": "ed24ab9cfdfcf72971605a3464ad866bade9a0a8bd7667750c268a6cfcf88399"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/requests/matches.py",
+      "sha256": "f32806b5531a546c0bc22c5acff9231c9953727afef24caa74b162cdf5282d07"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/responses/current_company.py",
+      "sha256": "3814be90d84b72f5636f7ddac6f935dce087ab604a0b72c50fe72f352e2d81cd"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/responses/user_match.py",
+      "sha256": "cf4058169770416fbd918a6fcc13f0ea43cfe7a1950caeda768c3a290ef1b4a7"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/responses/current_company_signal.py",
+      "sha256": "97d5d58d10cb48e9873d15d62f1e5dad57a394c020fbc1637344b127b6e66b92"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/responses/evaluation_summary.py",
+      "sha256": "137f3db6b9127ce9d392d2c203d23ee264defa6ae6be58ee0ede932979424cf1"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/responses/matches_overview.py",
+      "sha256": "235bb6cc34c77b3df9e968e47b81c3d0da2029ac81121cc050c48eefce883e99"
+    },
+    {
+      "path": "src/huginn/management/presentation/api/routers/matches.py",
+      "sha256": "e0884aac4e45ae944e88d99f808c22f421db0e6d2ea4967d9502b1f775f35d48"
+    },
+    {
+      "path": "frontend/src/features/matches/routes.ts",
+      "sha256": "0f0a6d61c649add2f423b0fd3d109ef5c4d0c4e10171ebfd9b71193c42a70258"
+    },
+    {
+      "path": "frontend/src/features/matches/api/listMatches.ts",
+      "sha256": "2a3c5c268da232afbd3ed4abbd98a23c75efa15e39092c5dc72fe48db4b16ee2"
+    },
+    {
+      "path": "frontend/src/features/matches/api/getMatch.ts",
+      "sha256": "e17ffd70a8f6ec479b51fac477eb0b484a06fe09dca73d0702b069ea876d2388"
+    },
+    {
+      "path": "frontend/src/features/matches/api/listMatchSignals.ts",
+      "sha256": "2b97ef59c533b70edbdaca18b2fa8c37e356b9b4cf9467fa25d27b0c9e95bf63"
+    },
+    {
+      "path": "frontend/src/features/matches/api/getMatchesOverview.ts",
+      "sha256": "9df188cec96249e5ce50af79649c4e74088a56623199d17f50ec128e458958fd"
+    },
+    {
+      "path": "frontend/src/features/matches/composables/useMatches.ts",
+      "sha256": "11b0ef17208e34e6e564b68bbb850b1f971c60271321a71fc6eb2b626d3626ca"
+    },
+    {
+      "path": "frontend/src/features/matches/composables/useMatch.ts",
+      "sha256": "001df55609d4e081c9d9a9812902e84e70fd12d5965470e1c9098526b0a90c94"
+    },
+    {
+      "path": "frontend/src/features/matches/composables/useMatchSignals.ts",
+      "sha256": "8a19e5b663c76abd84c8ea9d92cc800b6fffec1307db9784fe804af07c29021f"
+    },
+    {
+      "path": "frontend/src/features/matches/composables/useMatchesOverview.ts",
+      "sha256": "77e913536bca9be26c81e49579b1b9a142f58d227d04372069c1838a8d4a3852"
+    },
+    {
+      "path": "frontend/src/features/matches/lib/externalCompanyUrl.ts",
+      "sha256": "ab3de079df9f3dab1b1abcf07ed01daab85b8fd78e151d56a4848d46aaf2cb88"
+    },
+    {
+      "path": "frontend/src/features/matches/components/MatchStatusFilter.vue",
+      "sha256": "7f464a65b56978c8a795920a8429464db4ac332524cdeb3bde6e6f22a7c511ba"
+    },
+    {
+      "path": "frontend/src/features/matches/components/MatchList.vue",
+      "sha256": "46167af1abb9de260daa872eeaacbf496df032f4925437d12facffe3b7bf919c"
+    },
+    {
+      "path": "frontend/src/features/matches/components/MatchOverviewEmptyState.vue",
+      "sha256": "0e66230624d870c9d0a3f38b5a8b016c05219ce998b1e0644cc5c64996659ef3"
+    },
+    {
+      "path": "frontend/src/features/matches/components/MatchSignals.vue",
+      "sha256": "266d62f141fd256354af6183e9e83c6fbb9cfb133399287768589208fbfa3263"
+    },
+    {
+      "path": "frontend/src/features/matches/pages/MatchesPage.vue",
+      "sha256": "9cbf7173a687dcfa632c9e4215ca8fe8b0ea0cc546bfa899dabdb79abb2b0858"
+    },
+    {
+      "path": "frontend/src/features/matches/pages/MatchDetailPage.vue",
+      "sha256": "ef50cbd3b7f87715afeab23bd373f9f04ac0f64342155bfa0c7b897509b318e9"
+    }
+  ],
+  "dependency_review": "Management readonly owner queries use application projection protocols, database contracts and strict rows. No management imports of matcher applications. Existing matcher owner projection stale flag scoped to active owner targets. No dependencies installed."
+}

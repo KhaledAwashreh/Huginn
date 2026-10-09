@@ -13,3 +13,4 @@ class CurrentSessionResponse(ResponseModel):
     user_id: UUID
     csrf_token: str = Field(repr=False)
     expires_at: datetime
+    role: str

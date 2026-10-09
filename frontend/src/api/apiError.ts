@@ -9,6 +9,7 @@ export class ApiError extends Error {
     public readonly code: string,
     message: string,
     public readonly fields: FieldError[] = [],
+    public readonly details: readonly Record<string, unknown>[] = [],
   ) {
     super(message);
     this.name = 'ApiError';

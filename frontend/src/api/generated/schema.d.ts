@@ -21,6 +21,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/matchmaking/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_api_v1_admin_matchmaking_runs_get"];
+        put?: never;
+        /** Trigger */
+        post: operations["trigger_api_v1_admin_matchmaking_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/matchmaking/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_matchmaking_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/matchmaking/runs/{run_id}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Results */
+        get: operations["results_api_v1_admin_matchmaking_runs__run_id__users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/matchmaking/runs/{run_id}/users/{user_id}/skipped-strategies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Skipped */
+        get: operations["skipped_api_v1_admin_matchmaking_runs__run_id__users__user_id__skipped_strategies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/matchmaking/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users */
+        get: operations["users_api_v1_admin_matchmaking_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pipeline/invocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_api_v1_admin_pipeline_invocations_get"];
+        put?: never;
+        /** Trigger */
+        post: operations["trigger_api_v1_admin_pipeline_invocations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pipeline/invocations/{invocation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_pipeline_invocations__invocation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pipeline/invocations/{invocation_id}/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Companies */
+        get: operations["companies_api_v1_admin_pipeline_invocations__invocation_id__companies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pipeline/invocations/{invocation_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events */
+        get: operations["events_api_v1_admin_pipeline_invocations__invocation_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/configuration-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Options */
+        get: operations["get_options_api_v1_configuration_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/configuration-options/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Companies */
+        get: operations["list_companies_api_v1_configuration_options_companies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/configuration-options/companies/{company_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Company */
+        get: operations["get_company_api_v1_configuration_options_companies__company_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery-strategies": {
         parameters: {
             query?: never;
@@ -127,6 +333,74 @@ export interface paths {
         head?: never;
         /** Update Ideal Client Profile */
         patch: operations["update_ideal_client_profile_api_v1_ideal_client_profiles__profile_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Matches */
+        get: operations["list_matches_api_v1_matches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/matches/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Matches Overview */
+        get: operations["get_matches_overview_api_v1_matches_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/matches/{match_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Match */
+        get: operations["get_match_api_v1_matches__match_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/matches/{match_id}/signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Match Signals */
+        get: operations["list_match_signals_api_v1_matches__match_id__signals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/me": {
@@ -371,6 +645,21 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** ActiveInvocationErrorResponse */
+        ActiveInvocationErrorResponse: {
+            /** Error */
+            error: {
+                [key: string]: unknown;
+            };
+        };
+        /** AllEligibleTargetBody */
+        AllEligibleTargetBody: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "all_eligible";
+        };
         /** CompanyExclusion */
         CompanyExclusion: {
             /**
@@ -397,6 +686,18 @@ export interface components {
              */
             kind: "company";
         };
+        /** CompanyOptionResponse */
+        CompanyOptionResponse: {
+            /** Domain */
+            domain: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** CompanySize */
         CompanySize: {
             /**
@@ -413,6 +714,22 @@ export interface components {
              */
             band: "0-10" | "11-100" | "101-1000" | "1001+";
         };
+        /** ConfigurationOptionResponse */
+        ConfigurationOptionResponse: {
+            /** Company Count */
+            company_count: number;
+            /** Value */
+            value: string;
+        };
+        /** ConfigurationOptionsResponse */
+        ConfigurationOptionsResponse: {
+            /** Company Sizes */
+            company_sizes: components["schemas"]["ConfigurationOptionResponse"][];
+            /** Countries */
+            countries: components["schemas"]["ConfigurationOptionResponse"][];
+            /** Industries */
+            industries: components["schemas"]["ConfigurationOptionResponse"][];
+        };
         /** CountryGeography */
         CountryGeography: {
             /**
@@ -422,6 +739,49 @@ export interface components {
             kind: "country";
             /** Value */
             value: string;
+        };
+        /** CurrentCompanyResponse */
+        CurrentCompanyResponse: {
+            /** Business Sector */
+            business_sector: string[] | null;
+            /** Company Scale */
+            company_scale: string | null;
+            /** Company Status */
+            company_status: string | null;
+            /** Country */
+            country: string | null;
+            /** Domain */
+            domain: string;
+            /** Name */
+            name: string;
+        };
+        /** CurrentCompanySignalResponse */
+        CurrentCompanySignalResponse: {
+            /** Description */
+            description: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Ingested At
+             * Format: date-time
+             */
+            ingested_at: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Signal Type */
+            signal_type: string;
+            /** Source */
+            source: string;
+            /** Source Url */
+            source_url: string | null;
+            /** Stage */
+            stage: string | null;
         };
         /** CurrentSessionResponse */
         CurrentSessionResponse: {
@@ -437,6 +797,8 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /** Role */
+            role: string;
             /**
              * User Id
              * Format: uuid
@@ -513,6 +875,79 @@ export interface components {
         };
         /** EnrollRecoveryEmailRequest */
         EnrollRecoveryEmailRequest: Record<string, never>;
+        /** EvaluationSummaryResponse */
+        EvaluationSummaryResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Created Matches Count */
+            created_matches_count: number | null;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Existing Matches Skipped Count */
+            existing_matches_skipped_count: number | null;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "succeeded" | "disabled_user" | "user_not_found" | "failed" | "commit_outcome_unknown" | "not_executed";
+            /** Strategies Evaluated */
+            strategies_evaluated: number | null;
+            /** Strategies Skipped */
+            strategies_skipped: number | null;
+            /** Tracking Stale */
+            tracking_stale: boolean;
+        };
+        /** EventEntryResponse */
+        EventEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Metrics */
+            metrics: components["schemas"]["MetricResponse"][];
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Safe Code */
+            safe_code: string | null;
+            /** Safe Message */
+            safe_message: string | null;
+            /** Sequence */
+            sequence: number;
+            /** Source Name */
+            source_name: string | null;
+            /** Stage Name */
+            stage_name: string | null;
+        };
+        /** EventPageResponse */
+        EventPageResponse: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["EventEntryResponse"][];
+            /** Next After Sequence */
+            next_after_sequence: number;
+        };
         /** Experience */
         Experience: {
             /** End Month */
@@ -669,6 +1104,140 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** InvocationCompaniesResponse */
+        InvocationCompaniesResponse: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["InvocationCompanyResultResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total Count */
+            total_count: number;
+            /**
+             * Tracking State
+             * @enum {string}
+             */
+            tracking_state: "tracked" | "unknown_legacy";
+        };
+        /** InvocationCompanyResultResponse */
+        InvocationCompanyResultResponse: {
+            /** Business Sector */
+            business_sector: string[] | string | null;
+            /** Company Scale */
+            company_scale: string | null;
+            /** Company Status */
+            company_status: string | null;
+            /** Country */
+            country: string | null;
+            /** Domain */
+            domain: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Stage Job Run Id
+             * Format: uuid
+             */
+            stage_job_run_id: string;
+        };
+        /** InvocationDetailResponse */
+        InvocationDetailResponse: {
+            /** Finished At */
+            finished_at: string | null;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Requester Account Id
+             * Format: uuid
+             */
+            requester_account_id: string;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /** Sources */
+            sources: components["schemas"]["SourceExecutionResponse"][];
+            /** Stages */
+            stages: components["schemas"]["StageExecutionResponse"][];
+            /** Started At */
+            started_at: string | null;
+            /** State */
+            state: string;
+            /** Tracking State */
+            tracking_state: string;
+        };
+        /** InvocationHistoryResponse */
+        InvocationHistoryResponse: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["InvocationSummary"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** InvocationReceiptResponse */
+        InvocationReceiptResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Status */
+            status: string;
+        };
+        /** InvocationSummary */
+        InvocationSummary: {
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Requester Account Id
+             * Format: uuid
+             */
+            requester_account_id: string;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** State */
+            state: string;
+        };
         /** LifecycleReceiptResponse */
         LifecycleReceiptResponse: {
             /** Message */
@@ -690,6 +1259,45 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /** MatchesOverviewResponse */
+        MatchesOverviewResponse: {
+            /** Has Active Strategies */
+            has_active_strategies: boolean;
+            /** Has Matches */
+            has_matches: boolean;
+            latest_evaluation: components["schemas"]["EvaluationSummaryResponse"] | null;
+        };
+        /** MetricResponse */
+        MetricResponse: {
+            /** Kind */
+            kind: string;
+            /** Unit */
+            unit: string;
+            /** Value */
+            value: number | null;
+        };
+        /** PageResponse[CompanyOptionResponse] */
+        PageResponse_CompanyOptionResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["CompanyOptionResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageResponse[CurrentCompanySignalResponse] */
+        PageResponse_CurrentCompanySignalResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["CurrentCompanySignalResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
         };
         /** PageResponse[DiscoveryStrategyResponse] */
         PageResponse_DiscoveryStrategyResponse_: {
@@ -713,12 +1321,56 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** PageResponse[RunSummaryResponse] */
+        PageResponse_RunSummaryResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["RunSummaryResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** PageResponse[ServiceOfferingResponse] */
         PageResponse_ServiceOfferingResponse_: {
             /** Has More */
             has_more: boolean;
             /** Items */
             items: components["schemas"]["ServiceOfferingResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageResponse[SkippedStrategyResultResponse] */
+        PageResponse_SkippedStrategyResultResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["SkippedStrategyResultResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageResponse[UserMatchResponse] */
+        PageResponse_UserMatchResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["UserMatchResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageResponse[UserResultResponse] */
+        PageResponse_UserResultResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["UserResultResponse"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -813,6 +1465,138 @@ export interface components {
             /** Token */
             token: string;
         };
+        /** RunDetailResponse */
+        RunDetailResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Counts Complete */
+            counts_complete: boolean;
+            /** Created Matches Count */
+            created_matches_count: number | null;
+            /** Current User Id */
+            current_user_id: string | null;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Existing Matches Skipped Count */
+            existing_matches_skipped_count: number | null;
+            /** Failed Count */
+            failed_count: number;
+            /** Finished At */
+            finished_at: string | null;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Not Executed Count */
+            not_executed_count: number;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Requester Account Id
+             * Format: uuid
+             */
+            requester_account_id: string;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /** Settled Target Count */
+            settled_target_count: number;
+            /** Skipped Count */
+            skipped_count: number;
+            /** Started At */
+            started_at: string | null;
+            state: components["schemas"]["RunState"];
+            /** Succeeded Count */
+            succeeded_count: number;
+            /** Target Count */
+            target_count: number;
+            /** Target Kind */
+            target_kind: string;
+            /** Tracking Stale */
+            tracking_stale: boolean;
+            /** Uncertain Count */
+            uncertain_count: number;
+        };
+        /** RunReceiptResponse */
+        RunReceiptResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            state: components["schemas"]["RunState"];
+            /** Target Count */
+            target_count: number;
+        };
+        /**
+         * RunState
+         * @enum {string}
+         */
+        RunState: "queued" | "running" | "succeeded" | "completed_with_errors" | "interrupted";
+        /** RunSummaryResponse */
+        RunSummaryResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Requester Account Id
+             * Format: uuid
+             */
+            requester_account_id: string;
+            /** Settled Target Count */
+            settled_target_count: number;
+            state: components["schemas"]["RunState"];
+            /** Target Count */
+            target_count: number;
+        };
         /** ServiceOfferingCreateRequest */
         ServiceOfferingCreateRequest: {
             /** Description */
@@ -873,6 +1657,19 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** SingleUserTargetBody */
+        SingleUserTargetBody: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "user";
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
         /** Skill */
         Skill: {
             /** Name */
@@ -882,6 +1679,152 @@ export interface components {
         SkillResponse: {
             /** Name */
             name: string;
+        };
+        /** SkippedStrategyResultResponse */
+        SkippedStrategyResultResponse: {
+            /** Reason */
+            reason: string;
+            /**
+             * Strategy Id
+             * Format: uuid
+             */
+            strategy_id: string;
+        };
+        /** SourceExecutionResponse */
+        SourceExecutionResponse: {
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Job Run Id
+             * Format: uuid
+             */
+            job_run_id: string;
+            /** Metrics */
+            metrics: components["schemas"]["MetricResponse"][];
+            /** Name */
+            name: string;
+            /**
+             * Parent Job Run Id
+             * Format: uuid
+             */
+            parent_job_run_id: string;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** State */
+            state: string;
+        };
+        /** StageExecutionResponse */
+        StageExecutionResponse: {
+            /** Dependencies */
+            dependencies: string[];
+            /** Finished At */
+            finished_at?: string | null;
+            /** Job Run Id */
+            job_run_id?: string | null;
+            /**
+             * Metrics
+             * @default []
+             */
+            metrics: components["schemas"]["MetricResponse"][];
+            /** Name */
+            name: string;
+            /** Order */
+            order: number;
+            /** Safe Error Code */
+            safe_error_code?: string | null;
+            /** Skip Reason */
+            skip_reason?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** State */
+            state: string;
+        };
+        /**
+         * TargetState
+         * @enum {string}
+         */
+        TargetState: "pending" | "running" | "succeeded" | "disabled_user" | "user_not_found" | "failed" | "commit_outcome_unknown" | "not_executed";
+        /** TargetUserPageResponse */
+        TargetUserPageResponse: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["TargetUserResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total Eligible Count */
+            total_eligible_count: number;
+        };
+        /** TargetUserResponse */
+        TargetUserResponse: {
+            /** First Name */
+            first_name: string;
+            /** Has Active Strategies */
+            has_active_strategies: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Name */
+            last_name: string;
+            /** Username */
+            username: string;
+        };
+        /** TriggerInvocationRequest */
+        TriggerInvocationRequest: {
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** TriggerRunBody */
+        TriggerRunBody: {
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Target */
+            target: components["schemas"]["SingleUserTargetBody"] | components["schemas"]["AllEligibleTargetBody"];
+        };
+        /** UserMatchResponse */
+        UserMatchResponse: {
+            company: components["schemas"]["CurrentCompanyResponse"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Notes */
+            notes: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** UserResponse */
         UserResponse: {
@@ -912,6 +1855,38 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** UserResultResponse */
+        UserResultResponse: {
+            /** Created Matches Count */
+            created_matches_count?: number | null;
+            /** Existing Matches Skipped Count */
+            existing_matches_skipped_count?: number | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Ordinal */
+            ordinal: number;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Safe Reason */
+            safe_reason?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            state: components["schemas"]["TargetState"];
+            /** Strategies Evaluated */
+            strategies_evaluated?: number | null;
+            /** Strategies Skipped */
+            strategies_skipped?: number | null;
+            /** Unique Candidates Count */
+            unique_candidates_count?: number | null;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
         };
         /** UserUpdateRequest */
         UserUpdateRequest: {
@@ -1022,6 +1997,1434 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    history_api_v1_admin_matchmaking_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                state?: ("queued" | "running" | "succeeded" | "completed_with_errors" | "interrupted") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_RunSummaryResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    trigger_api_v1_admin_matchmaking_runs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerRunBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_matchmaking_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetailResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    results_api_v1_admin_matchmaking_runs__run_id__users_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                state?: ("pending" | "running" | "succeeded" | "disabled_user" | "user_not_found" | "failed" | "commit_outcome_unknown" | "not_executed") | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_UserResultResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    skipped_api_v1_admin_matchmaking_runs__run_id__users__user_id__skipped_strategies_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_SkippedStrategyResultResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    users_api_v1_admin_matchmaking_users_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                search?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetUserPageResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    history_api_v1_admin_pipeline_invocations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                state?: ("queued" | "running" | "succeeded" | "failed" | "interrupted") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationHistoryResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    trigger_api_v1_admin_pipeline_invocations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerInvocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationReceiptResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Another invocation is active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveInvocationErrorResponse"];
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_pipeline_invocations__invocation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invocation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationDetailResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    companies_api_v1_admin_pipeline_invocations__invocation_id__companies_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                invocation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationCompaniesResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    events_api_v1_admin_pipeline_invocations__invocation_id__events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after_sequence?: number;
+            };
+            header?: never;
+            path: {
+                invocation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPageResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_options_api_v1_configuration_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationOptionsResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_companies_api_v1_configuration_options_companies_get: {
+        parameters: {
+            query?: {
+                search?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_CompanyOptionResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_company_api_v1_configuration_options_companies__company_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyOptionResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
                         error: {
                             code: string;
                             details: unknown[];
@@ -2272,6 +4675,310 @@ export interface operations {
             };
             /** @description Request failed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_matches_api_v1_matches_get: {
+        parameters: {
+            query?: {
+                status?: ("new" | "contacted" | "responded" | "dismissed" | "converted") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_UserMatchResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_matches_overview_api_v1_matches_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchesOverviewResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_match_api_v1_matches__match_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                match_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserMatchResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_match_signals_api_v1_matches__match_id__signals_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                match_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_CurrentCompanySignalResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

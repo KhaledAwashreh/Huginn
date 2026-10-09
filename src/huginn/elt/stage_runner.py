@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from uuid import UUID
 
 from huginn.ops.job_runs import (
     JobRun,
@@ -13,6 +14,9 @@ from huginn.ops.job_runs import (
     JobRunWriterPort,
     finish_job_run,
     start_job_run,
+)
+from huginn.pipeline_control.application.read_models.tracking_context import (
+    TrackingContext,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,6 +29,7 @@ class Stage:
     name: str
     run: Callable[[], int]
     depends_on: tuple[str, ...] = ()
+    run_managed: Callable[[TrackingContext], int] | None = None
 
 
 def _safe_write_job_run(job_run_writer: JobRunWriterPort, job_run: JobRun) -> None:
@@ -40,13 +45,33 @@ def _safe_write_job_run(job_run_writer: JobRunWriterPort, job_run: JobRun) -> No
         )
 
 
-def run_stages(stages: list[Stage], job_run_writer: JobRunWriterPort) -> dict[str, str]:
+def run_stages(
+    stages: list[Stage],
+    job_run_writer: JobRunWriterPort,
+    *,
+    invocation_id: UUID | None = None,
+    strict_tracking: bool = False,
+) -> dict[str, str]:
     """Run stages in order and record SUCCEEDED, FAILED, or SKIPPED per stage.
 
     A stage whose dependencies did not succeed is recorded as SKIPPED. A
     raised stage error is recorded as FAILED and does not stop unrelated
     stages from getting their chance to run.
     """
+
+    def persist(job_run: JobRun) -> None:
+        if strict_tracking:
+            job_run_writer.write(job_run)
+        else:
+            _safe_write_job_run(job_run_writer, job_run)
+
+    def start(name: str) -> JobRun:
+        return start_job_run(
+            name,
+            invocation_id=str(invocation_id) if invocation_id else None,
+            execution_kind="stage" if invocation_id else None,
+        )
+
     statuses: dict[str, str] = {}
     for stage in stages:
         unmet_dependencies = [
@@ -60,22 +85,33 @@ def run_stages(stages: list[Stage], job_run_writer: JobRunWriterPort) -> dict[st
                 stage.name,
                 ", ".join(unmet_dependencies),
             )
-            job_run = start_job_run(stage.name)
+            job_run = start(stage.name)
             job_run = finish_job_run(
                 job_run,
                 JobRunStatus.SKIPPED,
                 error=f"dependency not succeeded: {', '.join(unmet_dependencies)}",
             )
-            _safe_write_job_run(job_run_writer, job_run)
+            persist(job_run)
             statuses[stage.name] = JobRunStatus.SKIPPED
             continue
 
-        job_run = start_job_run(stage.name)
-        _safe_write_job_run(job_run_writer, job_run)
+        job_run = start(stage.name)
+        persist(job_run)
         started_at = time.monotonic()
         try:
-            rows_written = stage.run()
+            if invocation_id is not None and stage.run_managed is not None:
+                rows_written = stage.run_managed(
+                    TrackingContext(invocation_id, UUID(job_run.id), stage.name)
+                )
+            else:
+                rows_written = stage.run()
         except Exception as exc:
+            from huginn.pipeline_control.application.errors.execution import (
+                TrackingUncertainError,
+            )
+
+            if isinstance(exc, TrackingUncertainError):
+                raise
             elapsed_seconds = time.monotonic() - started_at
             logger.exception(
                 "stage %s: failed after %.1fs", stage.name, elapsed_seconds
@@ -83,7 +119,7 @@ def run_stages(stages: list[Stage], job_run_writer: JobRunWriterPort) -> dict[st
             job_run = finish_job_run(
                 job_run, JobRunStatus.FAILED, error=str(exc) or repr(exc)
             )
-            _safe_write_job_run(job_run_writer, job_run)
+            persist(job_run)
             statuses[stage.name] = JobRunStatus.FAILED
             continue
 
@@ -97,7 +133,7 @@ def run_stages(stages: list[Stage], job_run_writer: JobRunWriterPort) -> dict[st
         job_run = finish_job_run(
             job_run, JobRunStatus.SUCCEEDED, rows_written=rows_written
         )
-        _safe_write_job_run(job_run_writer, job_run)
+        persist(job_run)
         statuses[stage.name] = JobRunStatus.SUCCEEDED
 
     return statuses

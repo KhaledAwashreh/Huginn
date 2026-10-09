@@ -59,4 +59,5 @@ class CurrentSessionService:
                 request.principal.user_id,
                 proof,
                 session.expires_at,
+                request.principal.role,
             )

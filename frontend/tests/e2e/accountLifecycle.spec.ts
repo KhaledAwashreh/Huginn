@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 type CapturedMail = { recipient: string; text: string };
+const BROWSER_ORIGIN = `http://127.0.0.1:${process.env.HUGINN_BROWSER_PORT ?? '4173'}`;
 const PASSWORD = 'SignUp!12345';
 const NEW_PASSWORD = 'ResetNow1234567😀';
 
@@ -10,14 +11,17 @@ async function mailLink(request: APIRequestContext, recipient: string, path: str
   await expect
     .poll(
       async () => {
-        const response = await request.get('http://127.0.0.1:8025/messages', {
-          params: { recipient },
-        });
+        const response = await request.get(
+          `http://127.0.0.1:${process.env.HUGINN_BROWSER_MAIL_PORT ?? '8025'}/messages`,
+          {
+            params: { recipient },
+          },
+        );
         expect(response.ok()).toBe(true);
         const messages = (await response.json()) as CapturedMail[];
         link = messages
           .flatMap((message) => message.text.split('\n'))
-          .find((line) => line.startsWith(`http://127.0.0.1:4173${path}#token=`));
+          .find((line) => line.startsWith(`${BROWSER_ORIGIN}${path}#token=`));
         return Boolean(link);
       },
       { timeout: 15_000 },
@@ -124,7 +128,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
   expect(security.status()).toBe(200);
   expect((await security.json()).recovery_email).toBe(email);
 
-  const recoveryContext = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' });
+  const recoveryContext = await browser.newContext({ baseURL: BROWSER_ORIGIN });
   try {
     const recovery = await recoveryContext.newPage();
     const resetPosts: string[] = [];
@@ -137,9 +141,12 @@ test('real signup mail, explicit verification and recovery keep the verified des
     await recovery.getByRole('button', { name: 'Request reset link', exact: true }).click();
     await expect(recovery.getByRole('heading', { name: 'Check your email' })).toBeVisible();
     const resetLink = await mailLink(recovery.request, email, '/reset-password');
-    const contactMailbox = await recovery.request.get('http://127.0.0.1:8025/messages', {
-      params: { recipient: contactEmail },
-    });
+    const contactMailbox = await recovery.request.get(
+      `http://127.0.0.1:${process.env.HUGINN_BROWSER_MAIL_PORT ?? '8025'}/messages`,
+      {
+        params: { recipient: contactEmail },
+      },
+    );
     expect(await contactMailbox.json()).toEqual([]);
     await recovery.goto(resetLink);
     await expect(recovery.getByLabel('New password')).toBeVisible();
@@ -191,7 +198,7 @@ for (const route of ['/verify-email', '/reset-password']) {
   test(`reopening a ${route} mail link after reload restores its proof without submitting`, async ({
     page,
   }) => {
-    const link = `http://127.0.0.1:4173${route}#token=browser-reopen-proof`;
+    const link = `${BROWSER_ORIGIN}${route}#token=browser-reopen-proof`;
     const proofControl =
       route === '/verify-email'
         ? page.getByRole('button', { name: 'Verify email', exact: true })

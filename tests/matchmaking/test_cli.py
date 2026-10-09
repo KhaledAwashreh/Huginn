@@ -136,6 +136,18 @@ def test_batch_cli_serializes_contract_and_returns_success(monkeypatch, capsys):
 
     monkeypatch.setattr(MatchmakingConfig, "from_env", lambda: config)
     monkeypatch.setattr(bootstrap, "build_batch_service", lambda actual: Service())
+    from huginn.matchmaking.presentation.serializers.batch_matchmaking_response import (
+        serialize_batch_matchmaking_response,
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_execute_guarded",
+        lambda actual, request: (
+            serialize_batch_matchmaking_response(Service().execute(request)),
+            1 if response.failures else 0,
+        ),
+    )
 
     exit_code = cli.main(
         [
@@ -202,6 +214,18 @@ def test_batch_database_failure_returns_exit_one(monkeypatch, capsys):
         MatchmakingConfig, "from_env", lambda: MatchmakingConfig("dbname=huginn")
     )
     monkeypatch.setattr(bootstrap, "build_batch_service", lambda actual: Service())
+    from huginn.matchmaking.presentation.serializers.batch_matchmaking_response import (
+        serialize_batch_matchmaking_response,
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_execute_guarded",
+        lambda actual, request: (
+            serialize_batch_matchmaking_response(Service().execute(request)),
+            1 if response.failures else 0,
+        ),
+    )
 
     exit_code = cli.main(
         [

@@ -1,6 +1,7 @@
 """Loopback-only browser mail fixture with actual SMTP and delivery policy."""
 
 import json
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -25,7 +26,7 @@ def browser_lifecycle_mail(config: ManagementConfig) -> Iterator[ManagementConfi
         resolved = replace(
             config,
             lifecycle_proof_key=Fernet.generate_key().decode(),
-            web_origin="http://127.0.0.1:4173",
+            web_origin=f"http://127.0.0.1:{os.environ.get('HUGINN_BROWSER_PORT', '4173')}",
             smtp_host="127.0.0.1",
             smtp_port=smtp.server_address[1],
         )
@@ -58,7 +59,10 @@ def browser_lifecycle_mail(config: ManagementConfig) -> Iterator[ManagementConfi
                 self.end_headers()
                 self.wfile.write(payload)
 
-        mailbox = ThreadingHTTPServer(("127.0.0.1", 8025), MailView)
+        mailbox = ThreadingHTTPServer(
+            ("127.0.0.1", int(os.environ.get("HUGINN_BROWSER_MAIL_PORT", "8025"))),
+            MailView,
+        )
         mailbox_thread = Thread(target=mailbox.serve_forever, daemon=True)
         stopping = Event()
         failures: list[str] = []

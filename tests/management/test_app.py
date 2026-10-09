@@ -123,6 +123,27 @@ def test_management_routes_are_registered():
     }
 
     assert routes == {
+        ("/api/v1/matches", "GET"),
+        ("/api/v1/matches/overview", "GET"),
+        ("/api/v1/matches/{match_id}", "GET"),
+        ("/api/v1/matches/{match_id}/signals", "GET"),
+        ("/api/v1/configuration-options", "GET"),
+        ("/api/v1/configuration-options/companies", "GET"),
+        ("/api/v1/configuration-options/companies/{company_id}", "GET"),
+        ("/api/v1/admin/pipeline/invocations", "POST"),
+        ("/api/v1/admin/pipeline/invocations", "GET"),
+        ("/api/v1/admin/pipeline/invocations/{invocation_id}", "GET"),
+        ("/api/v1/admin/pipeline/invocations/{invocation_id}/events", "GET"),
+        ("/api/v1/admin/pipeline/invocations/{invocation_id}/companies", "GET"),
+        ("/api/v1/admin/matchmaking/users", "GET"),
+        ("/api/v1/admin/matchmaking/runs", "POST"),
+        ("/api/v1/admin/matchmaking/runs", "GET"),
+        ("/api/v1/admin/matchmaking/runs/{run_id}", "GET"),
+        ("/api/v1/admin/matchmaking/runs/{run_id}/users", "GET"),
+        (
+            "/api/v1/admin/matchmaking/runs/{run_id}/users/{user_id}/skipped-strategies",
+            "GET",
+        ),
         ("/api/v1/accounts", "POST"),
         ("/api/v1/email-verifications", "POST"),
         ("/api/v1/email-verifications/resend", "POST"),

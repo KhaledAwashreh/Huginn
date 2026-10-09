@@ -43,11 +43,62 @@ def test_username_lookup_trims_but_uses_postgres_lower_for_case_insensitivity():
             return self.last
 
     now, account_id = datetime.now(UTC), uuid4()
-    connection = Connection((account_id, "Alice", "scrypt$hash", "active", now, now))
+    connection = Connection(
+        (account_id, "Alice", "scrypt$hash", "active", now, now, "admin")
+    )
     result = PostgresAccountRepository(connection).get_by_normalized_username(" Alice ")
     assert result.id == account_id
+    assert result.role.value == "admin"
     assert "lower(username) = lower(%s)" in connection.last.query
     assert connection.last.params == ("Alice",)
+
+
+def test_role_lookup_uses_authoritative_account_role_on_every_live_session_read():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from huginn.management.persistence.repositories.session import (
+        PostgresSessionRepository,
+    )
+
+    class Cursor:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, query, params):
+            self.connection.queries.append((query, params))
+
+        def fetchone(self):
+            return self.connection.row
+
+    class Connection:
+        def __init__(self, row):
+            self.row = row
+            self.queries = []
+
+        def cursor(self):
+            return Cursor(self)
+
+    now = datetime.now(UTC)
+    connection = Connection((uuid4(), uuid4(), "admin"))
+    repository = PostgresSessionRepository(connection)
+    assert (
+        repository.get_active_principal_by_token_digest("digest", now).role.value
+        == "admin"
+    )
+    connection.row = (connection.row[0], connection.row[1], "user")
+    assert (
+        repository.get_active_principal_by_token_digest("digest", now).role.value
+        == "user"
+    )
+    assert len(connection.queries) == 2
+    assert all("a.role" in query for query, _ in connection.queries)
 
 
 class FakeUow:
@@ -340,6 +391,33 @@ def test_cli_reads_matching_stdin_password_twice_and_rejects_argv_password(
     sentinel = "never-print-this-secret"
     assert main(["account", "provision", "--password", sentinel]) == 2
     assert sentinel not in capsys.readouterr().err
+
+
+def test_cli_requires_explicit_confirmation_for_role_assignment(capsys):
+    from types import SimpleNamespace
+
+    from huginn.management.presentation.cli.account_admin import main
+
+    class RoleService:
+        def __init__(self):
+            self.requests = []
+
+        def execute(self, request):
+            self.requests.append(request)
+            return SimpleNamespace(username=request.username, role=request.role)
+
+    service = RoleService()
+
+    def factory():
+        return SimpleNamespace(role_assignment=service)
+
+    args = ["account", "assign-role", "--username", "Alice", "--role", "admin"]
+    assert main(args, services_factory=factory) == 2
+    assert service.requests == []
+    assert "--confirm" in capsys.readouterr().err
+    assert main([*args, "--confirm"], services_factory=factory) == 0
+    assert service.requests[0].role.value == "admin"
+    assert "Assigned admin role to account Alice" in capsys.readouterr().out
 
 
 def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):

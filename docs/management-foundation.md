@@ -219,12 +219,17 @@ Run from the worktree:
 ```bash
 rtk proxy createdb huginn_management
 export HUGINN_MANAGEMENT_DATABASE_URL='postgresql://localhost:5432/huginn_management'
-rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql -f db/schema/operational-account-role.sql -f db/schema/ops-pipeline-control.sql -f db/schema/ops-matchmaking-control.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-account-role.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-pipeline-control.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-matchmaking-control.sql
 rtk uv run --python 3.14 python -m huginn.management
 ```
 
-`export` is a shell builtin, so it is not wrapped with `rtk`. The seven-file
-bootstrap is required because retained operational tables reference Gold.
+`export` is a shell builtin, so it is not wrapped with `rtk`. Apply the seven
+base files first because retained operational tables reference Gold, then run
+the role and pipeline-control additive migrations in order. These migrations
+are operator-applied and never run during application startup.
 
 With the local development server running, use a separate terminal. The API
 reference is available at `/docs`, `/redoc`, and `/openapi.json`:
@@ -258,7 +263,10 @@ Create and bootstrap the disposable database from the repository root:
 ```bash
 rtk proxy createdb huginn_management_crud_local_kan78
 export HUGINN_MANAGEMENT_DATABASE_URL='postgresql://localhost:5432/huginn_management_crud_local_kan78'
-rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql -f db/schema/operational-account-role.sql -f db/schema/ops-pipeline-control.sql -f db/schema/ops-matchmaking-control.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-account-role.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-pipeline-control.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-matchmaking-control.sql
 ```
 
 Provision the owner. The command prompts twice with terminal echo disabled, so

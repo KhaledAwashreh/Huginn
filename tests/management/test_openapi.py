@@ -21,6 +21,24 @@ def _document(config: ManagementConfig | None = None) -> dict:
 def test_openapi_covers_registered_paths_methods_models_and_errors():
     document = _document()
     expected = {
+        "/api/v1/matches": {"get"},
+        "/api/v1/matches/overview": {"get"},
+        "/api/v1/matches/{match_id}": {"get"},
+        "/api/v1/matches/{match_id}/signals": {"get"},
+        "/api/v1/configuration-options": {"get"},
+        "/api/v1/configuration-options/companies": {"get"},
+        "/api/v1/configuration-options/companies/{company_id}": {"get"},
+        "/api/v1/admin/pipeline/invocations": {"post", "get"},
+        "/api/v1/admin/pipeline/invocations/{invocation_id}": {"get"},
+        "/api/v1/admin/pipeline/invocations/{invocation_id}/events": {"get"},
+        "/api/v1/admin/pipeline/invocations/{invocation_id}/companies": {"get"},
+        "/api/v1/admin/matchmaking/users": {"get"},
+        "/api/v1/admin/matchmaking/runs": {"post", "get"},
+        "/api/v1/admin/matchmaking/runs/{run_id}": {"get"},
+        "/api/v1/admin/matchmaking/runs/{run_id}/users": {"get"},
+        "/api/v1/admin/matchmaking/runs/{run_id}/users/{user_id}/skipped-strategies": {
+            "get"
+        },
         "/api/v1/accounts": {"post"},
         "/api/v1/email-verifications": {"post"},
         "/api/v1/email-verifications/resend": {"post"},
@@ -88,6 +106,8 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
             for code, response in operation["responses"].items():
                 if code in {"400", "401", "403", "404", "409", "429"}:
                     shape = response["content"]["application/json"]["schema"]
+                    if "$ref" in shape:
+                        shape = schemas[shape["$ref"].rsplit("/", 1)[1]]
                     assert shape["required"] == ["error"]
                 if code == "422":
                     shape = response["content"]["application/json"]["schema"]

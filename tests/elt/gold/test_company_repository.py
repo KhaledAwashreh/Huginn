@@ -170,3 +170,9 @@ def test_enter_closes_the_connection_when_opening_the_cursor_fails(monkeypatch):
         repository.__enter__()
 
     assert fake_conn.closed is True
+
+
+def test_both_upsert_shapes_return_persisted_id():
+    for values in ({"name": "Example"}, {"country": "Palestine"}):
+        sql, _ = build_upsert_query("example.test", values, False)
+        assert sql.endswith("RETURNING id")

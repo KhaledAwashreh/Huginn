@@ -6,6 +6,9 @@ import sys
 from collections.abc import Callable
 
 from huginn.management.application.commands.provisioning import ProvisionIdentity
+from huginn.management.application.requests.assign_account_role_request import (
+    AssignAccountRoleRequest,
+)
 from huginn.management.application.services.account_management import (
     AccountAdministrationServices,
 )
@@ -14,6 +17,7 @@ from huginn.management.domain.errors.errors import (
     ManagementDomainError,
     ValidationDomainError,
 )
+from huginn.management.domain.value_objects.account_role import AccountRole
 from huginn.management.persistence.errors.database import DatabaseError
 
 
@@ -63,6 +67,12 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--username", required=True)
         if action == "reset-password":
             command.add_argument("--password-stdin", action="store_true")
+    assign_role = actions.add_parser("assign-role")
+    assign_role.add_argument("--username", required=True)
+    assign_role.add_argument("--role", choices=("user", "admin"), required=True)
+    assign_role.add_argument(
+        "--confirm", action="store_true", help="confirm this trusted role change"
+    )
     return parser
 
 
@@ -115,10 +125,23 @@ def main(
             print(
                 f"Account {args.username} {'enabled' if status == 'active' else 'disabled'}"
             )
-        else:
+        elif args.action == "reset-password":
             password = _password(stdin=args.password_stdin)
             services.lifecycle.reset_password(args.username, password)
             print(f"Password reset for account {args.username}")
+        else:
+            if not args.confirm:
+                print(
+                    "Account command failed: role changes require --confirm",
+                    file=sys.stderr,
+                )
+                return 2
+            if services.role_assignment is None:
+                raise RuntimeError("account role assignment service is required")
+            result = services.role_assignment.execute(
+                AssignAccountRoleRequest(args.username, AccountRole(args.role))
+            )
+            print(f"Assigned {result.role.value} role to account {result.username}")
         return 0
     except ConflictError:
         print("Account command failed: username already in use", file=sys.stderr)

@@ -20,11 +20,15 @@ class SystemClock:
         return datetime.now(UTC)
 
 
+def build_service(config: MatchmakingConfig) -> MatchmakingService:
+    return MatchmakingService(
+        lambda: SqlMatchmakingUnitOfWork(config.database_url), SystemClock()
+    )
+
+
 def build_batch_service(config: MatchmakingConfig) -> MatchmakingBatchService:
     clock = SystemClock()
-    service = MatchmakingService(
-        lambda: SqlMatchmakingUnitOfWork(config.database_url), clock
-    )
+    service = build_service(config)
     return MatchmakingBatchService(
         service, clock, lambda: check_readiness(config.database_url)
     )

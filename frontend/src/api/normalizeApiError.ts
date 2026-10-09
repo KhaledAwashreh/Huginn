@@ -22,6 +22,20 @@ export function normalizeApiError(status: number, value: unknown): ApiError {
                   : 'Reload the page and try again. If the problem continues, try again later.';
   if (status >= 500 || !record(value)) return new ApiError(status, 'request_failed', fallback);
   if (record(value.error) && typeof value.error.message === 'string') {
+    const references: Record<string, unknown>[] = [];
+    if (status === 409 && Array.isArray(value.error.details)) {
+      for (const detail of value.error.details) {
+        if (!record(detail)) continue;
+        for (const key of ['active_invocation_id', 'active_matching_run_id']) {
+          const id = detail[key];
+          if (
+            typeof id === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+          )
+            references.push({ [key]: id });
+        }
+      }
+    }
     return new ApiError(
       status,
       typeof value.error.code === 'string' ? value.error.code : 'request_failed',
@@ -30,6 +44,8 @@ export function normalizeApiError(status: number, value: unknown): ApiError {
         /^\s*(?:the )?request could not be completed\.?\s*$/i.test(value.error.message)
         ? fallback
         : value.error.message,
+      [],
+      references,
     );
   }
   const fields: FieldError[] = [];

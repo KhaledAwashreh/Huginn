@@ -15,9 +15,38 @@ order:
 
 ```bash
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema/00_extensions.sql -f db/schema/ops.sql -f db/schema/bronze.sql -f db/schema/kan-83-eu-startups-discovery.sql -f db/schema/silver.sql -f db/schema/gold.sql -f db/schema/operational.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-account-role.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-pipeline-control.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-matchmaking-control.sql
 ```
 
 `ON_ERROR_STOP` and the single transaction make any SQL error fail the bootstrap without committing a partial schema. The management development database still receives every ELT schema because retained operational tables reference `gold.company`. Use a new, dedicated, disposable database; this bootstrap does not authorize dropping or resetting an existing database.
+
+## Existing pre-management database upgrade
+
+If `operational.accounts`, `users`, and `professional_profiles` already exist
+with the current compatible columns, but the session and configuration tables
+are absent, back up the database and explicitly apply:
+
+```bash
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-management-configuration.sql
+```
+
+This transaction creates only `sessions`, `service_offerings`,
+`ideal_client_profiles`, and `client_discovery_strategies`, including their
+indexes and foreign keys. It preserves existing account/profile, ELT, matching,
+and workflow tables. Inspect schema compatibility first; this file does not
+repair incompatible existing account columns or infer ownership. Apply it once
+before the lifecycle upgrade below. Reapplying it after the new tables exist
+fails and rolls back. Fresh databases already receive these tables from the
+bootstrap. Normal runtime startup never applies either upgrade.
+
+See the [local runtime runbook](../../docs/local-management-runtime.md) for the
+existing local database connection and restart commands.
+The seven base files run first. Apply `operational-account-role.sql` and then
+`ops-pipeline-control.sql`, then `ops-matchmaking-control.sql`, as separate additive migrations after the bootstrap;
+the latter references `operational.accounts`, `ops.job_runs`, and
+`gold.company`. Application startup never applies schema changes.
 
 ## Public account lifecycle upgrade
 
@@ -127,15 +156,15 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-The table contains seventeen upgrade files. They are idempotent:
+The table above contains the seventeen existing ELT upgrade files. They are idempotent:
 re-running one on a database it has already been applied to is a no-op. Apply
 only files whose changes are needed by the commands and schema version in use;
 the full inventory is not a prerequisite list for every command. Automated
 coverage of idempotency is much thinner than the sentence implies:
 
-1. Four of the seventeen are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, and `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`.
+1. Four of the seventeen ELT upgrades are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, and `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`.
 2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files listed above and none of the seventeen additive upgrade files, reached through the `integration_database_url` fixture, so it exercises `gold.sql` and `silver.sql` as shipped and never an upgrade script.
+3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files plus the role and pipeline-control migrations, but none of the seventeen ELT upgrade files, through the `integration_database_url` fixture. The separate pipeline-control schema test covers its base-to-additive upgrade path.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:
@@ -143,3 +172,5 @@ Three need a word of warning, because idempotent does not mean unconditional:
 1. `gold-company-scale.sql` drops and recreates the `company_scale` CHECK. Re-running it after a future change to the band list validates existing values against the new list, so adding a band and backfilling it are two steps, and adding a band that existing rows violate fails loudly rather than silently dropping rows.
 2. `gold-company-signal-source-stable-id.sql` refuses to run against a pre-ADR table that already has rows, because those rows have no `source_stable_id` and no correct value can be invented for one. `gold.company_signal` is a derived fact table, so the recovery is `TRUNCATE gold.company_signal` and a re-run of the Gold signal writer. It does not refuse a table that has the column, so re-running it after facts have accumulated is fine.
 3. `gold-business-sector-array.sql` is guarded on the column's current type, not merely on its existence, and that guard is not optional. Re-applying `ARRAY[business_sector]` to a column that already holds `TEXT[]` wraps every value one dimension deeper, raising no error and leaving the column type at `text[]`. Its tests therefore assert `array_ndims` and the literal value, not just the type, because the type alone does not detect it.
+
+The matchmaking-control migration runs after Gold, operational, role, and pipeline-control setup. It creates durable fixed-target matching receipts and result journals and adds the fixed `pipeline`/`matchmaking` resource discriminator to the existing guard. It preserves active pipeline owner identities and leaves existing Match status and notes unchanged. Run compatible additive upgrades with `ON_ERROR_STOP`; do not reset the base tables.

@@ -122,3 +122,22 @@ def test_programming_error_propagates_and_closes_connection(monkeypatch):
         database.PostgresReadiness(DATABASE_URL).is_ready()
 
     assert connection.closed is True
+
+
+def test_control_connections_opt_into_bounded_statements_without_changing_default():
+    from huginn.management.persistence.database.client import (
+        ManagementConnectionFactory,
+    )
+
+    calls = []
+
+    def connector(url, **options):
+        calls.append((url, options))
+        return object()
+
+    ManagementConnectionFactory("unused", connector=connector).connect()
+    ManagementConnectionFactory(
+        "unused", connector=connector, statement_timeout_ms=2000
+    ).connect()
+    assert "options" not in calls[0][1]
+    assert calls[1][1]["options"] == "-c statement_timeout=2000"

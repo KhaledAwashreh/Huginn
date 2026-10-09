@@ -122,6 +122,15 @@ def _allowed_import(relative, imported):
     if layer == "persistence":
         section = relative.parts[1]
         allowed_packages = {
+            "queries": (
+                "application.protocols",
+                "application.read_models",
+                "persistence.queries",
+                "persistence.contracts",
+                "persistence.row_models",
+                "persistence.errors",
+                "domain",
+            ),
             "contracts": ("persistence.contracts", "persistence.errors", "domain"),
             "repositories": (
                 "application.protocols",
