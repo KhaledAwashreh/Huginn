@@ -14,6 +14,7 @@ architecture-notes/opencorporates-fetch-plan.md section 5.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 import psycopg
 
@@ -166,7 +167,7 @@ def build_upsert_query(
             f"INSERT INTO gold.company ({', '.join(insert_columns)}) "
             f"VALUES ({', '.join(['%s'] * len(insert_columns))}) "
             "ON CONFLICT (domain) DO UPDATE SET "
-            f"{_with_timestamp_assignments(update_set, bump_current_since)}"
+            f"{_with_timestamp_assignments(update_set, bump_current_since)} RETURNING id"
         )
         return sql, (domain, *(new_values[column] for column in columns))
 
@@ -174,7 +175,7 @@ def build_upsert_query(
     sql = (
         "UPDATE gold.company "
         f"SET {_with_timestamp_assignments(update_set, bump_current_since)} "
-        "WHERE domain = %s"
+        "WHERE domain = %s RETURNING id"
     )
     return sql, (*(new_values[column] for column in columns), domain)
 
@@ -275,7 +276,7 @@ class PostgresCompanyRepository:
 
     def upsert_company(
         self, domain: str, new_values: dict, bump_current_since: bool
-    ) -> None:
+    ) -> UUID:
         """Implement `CompanyRepositoryPort.upsert_company`.
 
         A write carrying no "name" is update-only (see build_upsert_query),
@@ -291,6 +292,33 @@ class PostgresCompanyRepository:
                 "create one with. Supply 'name' to insert a new company, or only "
                 "write companies that already exist."
             )
+
+        row = self._cur.fetchone()
+        if row is None:
+            raise ValueError("company_write_missing")
+        return UUID(str(row[0]))
+
+    def record_company_result(
+        self, invocation_id: UUID, stage_job_run_id: UUID, company_id: UUID
+    ) -> None:
+        """Use the batch cursor; pipeline design section 6."""
+        self._cur.execute(
+            """
+            INSERT INTO ops.pipeline_company_results (invocation_id, company_id, stage_job_run_id)
+            SELECT %s, %s, id FROM ops.job_runs
+            WHERE id=%s AND invocation_id=%s AND source='gold.company' AND execution_kind='stage'
+            ON CONFLICT (invocation_id,company_id) DO NOTHING
+            RETURNING company_id
+        """,
+            (invocation_id, company_id, stage_job_run_id, invocation_id),
+        )
+        if self._cur.fetchone() is None:
+            self._cur.execute(
+                "SELECT 1 FROM ops.pipeline_company_results WHERE invocation_id=%s AND company_id=%s AND stage_job_run_id=%s",
+                (invocation_id, company_id, stage_job_run_id),
+            )
+            if self._cur.fetchone() is None:
+                raise ValueError("invalid_company_tracking_context")
 
     def insert_history(
         self,

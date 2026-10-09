@@ -1,0 +1,2 @@
+class InvocationNotFoundError(Exception):
+    pass

@@ -42,7 +42,7 @@ as a command-line argument.
 
 ```sh
 export HUGINN_MATCHMAKING_DATABASE_URL='postgresql://matchmaking:secret@localhost/huginn'
-python -m huginn.matchmaking \
+rtk proxy python -m huginn.matchmaking \
   --user-id 11111111-1111-4111-8111-111111111111 \
   --user-id 22222222-2222-4222-8222-222222222222 \
   --cutoff 2026-09-01T00:00:00Z \
@@ -146,7 +146,7 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | The batch completed without database failures, including disabled or missing Users and skipped strategies. |
-| `1` | One or more Users failed because of a database error or an uncertain commit outcome. |
+| `1` | One or more Users failed, or shared execution was busy/unavailable before evaluation started. |
 | `2` | Arguments or runtime database configuration are invalid. |
 
 The Python batch service also supports an empty tuple of User IDs without
@@ -158,3 +158,38 @@ always names its intended scope.
 The module is not scheduled by ELT and does not deliver user-facing output.
 Scheduler integration, scoring, evidence snapshots, digest composition,
 delivery, and resurfacing need later design and implementation.
+
+## Administrator execution and shared guard
+
+1. Apply the existing matcher identity/signal-index migrations, then the role and pipeline-control migrations, then `db/schema/ops-matchmaking-control.sql`. The base bootstrap keeps `ops.sql` before Bronze and Gold; control migrations run after Gold and operational tables. Apply additive upgrades with a schema administrator, never from application startup.
+2. Assign an administrator explicitly through the account-admin command documented in [management-foundation.md](management-foundation.md). Existing accounts remain ordinary users. Roles are checked against the current account for every request.
+3. Configure the management API, collection worker, matching worker, and matcher CLI to use the same PostgreSQL database. The matching worker and standalone matcher both read `HUGINN_MATCHMAKING_DATABASE_URL`. A dedicated session lock and durable guard in that database cover managed matching, the full pipeline CLI, and standalone matcher CLI.
+4. Stop old unguarded matcher jobs before enabling the new worker. Deploy both guard-aware adapters together. Standalone ingestion-only and enrichment entrypoints remain outside this guard; never run them concurrently with managed collection or matching.
+
+Start the dedicated serial matching worker separately from lifecycle mail:
+
+```sh
+rtk proxy python -m huginn.matchmaking_control worker
+rtk proxy python -m huginn.matchmaking_control worker --once
+```
+
+Administrator requests queue an immutable sorted target snapshot and UTC signal window. The receipt target count is authoritative; current configuration is read when each target is evaluated. The default browser window is visibly editable at 30 days. There is no automatic matching after collection and no automatic replay after a worker restart. Queued collection and matching histories can coexist while execution remains exclusive. A busy guard leaves a matching receipt queued.
+
+The standalone matcher keeps its arguments, successful batch JSON, and per-user failure behavior. New pre-execution failures use the same top-level error envelope with safe codes `execution_busy` or `execution_unavailable` and exit 1. These errors mean no target evaluation began. Invalid arguments/configuration retain exit 2. Runtime credentials additionally need reads/writes for the shared ops guard; managed matching needs ops run/result/throttle tables.
+
+### Unknown results and stopped-executor recovery
+
+A heartbeat older than 60 seconds is stale tracking, not proof that work stopped. Supervision heartbeats every 15 seconds and terminates/reaps the child process group with a 5-second grace when tracking is lost. A matcher commit followed by an unacknowledged journal commit can leave the current target unknown. Previously acknowledged counts remain visible; failed, unknown, and not-executed target counts remain null. Counts are not inferred from Match table totals.
+
+Inspect the exact durable owner, host, supervisor/child PID, and process-start identity before recovery. Stop that supervisor and child process group, verify the process-start identities no longer exist, then run exactly one form:
+
+```sh
+rtk proxy python -m huginn.matchmaking_control reconcile --run-id RUN_UUID --executor-stopped
+rtk proxy python -m huginn.matchmaking_control reconcile --execution-id EXECUTION_UUID --executor-stopped
+```
+
+The command independently verifies stopped host/process identities and the resource lock. It refuses live executors and pipeline-owned guards. Pipeline reconciliation likewise refuses matching-owned guards. Managed reconciliation retains acknowledged results, marks an abandoned running target `commit_outcome_unknown`, pending targets `not_executed`, and the run `interrupted`, then clears only that exact matching owner. Standalone reconciliation clears its proven-stopped matching guard without inventing managed results. Never clear ownership based only on heartbeat age.
+
+An explicit new run remains creation-only and duplicate-safe, but cannot reconstruct an earlier uncertain result. On a lost HTTP receipt, retry only the same request ID and exact input, or check history; do not automatically submit a fresh identity.
+
+Rollback disables trigger access and the matching worker after proving the exact executor stopped. Retain result tables, guard ownership, and Match uniqueness; do not remove constraints, delete history, or clear active ownership during rollback.

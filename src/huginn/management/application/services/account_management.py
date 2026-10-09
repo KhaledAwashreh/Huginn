@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 
 from huginn.management.application.services.account_admin import AccountAdminService
+from huginn.management.application.services.assign_account_role_service import (
+    AssignAccountRoleService,
+)
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
 )
@@ -12,3 +15,4 @@ from huginn.management.application.services.provisioning import (
 class AccountAdministrationServices:
     provisioning: IdentityProvisioningService
     lifecycle: AccountAdminService
+    role_assignment: AssignAccountRoleService | None = None

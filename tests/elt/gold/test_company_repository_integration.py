@@ -104,7 +104,7 @@ def test_a_type_2_only_write_updates_an_existing_row_and_keeps_its_name(
             )
 
         with PostgresCompanyRepository(integration_database_url) as repository:
-            repository.upsert_company(
+            persisted_id = repository.upsert_company(
                 domain,
                 {"business_sector": ["b2b", "fintech"]},
                 bump_current_since=True,
@@ -113,6 +113,7 @@ def test_a_type_2_only_write_updates_an_existing_row_and_keeps_its_name(
         with psycopg.connect(integration_database_url) as conn, conn.cursor() as cur:
             stored = _stored_company(cur, domain)
 
+        assert persisted_id == stored["id"]
         assert stored["business_sector"] == ["b2b", "fintech"]
         assert stored["name"] == "Original Name"
         assert stored["current_since"] > _BEFORE_EPOCH
@@ -160,9 +161,11 @@ def test_a_name_bearing_write_inserts_then_updates_the_same_row(
 
     try:
         with PostgresCompanyRepository(integration_database_url) as repository:
-            repository.upsert_company(domain, {"name": "First Name"}, False)
+            inserted_id = repository.upsert_company(
+                domain, {"name": "First Name"}, False
+            )
         with PostgresCompanyRepository(integration_database_url) as repository:
-            repository.upsert_company(
+            updated_id = repository.upsert_company(
                 domain,
                 {"name": "Second Name", "company_scale": "11-100"},
                 False,
@@ -176,6 +179,14 @@ def test_a_name_bearing_write_inserts_then_updates_the_same_row(
             )
             (rows, name, company_scale) = cur.fetchone()
 
+        assert inserted_id == updated_id
+        with psycopg.connect(integration_database_url) as conn:
+            assert (
+                conn.execute(
+                    "SELECT id FROM gold.company WHERE domain=%s", (domain,)
+                ).fetchone()[0]
+                == inserted_id
+            )
         assert rows == 1
         assert name == "Second Name"
         assert company_scale == "11-100"

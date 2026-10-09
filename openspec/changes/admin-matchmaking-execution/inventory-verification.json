@@ -1,0 +1,26 @@
+[
+  {
+    "feature": "frontend/src/features/pipeline",
+    "production_files": 22,
+    "missing": [],
+    "extra": [],
+    "named_exports": "verified",
+    "domain_boundaries": "foundation generated types"
+  },
+  {
+    "feature": "src/huginn/matchmaking_control",
+    "production_files": 74,
+    "missing": [],
+    "extra": [],
+    "named_exports": "verified",
+    "domain_boundaries": "verified"
+  },
+  {
+    "feature": "frontend/src/features/matchmaking",
+    "production_files": 22,
+    "missing": [],
+    "extra": [],
+    "named_exports": "verified",
+    "domain_boundaries": "foundation generated types"
+  }
+]

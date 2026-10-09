@@ -123,3 +123,28 @@ it('a stale bootstrap response cannot erase a newly logged-in identity', async (
   await Promise.allSettled([previous, login]);
   expect(session.context.value?.account_id).toBe('new-account');
 });
+
+it('admin demotion clears admin caches while retaining the signed-in workspace', async () => {
+  const session = useSession();
+  vi.stubGlobal('fetch', () =>
+    Promise.resolve(
+      Response.json({
+        account_id: 'admin-account',
+        user_id: 'owner',
+        role: 'admin',
+        csrf_token: 'proof',
+        expires_at: '2099-01-01T00:00:00Z',
+      }),
+    ),
+  );
+  await session.bootstrap();
+  queryClient.setQueryData(['admin', 'pipeline', 'admin-account'], ['private-history']);
+  queryClient.setQueryData(['owner', 'offerings'], ['retained-draft-source']);
+  vi.stubGlobal('fetch', () => Promise.resolve(Response.json({}, { status: 403 })));
+  await expect(apiRequest('/api/v1/admin/pipeline/invocations')).rejects.toThrow();
+  expect(session.isAdministrator.value).toBe(false);
+  expect(session.isAuthenticated.value).toBe(true);
+  expect(session.context.value?.csrf_token).toBe('proof');
+  expect(queryClient.getQueryData(['admin', 'pipeline', 'admin-account'])).toBeUndefined();
+  expect(queryClient.getQueryData(['owner', 'offerings'])).toEqual(['retained-draft-source']);
+});

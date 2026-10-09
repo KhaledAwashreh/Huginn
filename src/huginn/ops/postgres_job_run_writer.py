@@ -19,13 +19,16 @@ from huginn.ops.job_runs import JobRun
 logger = logging.getLogger(__name__)
 
 _UPSERT_SQL = """
-    INSERT INTO ops.job_runs (id, source, started_at, finished_at, status, rows_written, error)
-    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s)
+    INSERT INTO ops.job_runs (id, source, started_at, finished_at, status, rows_written, error, invocation_id, parent_job_run_id, execution_kind)
+    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s::uuid, %s::uuid, %s)
     ON CONFLICT (id) DO UPDATE
     SET finished_at = EXCLUDED.finished_at,
         status = EXCLUDED.status,
         rows_written = EXCLUDED.rows_written,
-        error = EXCLUDED.error
+        error = EXCLUDED.error,
+        invocation_id = COALESCE(ops.job_runs.invocation_id, EXCLUDED.invocation_id),
+        parent_job_run_id = COALESCE(ops.job_runs.parent_job_run_id, EXCLUDED.parent_job_run_id),
+        execution_kind = COALESCE(ops.job_runs.execution_kind, EXCLUDED.execution_kind)
 """
 
 
@@ -43,7 +46,14 @@ class PostgresJobRunWriter:
         self._database_url = database_url
 
     def write(self, job_run: JobRun) -> None:
-        with psycopg.connect(self._database_url) as conn, conn.cursor() as cur:
+        with (
+            psycopg.connect(
+                self._database_url,
+                connect_timeout=2,
+                options="-c statement_timeout=2000",
+            ) as conn,
+            conn.cursor() as cur,
+        ):
             cur.execute(
                 _UPSERT_SQL,
                 (
@@ -54,6 +64,9 @@ class PostgresJobRunWriter:
                     job_run.status,
                     job_run.rows_written,
                     job_run.error,
+                    job_run.invocation_id,
+                    job_run.parent_job_run_id,
+                    job_run.execution_kind,
                 ),
             )
         logger.info(

@@ -35,7 +35,7 @@ test('simultaneous tabs transition a legacy proof without invalidating each othe
     {
       name: 'huginn_management_session',
       value: 'legacy-browser-only-' + 'a'.repeat(64),
-      url: 'http://127.0.0.1:4173',
+      url: `http://127.0.0.1:${process.env.HUGINN_BROWSER_PORT ?? '4173'}`,
       httpOnly: true,
       sameSite: 'Lax',
     },

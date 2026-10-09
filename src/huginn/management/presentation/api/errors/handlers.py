@@ -71,6 +71,21 @@ def validation_error_shape(error: RequestValidationError) -> ErrorShape:
     return sanitized_validation_shape(error.errors())
 
 
+def _private_headers(request: Request) -> dict[str, str] | None:
+    if (
+        request.url.path.startswith("/api/v1/admin/")
+        or request.url.path == "/api/v1/matches"
+        or request.url.path.startswith("/api/v1/matches/")
+        or request.url.path == "/api/v1/sessions/current"
+        or (
+            request.url.path == "/api/v1/configuration-options"
+            or request.url.path.startswith("/api/v1/configuration-options/")
+        )
+    ):
+        return {"Cache-Control": "no-store", "Vary": "Cookie"}
+    return None
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register framework handlers; app composition calls this in task 5.9."""
 
@@ -83,18 +98,16 @@ def register_exception_handlers(app: FastAPI) -> None:
                 content=shape.body,
                 headers={"Cache-Control": "no-store"},
             )
-        return await http_exception_handler(request, error)
+        response = await http_exception_handler(request, error)
+        response.headers.update(_private_headers(request) or {})
+        return response
 
     @app.exception_handler(ManagementDomainError)
     async def handle_domain_error(
         request: Request, error: ManagementDomainError
     ) -> JSONResponse:
         shape = domain_error_shape(error)
-        headers = (
-            {"Cache-Control": "no-store", "Vary": "Cookie"}
-            if request.url.path == "/api/v1/sessions/current"
-            else None
-        )
+        headers = _private_headers(request)
         if isinstance(error, LifecycleRateLimitError):
             headers = {
                 "Retry-After": str(error.retry_after_seconds),
@@ -118,15 +131,22 @@ def register_exception_handlers(app: FastAPI) -> None:
             error.sqlstate or "<unknown>",
         )
         shape = error_shape_for_status(409)
-        return JSONResponse(status_code=shape.status_code, content=shape.body)
+        return JSONResponse(
+            status_code=shape.status_code,
+            content=shape.body,
+            headers=_private_headers(request),
+        )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(
         request: Request, error: RequestValidationError
     ) -> JSONResponse:
-        del request
         shape = validation_error_shape(error)
-        return JSONResponse(status_code=shape.status_code, content=shape.body)
+        return JSONResponse(
+            status_code=shape.status_code,
+            content=shape.body,
+            headers=_private_headers(request),
+        )
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(
@@ -144,7 +164,11 @@ def register_exception_handlers(app: FastAPI) -> None:
             else type(error).__name__,
         )
         shape = error_shape_for_status(500)
-        return JSONResponse(status_code=shape.status_code, content=shape.body)
+        return JSONResponse(
+            status_code=shape.status_code,
+            content=shape.body,
+            headers=_private_headers(request),
+        )
 
 
 def suppress_handled_server_error_tracebacks(app: FastAPI) -> None:

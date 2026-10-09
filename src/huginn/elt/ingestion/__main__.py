@@ -41,7 +41,7 @@ from huginn.elt.ingestion.eu_startups_enrichment_runner import (
 from huginn.elt.ingestion.service import IngestionService
 from huginn.elt.materialization import build_eu_startups_materialization_stages
 from huginn.elt.stage_runner import Stage, run_stages
-from huginn.ops.job_runs import JobRunStatus
+from huginn.ops.job_runs import JobRunStatus, JobRunWriterPort
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
 
 # OpenCorporates' free tier caps at 50 requests/day (docs/sources/
@@ -129,13 +129,16 @@ def build_service(config: Config) -> IngestionService:
 
 
 def build_eu_startups_discovery_runner(
-    config: Config, *, allow_initial_backfill: bool = False
+    config: Config,
+    *,
+    allow_initial_backfill: bool = False,
+    job_run_writer: JobRunWriterPort | None = None,
 ) -> EuStartupsDiscoveryRunner:
     """Construct the source-specific transactional EU discovery pipeline."""
     return EuStartupsDiscoveryRunner(
         adapter=EuStartupsDiscoveryAdapter(),
         repository=PostgresEuStartupsDiscoveryRepository(config.database_url),
-        job_run_writer=PostgresJobRunWriter(config.database_url),
+        job_run_writer=job_run_writer or PostgresJobRunWriter(config.database_url),
         allow_initial_backfill=allow_initial_backfill,
     )
 

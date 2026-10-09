@@ -124,3 +124,79 @@ describe('JSON transport', () => {
     });
   });
 });
+
+it('handles administrator demotion separately and retains only safe active-run references', async () => {
+  let forbidden = 0;
+  let unauthorized = 0;
+  configureApiClient({
+    onAdministratorForbidden: () => {
+      forbidden++;
+    },
+    onUnauthorized: () => {
+      unauthorized++;
+    },
+  });
+  vi.stubGlobal('fetch', () =>
+    Promise.resolve(
+      Response.json({ error: { code: 'forbidden', message: 'Forbidden' } }, { status: 403 }),
+    ),
+  );
+  await expect(apiRequest('/api/v1/me')).rejects.toMatchObject({ status: 403 });
+  expect(forbidden).toBe(0);
+  await expect(apiRequest('/api/v1/admin/pipeline/invocations')).rejects.toMatchObject({
+    status: 403,
+  });
+  expect(forbidden).toBe(1);
+  expect(unauthorized).toBe(0);
+  const id = '00000000-0000-0000-0000-000000000001';
+  vi.stubGlobal('fetch', () =>
+    Promise.resolve(
+      Response.json(
+        {
+          error: {
+            code: 'conflict',
+            message: 'Request could not be completed',
+            details: [
+              { active_invocation_id: id, secret: 'private' },
+              { active_matching_run_id: '../unsafe' },
+            ],
+          },
+        },
+        { status: 409 },
+      ),
+    ),
+  );
+  await expect(apiRequest('/api/v1/admin/pipeline/invocations')).rejects.toMatchObject({
+    details: [{ active_invocation_id: id }],
+  });
+});
+
+it('does not demote a replacement identity while an old forbidden body arrives', async () => {
+  let version = 1;
+  const demote = vi.fn();
+  let resolveBody!: (body: unknown) => void;
+  let bodyStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    bodyStarted = resolve;
+  });
+  configureApiClient({ getIdentityVersion: () => version, onAdministratorForbidden: demote });
+  vi.stubGlobal('fetch', () =>
+    Promise.resolve({
+      status: 403,
+      ok: false,
+      json: () => {
+        bodyStarted();
+        return new Promise((resolve) => {
+          resolveBody = resolve;
+        });
+      },
+    }),
+  );
+  const pending = apiRequest('/api/v1/admin/matchmaking/runs');
+  const rejection = expect(pending).rejects.toThrow();
+  await started;
+  version = 2;
+  resolveBody({ error: { code: 'forbidden', message: 'Forbidden' } });
+  await rejection;
+  expect(demote).not.toHaveBeenCalled();
+});

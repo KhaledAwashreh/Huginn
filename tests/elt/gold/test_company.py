@@ -42,6 +42,13 @@ class FakeCompanyRepository:
 
     def upsert_company(self, domain, new_values, bump_current_since):
         self.upserted.append((domain, new_values, bump_current_since))
+        from uuid import NAMESPACE_DNS, UUID, uuid5
+
+        return (
+            UUID(str(self._companies[domain]["id"]))
+            if domain in self._companies
+            else uuid5(NAMESPACE_DNS, domain)
+        )
 
     def insert_history(self, company_id, domain, snapshot, valid_from):
         self.history_inserted.append((company_id, domain, snapshot, valid_from))
@@ -90,7 +97,7 @@ def test_write_company_updates_name_with_no_history_when_no_type_2_field_present
         signals=[],
         companies={
             "acme.com": {
-                "id": "c1",
+                "id": "00000000-0000-0000-0000-000000000001",
                 "current_since": datetime(2026, 1, 1, tzinfo=UTC),
             }
         },
@@ -107,7 +114,7 @@ def test_write_company_writes_history_when_a_type_2_field_changes_on_an_existing
         signals=[],
         companies={
             "acme.com": {
-                "id": "c1",
+                "id": "00000000-0000-0000-0000-000000000001",
                 "business_sector": ["fintech"],
                 "current_since": datetime(2026, 1, 1, tzinfo=UTC),
             }
@@ -119,7 +126,7 @@ def test_write_company_writes_history_when_a_type_2_field_changes_on_an_existing
     assert repo.upserted[0][2] is True
     assert len(repo.history_inserted) == 1
     company_id, domain, snapshot, valid_from = repo.history_inserted[0]
-    assert company_id == "c1"
+    assert company_id == "00000000-0000-0000-0000-000000000001"
     assert domain == "acme.com"
     assert snapshot["business_sector"] == ["fintech"]
     assert valid_from == datetime(2026, 1, 1, tzinfo=UTC)
@@ -464,7 +471,7 @@ def test_notes_alone_write_no_history_row():
         signals=[],
         companies={
             "acme.com": {
-                "id": "c1",
+                "id": "00000000-0000-0000-0000-000000000001",
                 "business_sector": ["fintech"],
                 "current_since": datetime(2026, 1, 1, tzinfo=UTC),
             }

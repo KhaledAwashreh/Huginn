@@ -5,6 +5,7 @@ from uuid import UUID
 
 from huginn.management.domain.entities.account import Account
 from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.account_role import AccountRole
 from huginn.management.persistence.contracts.repositories.account import (
     AccountRepository,
 )
@@ -13,11 +14,11 @@ from huginn.management.persistence.repositories.common import PostgresIdentityRe
 
 
 class PostgresAccountRepository(PostgresIdentityRepository, AccountRepository):
-    _columns = "id, username, password_hash, status, created_at, updated_at"
+    _columns = "id, username, password_hash, status, created_at, updated_at, role"
 
     @staticmethod
     def _map(row: tuple[Any, ...]) -> Account:
-        return Account(*row)
+        return Account(*row[:-1], AccountRole(row[-1]))
 
     def get_by_id(self, account_id: UUID) -> Account | None:
         row = self._one(
@@ -73,5 +74,13 @@ class PostgresAccountRepository(PostgresIdentityRepository, AccountRepository):
             "UPDATE operational.accounts SET password_hash = %s, "
             f"updated_at = clock_timestamp() WHERE id = %s RETURNING {self._columns}",
             (password_hash, account_id),
+        )
+        return self._map(row) if row else None
+
+    def set_role(self, account_id: UUID, role: AccountRole) -> Account | None:
+        row = self._one(
+            "UPDATE operational.accounts SET role = %s, "
+            f"updated_at = clock_timestamp() WHERE id = %s RETURNING {self._columns}",
+            (role.value, account_id),
         )
         return self._map(row) if row else None

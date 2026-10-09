@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from huginn.elt.gold.models import DomainNormalizedSignal, ResolvedSignalForFact
 
@@ -60,7 +61,7 @@ class CompanyRepositoryPort(Protocol):
 
     def upsert_company(
         self, domain: str, new_values: dict, bump_current_since: bool
-    ) -> None:
+    ) -> UUID:
         """Insert `domain` as a new company, or update an existing one's
         columns named in `new_values`. `domain` is always written from
         this parameter, never from a "domain" key inside `new_values`
@@ -75,6 +76,10 @@ class CompanyRepositoryPort(Protocol):
         `huginn.elt.gold.repositories.company_repository.build_upsert_query`).
         """
         ...
+
+    def record_company_result(
+        self, invocation_id: UUID, stage_job_run_id: UUID, company_id: UUID
+    ) -> None: ...
 
     def insert_history(
         self,

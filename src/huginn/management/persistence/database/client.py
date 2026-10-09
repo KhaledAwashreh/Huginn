@@ -80,17 +80,27 @@ class ManagementConnectionFactory:
         *,
         connector: Callable[..., psycopg.Connection] | None = None,
         connect_timeout: int = DATABASE_CONNECT_TIMEOUT_SECONDS,
+        statement_timeout_ms: int | None = None,
     ) -> None:
         self._database_url = database_url
         self._connector = connector or psycopg.connect
         self._connect_timeout = connect_timeout
+        if statement_timeout_ms is not None and statement_timeout_ms <= 0:
+            raise ValueError("statement timeout must be positive")
+        self._statement_timeout_ms = statement_timeout_ms
 
     def connect(self) -> DatabaseSession:
+        options = (
+            {}
+            if self._statement_timeout_ms is None
+            else {"options": f"-c statement_timeout={self._statement_timeout_ms}"}
+        )
         return PsycopgDatabaseSession(
             _call(
                 self._connector,
                 self._database_url,
                 connect_timeout=self._connect_timeout,
+                **options,
             )
         )
 

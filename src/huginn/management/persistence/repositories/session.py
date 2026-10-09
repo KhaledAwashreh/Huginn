@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from huginn.management.domain.entities.session import Session
+from huginn.management.domain.value_objects.account_role import AccountRole
 from huginn.management.domain.value_objects.common import Principal
 from huginn.management.domain.value_objects.session import NewSession
 from huginn.management.persistence.contracts.repositories.session import (
@@ -50,14 +51,14 @@ class PostgresSessionRepository(PostgresIdentityRepository, SessionRepository):
         self, token_digest: str, now: datetime
     ) -> Principal | None:
         row = self._one(
-            "SELECT a.id, u.id FROM operational.sessions s "
+            "SELECT a.id, u.id, a.role FROM operational.sessions s "
             "JOIN operational.accounts a ON a.id = s.account_id "
             "JOIN operational.users u ON u.account_id = a.id "
             "WHERE s.token_digest = %s AND s.revoked_at IS NULL "
             "AND s.expires_at > %s AND a.status = 'active'",
             (token_digest, now),
         )
-        return Principal(*row) if row else None
+        return Principal(row[0], row[1], AccountRole(row[2])) if row else None
 
     def initialize_csrf_digest(
         self,

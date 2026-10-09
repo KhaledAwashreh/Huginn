@@ -58,9 +58,18 @@ class JobRun:
     status: str
     rows_written: int
     error: str | None
+    invocation_id: str | None = None
+    parent_job_run_id: str | None = None
+    execution_kind: str | None = None
 
 
-def start_job_run(source: str) -> JobRun:
+def start_job_run(
+    source: str,
+    *,
+    invocation_id: str | None = None,
+    parent_job_run_id: str | None = None,
+    execution_kind: str | None = None,
+) -> JobRun:
     """Begin a run for `source`: a fresh ID, `RUNNING` status, `started_at`
     set to now. See architecture document section 5.
     """
@@ -72,6 +81,9 @@ def start_job_run(source: str) -> JobRun:
         status=JobRunStatus.RUNNING,
         rows_written=0,
         error=None,
+        invocation_id=invocation_id,
+        parent_job_run_id=parent_job_run_id,
+        execution_kind=execution_kind,
     )
 
 

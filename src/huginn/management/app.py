@@ -6,10 +6,14 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from huginn.management.application.services.account_admin import AccountAdminService
 from huginn.management.application.services.account_management import (
     AccountAdministrationServices,
+)
+from huginn.management.application.services.assign_account_role_service import (
+    AssignAccountRoleService,
 )
 from huginn.management.application.services.authentication import AuthenticationService
 from huginn.management.application.services.current_session_service import (
@@ -27,8 +31,27 @@ from huginn.management.application.services.forgot_password_service import (
 from huginn.management.application.services.get_account_security_service import (
     GetAccountSecurityService,
 )
+from huginn.management.application.services.get_company_option_service import (
+    GetCompanyOptionService,
+)
+from huginn.management.application.services.get_configuration_options_service import (
+    GetConfigurationOptionsService,
+)
+from huginn.management.application.services.get_match_service import GetMatchService
+from huginn.management.application.services.get_matches_overview_service import (
+    GetMatchesOverviewService,
+)
 from huginn.management.application.services.ideal_client_profiles import (
     IdealClientProfileService,
+)
+from huginn.management.application.services.list_company_options_service import (
+    ListCompanyOptionsService,
+)
+from huginn.management.application.services.list_match_signals_service import (
+    ListMatchSignalsService,
+)
+from huginn.management.application.services.list_matches_service import (
+    ListMatchesService,
 )
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
@@ -54,12 +77,16 @@ from huginn.management.persistence.database.client import (
     PostgresReadiness,
 )
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
+from huginn.management.persistence.queries.matches_query import PostgresMatchesQuery
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
 from huginn.management.persistence.repositories.account_lifecycle_proof import (
     PostgresAccountLifecycleProofRepository,
 )
 from huginn.management.persistence.repositories.account_recovery_identity import (
     PostgresAccountRecoveryIdentityRepository,
+)
+from huginn.management.persistence.repositories.configuration_options_query import (
+    PostgresConfigurationOptionsQuery,
 )
 from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
@@ -85,12 +112,16 @@ from huginn.management.presentation.api.errors.handlers import (
     register_exception_handlers,
     suppress_handled_server_error_tracebacks,
 )
+from huginn.management.presentation.api.errors.shapes import error_shape_for_status
 from huginn.management.presentation.api.openapi.customization import customize_openapi
 from huginn.management.presentation.api.routers.account_lifecycle import (
     router as account_lifecycle_router,
 )
 from huginn.management.presentation.api.routers.account_security import (
     router as account_security_router,
+)
+from huginn.management.presentation.api.routers.configuration_options import (
+    router as configuration_options_router,
 )
 from huginn.management.presentation.api.routers.current_user import (
     router as current_user_router,
@@ -102,6 +133,7 @@ from huginn.management.presentation.api.routers.health import router as health_r
 from huginn.management.presentation.api.routers.ideal_client_profiles import (
     router as ideal_client_profiles_router,
 )
+from huginn.management.presentation.api.routers.matches import router as matches_router
 from huginn.management.presentation.api.routers.service_offerings import (
     router as service_offerings_router,
 )
@@ -112,6 +144,21 @@ from huginn.management.presentation.api.static_assets import mount_frontend_asse
 from huginn.management.security.encrypted_proof_cipher import EncryptedProofCipher
 from huginn.management.security.passwords import hash_password, verify_password
 from huginn.management.security.tokens import generate_token
+from huginn.matchmaking_control.bootstrap import create_matchmaking_control_services
+from huginn.matchmaking_control.presentation.api.routers.runs import (
+    router as matchmaking_router,
+)
+from huginn.pipeline_control.application.errors.invocation import (
+    InvocationNotFoundError,
+)
+from huginn.pipeline_control.application.errors.trigger import TriggerRateLimitError
+from huginn.pipeline_control.bootstrap import create_pipeline_services
+from huginn.pipeline_control.domain.errors.invocation import (
+    ActiveInvocationConflictError,
+)
+from huginn.pipeline_control.presentation.api.routers.invocations import (
+    router as pipeline_router,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +184,15 @@ class ManagementDependencies:
     forgot_password_service: Any = None
     reset_password_service: Any = None
     get_account_security_service: Any = None
+    get_configuration_options_service: Any = None
+    list_company_options_service: Any = None
+    get_company_option_service: Any = None
+    list_matches_service: Any = None
+    get_match_service: Any = None
+    list_match_signals_service: Any = None
+    get_matches_overview_service: Any = None
+    pipeline_services: Any = None
+    matchmaking_services: Any = None
     clock: Callable[[], datetime] | None = None
 
 
@@ -154,6 +210,7 @@ def create_account_administration_services(
         return PostgresAccountRepository(work.connection)
 
     return AccountAdministrationServices(
+        role_assignment=AssignAccountRoleService(make_uow, accounts_factory=accounts),
         provisioning=IdentityProvisioningService(
             make_uow,
             accounts_factory=accounts,
@@ -188,8 +245,14 @@ def create_app(
     service_offering_service: Any | None = None,
     ideal_client_profile_service: Any | None = None,
     discovery_strategy_service: Any | None = None,
+    list_matches_service: Any | None = None,
+    get_match_service: Any | None = None,
+    list_match_signals_service: Any | None = None,
+    get_matches_overview_service: Any | None = None,
     current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
+    pipeline_services: Any | None = None,
+    matchmaking_services: Any | None = None,
     throttle: Any | None = None,
 ) -> FastAPI:
     """Build the app and its dependency graph without opening a connection."""
@@ -257,6 +320,48 @@ def create_app(
         "clock": clock,
     }
     dependencies = ManagementDependencies(
+        get_configuration_options_service=GetConfigurationOptionsService(
+            make_uow,
+            query_factory=lambda work: PostgresConfigurationOptionsQuery(
+                work.connection
+            ),
+        ),
+        list_company_options_service=ListCompanyOptionsService(
+            make_uow,
+            query_factory=lambda work: PostgresConfigurationOptionsQuery(
+                work.connection
+            ),
+        ),
+        get_company_option_service=GetCompanyOptionService(
+            make_uow,
+            query_factory=lambda work: PostgresConfigurationOptionsQuery(
+                work.connection
+            ),
+        ),
+        list_matches_service=list_matches_service
+        or ListMatchesService(
+            make_uow, query_factory=lambda work: PostgresMatchesQuery(work.connection)
+        ),
+        get_match_service=get_match_service
+        or GetMatchService(
+            make_uow, query_factory=lambda work: PostgresMatchesQuery(work.connection)
+        ),
+        list_match_signals_service=list_match_signals_service
+        or ListMatchSignalsService(
+            make_uow, query_factory=lambda work: PostgresMatchesQuery(work.connection)
+        ),
+        get_matches_overview_service=get_matches_overview_service
+        or GetMatchesOverviewService(
+            make_uow, query_factory=lambda work: PostgresMatchesQuery(work.connection)
+        ),
+        pipeline_services=pipeline_services
+        if pipeline_services is not None
+        else create_pipeline_services(resolved_config.database_url, clock=clock),
+        matchmaking_services=matchmaking_services
+        if matchmaking_services is not None
+        else create_matchmaking_control_services(
+            resolved_config.database_url, clock=clock
+        ),
         signup_service=SignupService(make_uow, resolved_config, **lifecycle_arguments),
         verify_email_service=VerifyEmailService(
             make_uow, resolved_config, **lifecycle_arguments
@@ -333,6 +438,43 @@ def create_app(
     app.state.management = dependencies
     customize_openapi(app)
     register_exception_handlers(app)
+
+    @app.middleware("http")
+    async def private_admin_responses(request, call_next):
+        response = await call_next(request)
+        if (
+            request.url.path.startswith("/api/v1/admin/")
+            or request.url.path == "/api/v1/matches"
+            or request.url.path.startswith("/api/v1/matches/")
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Vary"] = "Cookie"
+        return response
+
+    @app.exception_handler(ActiveInvocationConflictError)
+    async def active_invocation_error(request, error):
+        shape = error_shape_for_status(409)
+        shape.body["error"]["details"] = [
+            {"active_invocation_id": error.active_invocation_id}
+        ]
+        return JSONResponse(status_code=409, content=shape.body)
+
+    @app.exception_handler(TriggerRateLimitError)
+    async def trigger_rate_limit_error(request, error):
+        shape = error_shape_for_status(429)
+        return JSONResponse(
+            status_code=429,
+            content=shape.body,
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        )
+
+    @app.exception_handler(InvocationNotFoundError)
+    async def invocation_not_found(request, error):
+        shape = error_shape_for_status(404)
+        return JSONResponse(status_code=404, content=shape.body)
+
+    app.include_router(pipeline_router)
+    app.include_router(matchmaking_router)
     app.include_router(health_router)
     app.include_router(sessions_router)
     app.include_router(current_user_router)
@@ -341,6 +483,8 @@ def create_app(
     app.include_router(discovery_strategies_router)
     app.include_router(account_lifecycle_router)
     app.include_router(account_security_router)
+    app.include_router(configuration_options_router)
+    app.include_router(matches_router)
     mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

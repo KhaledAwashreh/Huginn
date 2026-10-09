@@ -3,7 +3,10 @@
 import argparse
 import json
 import sys
+import tempfile
+from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from uuid import UUID
 
 from huginn.matchmaking.application.errors.execution import (
@@ -15,9 +18,6 @@ from huginn.matchmaking.application.requests.batch_matchmaking_request import (
 )
 from huginn.matchmaking.config import MatchmakingConfig
 from huginn.matchmaking.presentation.errors.shapes import OperatorError
-from huginn.matchmaking.presentation.serializers.batch_matchmaking_response import (
-    serialize_batch_matchmaking_response,
-)
 from huginn.matchmaking.presentation.serializers.errors import serialize_operator_error
 
 
@@ -85,16 +85,75 @@ def _emit(payload: dict[str, object]) -> None:
     sys.stdout.write("\n")
 
 
+def _execute_guarded(
+    config: MatchmakingConfig, request: BatchMatchmakingRequest
+) -> tuple[dict[str, object], int]:
+    from huginn.management.persistence.database.client import (
+        ManagementConnectionFactory,
+    )
+    from huginn.pipeline_control.application.errors.execution import (
+        ExecutionUnavailableError,
+    )
+    from huginn.pipeline_control.infrastructure.postgres_execution_guard import (
+        PostgresExecutionGuard,
+    )
+    from huginn.pipeline_control.infrastructure.process_supervisor import (
+        ProcessExecutorSupervisor,
+        new_execution_owner,
+    )
+
+    owner = replace(new_execution_owner(None), resource_kind="matchmaking")
+    guard = PostgresExecutionGuard(
+        ManagementConnectionFactory(config.database_url, statement_timeout_ms=2000),
+        resource_kind="matchmaking",
+    )
+    try:
+        if not guard.acquire(owner):
+            raise ExecutionUnavailableError("execution_busy")
+        with tempfile.TemporaryDirectory(prefix="huginn-matchmaking-") as directory:
+            output = Path(directory) / "result.json"
+            payload = json.dumps(
+                {
+                    "user_ids": [str(value) for value in request.user_ids],
+                    "cutoff": request.cutoff.isoformat(),
+                    "as_of": request.as_of.isoformat() if request.as_of else None,
+                }
+            )
+            command = (
+                sys.executable,
+                "-m",
+                "huginn.matchmaking_control.presentation.cli.executor",
+                "--batch-request",
+                payload,
+                "--result-path",
+                str(output),
+            )
+            supervisor = ProcessExecutorSupervisor(command=command)
+            status = supervisor.run(owner, guard)
+            if not guard.settle(owner, "succeeded" if status == 0 else "failed"):
+                raise ExecutionUnavailableError("execution_unavailable")
+            if not output.is_file():
+                raise ExecutionUnavailableError("execution_unavailable")
+            return json.loads(output.read_text()), status
+    finally:
+        guard.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
         request = _parse_request(args)
-        config = MatchmakingConfig.from_env()
-        from huginn.matchmaking.bootstrap import build_batch_service
+        from huginn.matchmaking.application.services.matchmaking_service import (
+            resolve_window,
+        )
+        from huginn.matchmaking.bootstrap import SystemClock
 
-        response = build_batch_service(config).execute(request)
-        _emit(serialize_batch_matchmaking_response(response))
-        return 1 if response.failures else 0
+        window = resolve_window(request.cutoff, request.as_of, SystemClock())
+        request = replace(request, cutoff=window.cutoff, as_of=window.as_of)
+        config = MatchmakingConfig.from_env()
+        payload, status = _execute_guarded(config, request)
+        _emit(payload)
+        return status
     except (InputValidationError, ConfigurationError) as exc:
         code = getattr(exc, "code", "invalid_input")
         message = (
@@ -104,3 +163,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         _emit(serialize_operator_error(OperatorError(code=code, message=message)))
         return 2
+    except Exception as exc:
+        from huginn.pipeline_control.application.errors.execution import (
+            ExecutionUnavailableError,
+        )
+
+        code = (
+            "execution_busy"
+            if isinstance(exc, ExecutionUnavailableError)
+            and str(exc) == "execution_busy"
+            else "execution_unavailable"
+        )
+        _emit(
+            serialize_operator_error(
+                OperatorError(
+                    code=code,
+                    message="Shared execution is busy"
+                    if code == "execution_busy"
+                    else "Shared execution is unavailable",
+                )
+            )
+        )
+        return 1

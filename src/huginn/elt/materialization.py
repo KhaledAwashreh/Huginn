@@ -66,6 +66,7 @@ def build_eu_startups_materialization_stages(
         Stage(
             name="gold.company",
             run=company_writer.write_all,
+            run_managed=company_writer.write_all,
             depends_on=("silver.signal_resolution",),
         ),
         Stage(

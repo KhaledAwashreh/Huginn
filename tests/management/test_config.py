@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 import pytest
@@ -8,6 +9,9 @@ from huginn.management import config
 @pytest.fixture(autouse=True)
 def disable_dotenv(monkeypatch):
     monkeypatch.setattr(config, "load_dotenv", lambda: False)
+    for key in tuple(os.environ):
+        if key.startswith("HUGINN_"):
+            monkeypatch.delenv(key)
 
 
 def test_load_config_reads_management_database_url_only(monkeypatch):

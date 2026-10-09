@@ -3,6 +3,7 @@ import { normalizeApiError } from './normalizeApiError';
 interface ApiClientConfiguration {
   getCsrfToken?: () => string | undefined;
   onUnauthorized?: () => void;
+  onAdministratorForbidden?: () => void;
   getIdentityVersion?: () => number;
 }
 interface ApiRequestOptions {
@@ -60,11 +61,17 @@ export async function apiRequest<T = void>(
     } catch {
       body = null;
     }
+    if (identityVersion !== requestConfiguration.getIdentityVersion?.()) {
+      throw new Error('The session changed. Reload before trying again.');
+    }
     if (
       response.status === 401 &&
       identityVersion === requestConfiguration.getIdentityVersion?.()
     ) {
       requestConfiguration.onUnauthorized?.();
+    }
+    if (response.status === 403 && path.startsWith('/api/v1/admin/')) {
+      requestConfiguration.onAdministratorForbidden?.();
     }
     throw normalizeApiError(response.status, body);
   }

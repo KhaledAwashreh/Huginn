@@ -56,7 +56,7 @@ and so has no developer database to compare against.
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "db" / "schema"
 
-SCHEMA_FILES = (
+BASE_SCHEMA_FILES = (
     "00_extensions.sql",
     "ops.sql",
     "bronze.sql",
@@ -65,14 +65,20 @@ SCHEMA_FILES = (
     "gold.sql",
     "operational.sql",
 )
-"""Same order as db/schema/README.md's fresh-install command: extensions
+"""Same order as db/schema/README.md's base bootstrap: extensions
 before any table, then dependency order (operational references gold; the
 rest reference nothing outside their own schema).
+"""
 
-Deliberately excludes the fourteen ALTER files. Applying them would test
-the upgrade path rather than the shipped shape, and the two are allowed to
-differ; README.md explains why the fresh-install rebuild is not a
-substitute for migration coverage.
+SCHEMA_FILES = (
+    *BASE_SCHEMA_FILES,
+    "operational-account-role.sql",
+    "ops-pipeline-control.sql",
+    "ops-matchmaking-control.sql",
+)
+"""Full fresh bootstrap, including migrations that depend on all base tables.
+
+The first seven files remain separately available for upgrade-path tests.
 """
 
 _POSTGRES_IMAGE = "postgres:16-alpine"

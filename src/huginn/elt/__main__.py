@@ -41,14 +41,22 @@ from huginn.elt.silver.repositories.yc_staging_repository import (
     PostgresYcStagingRepository,
 )
 from huginn.elt.silver.yc_staging import YcStagingLoader
-from huginn.elt.stage_runner import Stage, run_stages
-from huginn.ops.job_runs import JobRunStatus
+from huginn.elt.stage_runner import Stage
+from huginn.ops.job_runs import JobRunWriterPort
 from huginn.ops.postgres_job_run_writer import PostgresJobRunWriter
+from huginn.pipeline_control.application.read_models.tracking_context import (
+    TrackingContext,
+)
+from huginn.pipeline_control.infrastructure.invocation_job_run_writer import (
+    InvocationJobRunWriter,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _run_ingestion(config: Config) -> int:
+def _run_ingestion(
+    config: Config, job_run_writer: JobRunWriterPort | None = None
+) -> int:
     """Fetch HN and YC once and write to Bronze.
 
     `IngestionService.run_once()` already isolates HN's and YC's failures
@@ -67,7 +75,7 @@ def _run_ingestion(config: Config) -> int:
         raw_store=PostgresApiIngestStore(
             PostgresApiIngestRepository(config.database_url)
         ),
-        job_run_writer=PostgresJobRunWriter(config.database_url),
+        job_run_writer=job_run_writer or PostgresJobRunWriter(config.database_url),
     )
     failed_count = service.run_once()
     if failed_count:
@@ -101,8 +109,36 @@ def build_stages(config: Config) -> list[Stage]:
         ),
     )
 
+    def source_writer(context: TrackingContext) -> JobRunWriterPort:
+        from huginn.management.persistence.database.client import (
+            ManagementConnectionFactory,
+        )
+        from huginn.pipeline_control.persistence.database.unit_of_work import (
+            PostgresPipelineUnitOfWork,
+        )
+
+        factory = ManagementConnectionFactory(
+            config.database_url, statement_timeout_ms=2000
+        )
+        return InvocationJobRunWriter(
+            PostgresJobRunWriter(config.database_url),
+            context,
+            source=True,
+            event_uow_factory=lambda: PostgresPipelineUnitOfWork(factory),
+        )
+
+    def run_managed_eu(context: TrackingContext) -> int:
+        runner = build_eu_startups_discovery_runner(
+            config, job_run_writer=source_writer(context)
+        )
+        return runner.run()
+
     return [
-        Stage(name="ingestion", run=lambda: _run_ingestion(config)),
+        Stage(
+            name="ingestion",
+            run=lambda: _run_ingestion(config),
+            run_managed=lambda context: _run_ingestion(config, source_writer(context)),
+        ),
         Stage(
             name="ingestion.eu_startups",
             # The runner records the source transaction as `eu_startups`;
@@ -110,6 +146,7 @@ def build_stages(config: Config) -> list[Stage]:
             # `ingestion.eu_startups`, matching the aggregate `ingestion`
             # stage plus its per-source HN/YC records.
             run=eu_startups_discovery_runner.run,
+            run_managed=run_managed_eu,
         ),
         Stage(
             name="silver.hn_staging",
@@ -160,11 +197,37 @@ def main() -> None:
         logger.error("%s", error)
         sys.exit(1)
 
-    stages = build_stages(config)
-    job_run_writer = PostgresJobRunWriter(config.database_url)
-    statuses = run_stages(stages, job_run_writer)
-    if any(status != JobRunStatus.SUCCEEDED for status in statuses.values()):
+    from huginn.management.persistence.database.client import (
+        ManagementConnectionFactory,
+    )
+    from huginn.pipeline_control.infrastructure.postgres_execution_guard import (
+        PostgresExecutionGuard,
+    )
+    from huginn.pipeline_control.infrastructure.process_supervisor import (
+        ProcessExecutorSupervisor,
+        new_execution_owner,
+    )
+
+    guard = PostgresExecutionGuard(
+        ManagementConnectionFactory(config.database_url, statement_timeout_ms=2000)
+    )
+    owner = new_execution_owner(None)
+    try:
+        if not guard.acquire(owner):
+            logger.error("Pipeline execution is busy")
+            sys.exit(1)
+        outcome = ProcessExecutorSupervisor().run(owner, guard)
+        if not guard.settle(owner, "succeeded" if outcome == 0 else "failed"):
+            raise RuntimeError("settlement_unavailable")
+        if outcome:
+            sys.exit(1)
+    except Exception:
+        logger.exception(
+            "Pipeline stopped; execution guard is preserved if recovery is required"
+        )
         sys.exit(1)
+    finally:
+        guard.close()
 
 
 if __name__ == "__main__":

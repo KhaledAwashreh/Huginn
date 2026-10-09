@@ -5,6 +5,7 @@ from uuid import UUID
 
 from huginn.management.domain.entities.account import Account, AccountStatus
 from huginn.management.domain.value_objects.account import NewAccount
+from huginn.management.domain.value_objects.account_role import AccountRole
 
 
 class AccountRepository(Protocol):
@@ -19,3 +20,4 @@ class AccountRepository(Protocol):
     def set_password_hash(
         self, account_id: UUID, password_hash: str
     ) -> Account | None: ...
+    def set_role(self, account_id: UUID, role: AccountRole) -> Account | None: ...

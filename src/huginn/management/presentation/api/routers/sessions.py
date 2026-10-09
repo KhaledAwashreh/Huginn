@@ -143,4 +143,5 @@ def get_current_session(
         user_id=result.user_id,
         csrf_token=result.csrf_token,
         expires_at=result.expires_at,
+        role=result.role.value,
     )
