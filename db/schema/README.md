@@ -22,6 +22,11 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema
 
 `ON_ERROR_STOP` and the single transaction make any SQL error fail the bootstrap without committing a partial schema. The management development database still receives every ELT schema because retained operational tables reference `gold.company`. Use a new, dedicated, disposable database; this bootstrap does not authorize dropping or resetting an existing database.
 
+`silver.sql` includes the additive source-context schema for fresh databases.
+Existing databases must apply `silver-source-context.sql` before running the
+explicit capture command. See [`docs/source-context.md`](../../docs/source-context.md)
+for audit and capture.
+
 ## Existing pre-management database upgrade
 
 If `operational.accounts`, `users`, and `professional_profiles` already exist
@@ -149,6 +154,7 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `silver-yc-batch.sql` | `silver.yc_listings.batch` and its `resolved_signals` counterpart, the funded batch a company joined YC in |
 | `silver-eu-startups-listings.sql` | `silver.eu_startups_listings`, the per-source staging table for EU-Startups directory listings |
 | `silver-eu-startups-tracking-fields.sql` | EU-Startups raw `founded`, `total_funding`, and `company_status` fields plus `founded` / `total_funding` on `silver.resolved_signals` |
+| `silver-source-context.sql` | Versioned source-context snapshots, capture runs, and outcomes; apply to an existing database before running the explicit source-context capture command |
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
@@ -156,15 +162,15 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-The table above contains the seventeen existing ELT upgrade files. They are idempotent:
+The table above contains the eighteen existing ELT upgrade files. They are idempotent:
 re-running one on a database it has already been applied to is a no-op. Apply
 only files whose changes are needed by the commands and schema version in use;
 the full inventory is not a prerequisite list for every command. Automated
 coverage of idempotency is much thinner than the sentence implies:
 
-1. Four of the seventeen ELT upgrades are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, and `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`.
+1. Five of the eighteen ELT upgrades are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`, and `silver-source-context.sql` by `tests/elt/silver/context/test_migration.py`.
 2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files plus the role and pipeline-control migrations, but none of the seventeen ELT upgrade files, through the `integration_database_url` fixture. The separate pipeline-control schema test covers its base-to-additive upgrade path.
+3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files plus the role, pipeline-control, and matchmaking-control migrations, but none of the eighteen ELT upgrade files, through the `integration_database_url` fixture. The separate pipeline-control schema test covers its base-to-additive upgrade path.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:

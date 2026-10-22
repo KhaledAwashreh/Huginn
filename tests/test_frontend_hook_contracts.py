@@ -3,16 +3,39 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ZERO_OID = "0" * 40
 
 
+@cache
+def _git_local_env_names() -> tuple[str, ...]:
+    result = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return tuple(name for name in result.stdout.splitlines() if name)
+
+
+def _git_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
+    environment = os.environ.copy()
+    if overrides is not None:
+        environment.update(overrides)
+    for name in _git_local_env_names():
+        environment.pop(name, None)
+    return environment
+
+
 def _git(repo: Path, *arguments: str) -> str:
     result = subprocess.run(
         ["git", *arguments],
         cwd=repo,
+        env=_git_environment(),
         check=True,
         capture_output=True,
         text=True,
@@ -107,7 +130,7 @@ def _run_hook(
     return subprocess.run(
         ["/bin/bash", str(repo / "scripts" / script)],
         cwd=repo,
-        env={**os.environ, **environment},
+        env=_git_environment(environment),
         input=push_line,
         capture_output=True,
         text=True,
@@ -135,6 +158,54 @@ def test_pre_push_does_not_require_node_for_python_only_changes(tmp_path: Path) 
         "No frontend or management/pipeline API schema paths changed" in result.stdout
     )
     assert not npm_log.exists()
+
+
+def test_git_helper_isolates_temporary_repo_from_inherited_git_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _git(parent, "init", "--initial-branch=master")
+    _git(parent, "config", "user.email", "parent@example.invalid")
+    _git(parent, "config", "user.name", "Parent Identity")
+    (parent / "tracked.txt").write_text("parent\n")
+    _git(parent, "add", "tracked.txt")
+    _git(parent, "commit", "-m", "parent base")
+    child_root = tmp_path / "child"
+    child_root.mkdir()
+    child_repo, _, _ = _make_repo(child_root)
+
+    parent_head = _git(parent, "rev-parse", "HEAD")
+    parent_index = (parent / ".git" / "index").read_bytes()
+    parent_config = (parent / ".git" / "config").read_bytes()
+    monkeypatch.setenv("GIT_DIR", str(parent / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(parent))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(parent / ".git" / "index"))
+
+    assert Path(_git(child_repo, "rev-parse", "--show-toplevel")) == child_repo
+    _git(child_repo, "config", "--local", "user.name", "Child Identity")
+
+    assert _git(parent, "rev-parse", "HEAD") == parent_head
+    assert (parent / ".git" / "index").read_bytes() == parent_index
+    assert (parent / ".git" / "config").read_bytes() == parent_config
+    assert _git(child_repo, "config", "--local", "user.name") == "Child Identity"
+
+    local_oid = _commit_change(child_repo, "src/huginn/gold/example.py")
+    environment, npm_log = _environment(
+        tmp_path / "hook-environment", node_version=None, npm_version=None
+    )
+    result = _run_hook(
+        child_repo, "pre-push-review.sh", environment, _push_line(local_oid)
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "No frontend or management/pipeline API schema paths changed" in result.stdout
+    )
+    assert not npm_log.exists()
+    assert _git(parent, "rev-parse", "HEAD") == parent_head
+    assert (parent / ".git" / "index").read_bytes() == parent_index
+    assert (parent / ".git" / "config").read_bytes() == parent_config
 
 
 def test_pre_push_runs_schema_gate_and_browser_gate_for_frontend_features(
