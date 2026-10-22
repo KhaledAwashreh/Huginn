@@ -23,8 +23,10 @@ pipeline, Gold projections, matchmaking, and ranking do not read the sidecar.
    destination is `.local-runtime/source-context/audit-details.json`, which Git
    ignores. Use a distinct path for each source if retaining several reports.
 
-Audit uses a repeatable-read, read-only transaction with a statement timeout for
-Bronze and downstream comparisons. The summary contains counts, parser and
+Audit uses a repeatable-read, read-only transaction for Bronze and downstream
+comparisons. Reads default to a 30-second statement timeout; library callers can
+set `SourceContextRepository(..., statement_timeout_ms=...)` to another positive
+timeout. The summary contains counts, parser and
 input fingerprints, selected stable IDs, and no source text. A changed input
 fingerprint means two reports do not describe the same stored payload set.
 Field coverage shows retained source facts; it is not a buyer-intent or ranking

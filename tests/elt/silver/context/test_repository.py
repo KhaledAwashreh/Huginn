@@ -392,6 +392,136 @@ def test_input_fingerprint_must_be_64_lowercase_hex_characters() -> None:
         SourceContextRepository("unused").persist_run(bad_run)
 
 
+def test_statement_timeout_is_validated_and_applied_to_all_read_paths() -> None:
+    for value in (0, -1, 600_001, 1.5, True):
+        with pytest.raises(ValueError, match="statement_timeout_ms"):
+            SourceContextRepository("unused", statement_timeout_ms=value)
+
+    connection = _RecordingConnection()
+    repository = SourceContextRepository(
+        "unused", connect=lambda _: connection, statement_timeout_ms=1234
+    )
+    repository.read_inputs("eu_startups", limit=1)
+    repository.count_inputs("eu_startups")
+    repository.read_audit_snapshot("eu_startups", limit=1)
+    repository.coverage_counts("eu_startups")
+
+    timeout_calls = [
+        call for call in connection.calls if "set_config('statement_timeout'" in call[0]
+    ]
+    assert len(timeout_calls) == 4
+    assert all(call[1] == ("1234ms",) for call in timeout_calls)
+    repeatable_read_calls = [
+        call
+        for call in connection.calls
+        if "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY" in call[0]
+    ]
+    assert len(repeatable_read_calls) == 2
+
+
+class _RecordingResult:
+    def __init__(self, rows=()):
+        self._rows = rows
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else (0,)
+
+
+class _RecordingConnection:
+    def __init__(self):
+        self.calls = []
+        self.transaction_count = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def transaction(self):
+        from contextlib import nullcontext
+
+        self.transaction_count += 1
+        return nullcontext()
+
+    def execute(self, query, params=()):
+        self.calls.append((query, params))
+        return _RecordingResult()
+
+
+def test_persist_run_uses_one_processing_connection_for_record_transactions() -> None:
+    connections = []
+
+    def connect(_url):
+        connection = _RecordingConnection()
+        connections.append(connection)
+        return connection
+
+    records = tuple(
+        ContextRecord(
+            stable_id=f"bounded-{index}",
+            payload={"id": f"bounded-{index}"},
+            extraction=_captured(f"bounded-{index}", "description"),
+        )
+        for index in range(3)
+    )
+    run = ContextRun(
+        source="eu_startups",
+        parser_version="1",
+        input_fingerprint=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+        records=records,
+    )
+
+    result = SourceContextRepository("unused", connect=connect).persist_run(run)
+
+    assert result.status == "complete"
+    assert len(connections) == 2  # receipt connection plus processing connection
+    processing_inserts = [
+        call
+        for call in connections[1].calls
+        if "INSERT INTO silver.source_context" in call[0]
+    ]
+    assert len(processing_inserts) == 6  # 3 snapshots and 3 outcomes
+    assert connections[1].transaction_count == 4  # one per record plus finalization
+
+
+def test_processing_connection_acquisition_failure_marks_committed_receipt_interrupted() -> (
+    None
+):
+    receipt_connection = _RecordingConnection()
+    recovery_connection = _RecordingConnection()
+    connect_calls = 0
+    original_error = RuntimeError("processing connection unavailable")
+
+    def connect(_url):
+        nonlocal connect_calls
+        connect_calls += 1
+        if connect_calls == 1:
+            return receipt_connection
+        if connect_calls == 2:
+            raise original_error
+        return recovery_connection
+
+    run = _run("connection-failure", {"id": "connection-failure"}, "description")
+
+    with pytest.raises(
+        RuntimeError, match="processing connection unavailable"
+    ) as raised:
+        SourceContextRepository("unused", connect=connect).persist_run(run)
+
+    assert raised.value is original_error
+    assert connect_calls == 3
+    recovery_updates = [
+        call
+        for call in recovery_connection.calls
+        if "SET status = 'interrupted'" in call[0]
+    ]
+    assert len(recovery_updates) == 1
+
+
 def test_interrupted_run_keeps_completed_records_and_marks_partial_progress(
     integration_database_url: str,
 ) -> None:
@@ -516,6 +646,7 @@ def test_reader_orders_by_stable_id_and_keeps_observation_times_outside_payload(
         audit = repository.read_audit_snapshot("eu_startups")
         assert audit.available_count >= 2
         assert audit.coverage_counts["bronze"] == audit.available_count
+        assert repository.coverage_counts("eu_startups") == audit.coverage_counts
         assert audit.downstream_by_stable_id[ids[0]] == {
             "silver_staging_description": "Staging description",
             "silver_resolved_description": "Resolved description",
@@ -545,6 +676,7 @@ class _ReadOnlyMutationProbe:
     def __init__(self, url: str) -> None:
         self.connection = psycopg.connect(url)
         self.rejected_mutation = False
+        self.observed_timeout = None
 
     def __enter__(self):
         self.connection.__enter__()
@@ -558,7 +690,10 @@ class _ReadOnlyMutationProbe:
 
     def execute(self, query: str, params=()):
         result = self.connection.execute(query, params)
-        if query == "SET LOCAL statement_timeout = '5s'" and not self.rejected_mutation:
+        if "set_config('statement_timeout'" in query and not self.rejected_mutation:
+            self.observed_timeout = self.connection.execute(
+                "SHOW statement_timeout"
+            ).fetchone()[0]
             self.connection.execute("SAVEPOINT read_only_mutation_probe")
             with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
                 self.connection.execute(
@@ -584,3 +719,4 @@ def test_default_input_reader_rejects_mutations_in_read_only_transaction(
     repository.read_inputs("eu_startups", limit=1)
 
     assert probe.rejected_mutation is True
+    assert probe.observed_timeout == "30s"

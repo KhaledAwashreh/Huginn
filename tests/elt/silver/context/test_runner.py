@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from huginn.elt.silver.context.models import SourceExtraction
 from huginn.elt.silver.context.runner import run_audit, run_capture
 
@@ -242,6 +244,32 @@ def test_run_capture_persists_only_explicitly_and_preserves_each_outcome():
         "excluded",
     ]
     assert result["persistence"]["status"] == "succeeded"
+
+
+def test_run_capture_does_not_persist_when_summary_coverage_fails():
+    class CoverageFailureRepository(FakeRepository):
+        def __init__(self) -> None:
+            super().__init__([Input("yc", "1", {"id": 1, "text": "ok"})])
+            self.persist_calls = 0
+
+        def coverage_counts(self, source: str) -> dict[str, int]:
+            raise RuntimeError("coverage query failed")
+
+        def persist_run(self, run):
+            self.persist_calls += 1
+            return super().persist_run(run)
+
+    repository = CoverageFailureRepository()
+
+    with pytest.raises(RuntimeError, match="coverage query failed"):
+        run_capture(
+            "yc",
+            repository,
+            normalizer=_normalize,
+            run_factory=lambda **kwargs: kwargs,
+        )
+
+    assert repository.persist_calls == 0
 
 
 def test_yc_report_counts_paired_descriptions_and_source_state_distinctions():

@@ -645,7 +645,6 @@ def run_capture(
         records=records,
         mode="capture",
     )
-    persisted = repository.persist_run(run)
     report = _summary(
         source,
         repository,
@@ -656,6 +655,7 @@ def run_capture(
         limit,
         mode="capture",
     )
+    persisted = repository.persist_run(run)
     if isinstance(persisted, Mapping):
         persistence = dict(persisted)
     else:

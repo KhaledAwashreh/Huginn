@@ -30,6 +30,7 @@ _STAGING_TABLES: dict[SourceName, str] = {
     "yc": "silver.yc_listings",
     "eu_startups": "silver.eu_startups_listings",
 }
+_MAX_STATEMENT_TIMEOUT_MS = 600_000
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,58 @@ def _span_values(span: tuple[int, int] | None) -> tuple[int | None, int | None]:
     return (None, None) if span is None else span
 
 
+def _read_bronze_inputs(connection, source: SourceName, limit: int | None):
+    table = _BRONZE_TABLES[source]
+    query = (
+        f"SELECT source, stable_id, payload, fetched_at, last_checked_at "
+        f"FROM {table} WHERE source = %s "
+        "ORDER BY md5(stable_id), stable_id"
+    )
+    params: tuple[object, ...] = (source,)
+    if limit is not None:
+        query += " LIMIT %s"
+        params += (limit,)
+    return [
+        BronzeInput(
+            source=cast(SourceName, row[0]),
+            stable_id=row[1],
+            payload=row[2],
+            fetched_at=row[3],
+            last_checked_at=row[4],
+        )
+        for row in connection.execute(query, params).fetchall()
+    ]
+
+
+def _coverage_counts(connection, source: SourceName) -> dict[str, int]:
+    bronze_table = _BRONZE_TABLES[source]
+    staging_table = _STAGING_TABLES[source]
+    bronze = connection.execute(
+        f"SELECT count(*) FROM {bronze_table} WHERE source = %s", (source,)
+    ).fetchone()[0]
+    staging = connection.execute(f"SELECT count(*) FROM {staging_table}").fetchone()[0]
+    resolved = connection.execute(
+        "SELECT count(*) FROM silver.resolved_signals "
+        "WHERE source = %s AND key_derivation <> 'unresolved'",
+        (source,),
+    ).fetchone()[0]
+    unresolved = connection.execute(
+        "SELECT count(*) FROM silver.resolved_signals "
+        "WHERE source = %s AND key_derivation = 'unresolved'",
+        (source,),
+    ).fetchone()[0]
+    gold = connection.execute(
+        "SELECT count(*) FROM gold.company_signal WHERE source = %s", (source,)
+    ).fetchone()[0]
+    return {
+        "bronze": bronze,
+        "silver_staging": staging,
+        "silver_resolved": resolved,
+        "silver_unresolved": unresolved,
+        "gold_signals": gold,
+    }
+
+
 def validate_record(
     source: SourceName, stable_id: str, extraction: SourceExtraction
 ) -> tuple[OutcomeStatus, str | None]:
@@ -144,12 +197,29 @@ class SourceContextRepository:
         database_url: str,
         *,
         connect: Callable[..., object] | None = None,
+        statement_timeout_ms: int = 30_000,
     ) -> None:
+        if (
+            isinstance(statement_timeout_ms, bool)
+            or not isinstance(statement_timeout_ms, int)
+            or not 0 < statement_timeout_ms <= _MAX_STATEMENT_TIMEOUT_MS
+        ):
+            raise ValueError(
+                "statement_timeout_ms must be a positive integer no greater than "
+                f"{_MAX_STATEMENT_TIMEOUT_MS}"
+            )
         self._database_url = database_url
         self._connect = connect or psycopg.connect
+        self._statement_timeout_ms = statement_timeout_ms
 
     def _connection(self):
         return self._connect(self._database_url)
+
+    def _set_statement_timeout(self, connection) -> None:
+        connection.execute(
+            "SELECT set_config('statement_timeout', %s, true)",
+            (f"{self._statement_timeout_ms}ms",),
+        )
 
     def read_inputs(
         self,
@@ -160,38 +230,17 @@ class SourceContextRepository:
     ) -> list[BronzeInput]:
         if limit is not None and limit <= 0:
             raise ValueError("limit must be a positive integer")
-        table = _BRONZE_TABLES[source]
-        query = (
-            f"SELECT source, stable_id, payload, fetched_at, last_checked_at "
-            f"FROM {table} WHERE source = %s "
-            "ORDER BY md5(stable_id), stable_id"
-        )
-        params: tuple[object, ...] = (source,)
-        if limit is not None:
-            query += " LIMIT %s"
-            params += (limit,)
-
         with self._connection() as connection, connection.transaction():
             if read_only:
                 connection.execute("SET TRANSACTION READ ONLY")
-            connection.execute("SET LOCAL statement_timeout = '5s'")
-            rows = connection.execute(query, params).fetchall()
-        return [
-            BronzeInput(
-                source=cast(SourceName, row[0]),
-                stable_id=row[1],
-                payload=row[2],
-                fetched_at=row[3],
-                last_checked_at=row[4],
-            )
-            for row in rows
-        ]
+            self._set_statement_timeout(connection)
+            return _read_bronze_inputs(connection, source, limit)
 
     def count_inputs(self, source: SourceName) -> int:
         table = _BRONZE_TABLES[source]
         with self._connection() as connection, connection.transaction():
             connection.execute("SET TRANSACTION READ ONLY")
-            connection.execute("SET LOCAL statement_timeout = '5s'")
+            self._set_statement_timeout(connection)
             return connection.execute(
                 f"SELECT count(*) FROM {table} WHERE source = %s", (source,)
             ).fetchone()[0]
@@ -202,7 +251,6 @@ class SourceContextRepository:
         """Read Bronze, coverage totals, and matched projections consistently."""
         if limit is not None and limit <= 0:
             raise ValueError("limit must be a positive integer")
-        bronze_table = _BRONZE_TABLES[source]
         staging_table = _STAGING_TABLES[source]
         inputs: list[BronzeInput] = []
         downstream: dict[str, dict[str, object]] = {}
@@ -210,47 +258,10 @@ class SourceContextRepository:
             connection.execute(
                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
             )
-            connection.execute("SET LOCAL statement_timeout = '5s'")
-            available_count = connection.execute(
-                f"SELECT count(*) FROM {bronze_table} WHERE source = %s", (source,)
-            ).fetchone()[0]
-            query = (
-                f"SELECT source, stable_id, payload, fetched_at, last_checked_at "
-                f"FROM {bronze_table} WHERE source = %s "
-                "ORDER BY md5(stable_id), stable_id"
-            )
-            params: tuple[object, ...] = (source,)
-            if limit is not None:
-                query += " LIMIT %s"
-                params += (limit,)
-            rows = connection.execute(query, params).fetchall()
-            inputs = [
-                BronzeInput(
-                    source=cast(SourceName, row[0]),
-                    stable_id=row[1],
-                    payload=row[2],
-                    fetched_at=row[3],
-                    last_checked_at=row[4],
-                )
-                for row in rows
-            ]
-            staging_count = connection.execute(
-                f"SELECT count(*) FROM {staging_table}"
-            ).fetchone()[0]
-            resolved_count = connection.execute(
-                "SELECT count(*) FROM silver.resolved_signals "
-                "WHERE source = %s AND key_derivation <> 'unresolved'",
-                (source,),
-            ).fetchone()[0]
-            unresolved_count = connection.execute(
-                "SELECT count(*) FROM silver.resolved_signals "
-                "WHERE source = %s AND key_derivation = 'unresolved'",
-                (source,),
-            ).fetchone()[0]
-            gold_count = connection.execute(
-                "SELECT count(*) FROM gold.company_signal WHERE source = %s",
-                (source,),
-            ).fetchone()[0]
+            self._set_statement_timeout(connection)
+            inputs = _read_bronze_inputs(connection, source, limit)
+            coverage = _coverage_counts(connection, source)
+            available_count = coverage["bronze"]
             stable_ids = [item.stable_id for item in inputs]
             downstream = {
                 stable_id: {
@@ -286,49 +297,17 @@ class SourceContextRepository:
         return AuditSnapshot(
             inputs=tuple(inputs),
             available_count=available_count,
-            coverage_counts={
-                "bronze": available_count,
-                "silver_staging": staging_count,
-                "silver_resolved": resolved_count,
-                "silver_unresolved": unresolved_count,
-                "gold_signals": gold_count,
-            },
+            coverage_counts=coverage,
             downstream_by_stable_id=downstream,
         )
 
     def coverage_counts(self, source: SourceName) -> dict[str, int]:
-        staging_table = _STAGING_TABLES[source]
-        bronze_table = _BRONZE_TABLES[source]
         with self._connection() as connection, connection.transaction():
-            connection.execute("SET TRANSACTION READ ONLY")
-            connection.execute("SET LOCAL statement_timeout = '5s'")
-            bronze = connection.execute(
-                f"SELECT count(*) FROM {bronze_table} WHERE source = %s", (source,)
-            ).fetchone()[0]
-            staging = connection.execute(
-                f"SELECT count(*) FROM {staging_table}"
-            ).fetchone()[0]
-            resolved = connection.execute(
-                "SELECT count(*) FROM silver.resolved_signals "
-                "WHERE source = %s AND key_derivation <> 'unresolved'",
-                (source,),
-            ).fetchone()[0]
-            unresolved = connection.execute(
-                "SELECT count(*) FROM silver.resolved_signals "
-                "WHERE source = %s AND key_derivation = 'unresolved'",
-                (source,),
-            ).fetchone()[0]
-            gold = connection.execute(
-                "SELECT count(*) FROM gold.company_signal WHERE source = %s",
-                (source,),
-            ).fetchone()[0]
-        return {
-            "bronze": bronze,
-            "silver_staging": staging,
-            "silver_resolved": resolved,
-            "silver_unresolved": unresolved,
-            "gold_signals": gold,
-        }
+            connection.execute(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+            )
+            self._set_statement_timeout(connection)
+            return _coverage_counts(connection, source)
 
     def persist_run(self, run: ContextRun) -> PersistRunResult:
         if run.mode != "capture":
@@ -355,119 +334,125 @@ class SourceContextRepository:
 
         captured = excluded = failed = 0
         try:
-            for record in run.records:
-                extraction_status, reason = validate_record(
-                    run.source, record.stable_id, record.extraction
-                )
-                payload_hash = canonical_payload_sha256(record.payload)
-                snapshot_id: uuid.UUID | None = None
+            with self._connection() as connection:
+                for record in run.records:
+                    extraction_status, reason = validate_record(
+                        run.source, record.stable_id, record.extraction
+                    )
+                    payload_hash = canonical_payload_sha256(record.payload)
+                    snapshot_id: uuid.UUID | None = None
 
-                with self._connection() as connection, connection.transaction():
-                    if extraction_status == "captured":
-                        extraction = record.extraction
-                        header_start, header_end = _span_values(extraction.header_span)
-                        body_start, body_end = _span_values(extraction.body_span)
-                        inserted = connection.execute(
-                            """INSERT INTO silver.source_context_snapshot
-                                (source, stable_id, source_url, payload_sha256,
-                                 parser_version, normalized_text, header_start,
-                                 header_end, body_start, body_end, source_fields,
-                                 source_times)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                               ON CONFLICT (source, stable_id, payload_sha256, parser_version)
-                               DO NOTHING RETURNING id""",
-                            (
-                                run.source,
-                                record.stable_id,
-                                extraction.source_url,
-                                payload_hash,
-                                run.parser_version,
-                                extraction.normalized_text,
-                                header_start,
-                                header_end,
-                                body_start,
-                                body_end,
-                                _jsonb(extraction.source_fields),
-                                _jsonb(extraction.source_times),
-                            ),
-                        ).fetchone()
-                        if inserted is not None:
-                            snapshot_id = inserted[0]
-                        else:
-                            snapshot_id = connection.execute(
-                                """SELECT id FROM silver.source_context_snapshot
-                                   WHERE source = %s AND stable_id = %s
-                                     AND payload_sha256 = %s AND parser_version = %s""",
+                    with connection.transaction():
+                        if extraction_status == "captured":
+                            extraction = record.extraction
+                            header_start, header_end = _span_values(
+                                extraction.header_span
+                            )
+                            body_start, body_end = _span_values(extraction.body_span)
+                            inserted = connection.execute(
+                                """INSERT INTO silver.source_context_snapshot
+                                    (source, stable_id, source_url, payload_sha256,
+                                     parser_version, normalized_text, header_start,
+                                     header_end, body_start, body_end, source_fields,
+                                     source_times)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                   ON CONFLICT (source, stable_id, payload_sha256, parser_version)
+                                   DO NOTHING RETURNING id""",
                                 (
                                     run.source,
                                     record.stable_id,
+                                    extraction.source_url,
                                     payload_hash,
                                     run.parser_version,
+                                    extraction.normalized_text,
+                                    header_start,
+                                    header_end,
+                                    body_start,
+                                    body_end,
+                                    _jsonb(extraction.source_fields),
+                                    _jsonb(extraction.source_times),
                                 ),
-                            ).fetchone()[0]
+                            ).fetchone()
+                            if inserted is not None:
+                                snapshot_id = inserted[0]
+                            else:
+                                snapshot_id = connection.execute(
+                                    """SELECT id FROM silver.source_context_snapshot
+                                       WHERE source = %s AND stable_id = %s
+                                         AND payload_sha256 = %s AND parser_version = %s""",
+                                    (
+                                        run.source,
+                                        record.stable_id,
+                                        payload_hash,
+                                        run.parser_version,
+                                    ),
+                                ).fetchone()[0]
 
-                    connection.execute(
-                        """INSERT INTO silver.source_context_outcome
-                            (run_id, source, stable_id, payload_sha256, status,
-                             reason, snapshot_id, observation_metadata)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (
-                            run_id,
-                            run.source,
-                            record.stable_id,
-                            payload_hash,
-                            extraction_status,
-                            reason,
-                            snapshot_id,
-                            _jsonb(
-                                {
-                                    "bronze_observation": record.observation,
-                                    "source_times": record.extraction.source_times,
-                                }
+                        connection.execute(
+                            """INSERT INTO silver.source_context_outcome
+                                (run_id, source, stable_id, payload_sha256, status,
+                                 reason, snapshot_id, observation_metadata)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (
+                                run_id,
+                                run.source,
+                                record.stable_id,
+                                payload_hash,
+                                extraction_status,
+                                reason,
+                                snapshot_id,
+                                _jsonb(
+                                    {
+                                        "bronze_observation": record.observation,
+                                        "source_times": record.extraction.source_times,
+                                    }
+                                ),
                             ),
-                        ),
-                    )
+                        )
 
-                if extraction_status == "captured":
-                    captured += 1
-                elif extraction_status == "excluded":
-                    excluded += 1
-                else:
-                    failed += 1
+                    if extraction_status == "captured":
+                        captured += 1
+                    elif extraction_status == "excluded":
+                        excluded += 1
+                    else:
+                        failed += 1
 
-            status: Literal["complete", "partial", "failed"] = (
-                "complete"
-                if failed == 0
-                else "failed"
-                if captured + excluded == 0
-                else "partial"
-            )
-            with self._connection() as connection, connection.transaction():
-                connection.execute(
-                    """UPDATE silver.source_context_run
+                status: Literal["complete", "partial", "failed"] = (
+                    "complete"
+                    if failed == 0
+                    else "failed"
+                    if captured + excluded == 0
+                    else "partial"
+                )
+                with connection.transaction():
+                    connection.execute(
+                        """UPDATE silver.source_context_run
                            SET status = %s, captured_count = %s, excluded_count = %s,
                                failed_count = %s, finished_at = %s
                            WHERE id = %s""",
-                    (
-                        status,
-                        captured,
-                        excluded,
-                        failed,
-                        datetime.now(UTC),
-                        run_id,
-                    ),
-                )
+                        (
+                            status,
+                            captured,
+                            excluded,
+                            failed,
+                            datetime.now(UTC),
+                            run_id,
+                        ),
+                    )
         except Exception as exc:
             try:
-                with self._connection() as connection, connection.transaction():
-                    connection.execute(
+                with (
+                    self._connection() as recovery_connection,
+                    recovery_connection.transaction(),
+                ):
+                    recovery_connection.execute(
                         """UPDATE silver.source_context_run
-                           SET status = 'interrupted', captured_count = %s,
-                               excluded_count = %s, failed_count = %s,
-                               finished_at = %s,
-                               run_metadata = run_metadata ||
-                                   jsonb_build_object('interruption_type', %s::text)
-                           WHERE id = %s""",
+                               SET status = 'interrupted', captured_count = %s,
+                                   excluded_count = %s, failed_count = %s,
+                                   finished_at = %s,
+                                   run_metadata = run_metadata ||
+                                       jsonb_build_object('interruption_type', %s::text)
+                               WHERE id = %s""",
                         (
                             captured,
                             excluded,

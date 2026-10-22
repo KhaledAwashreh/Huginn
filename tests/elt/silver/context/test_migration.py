@@ -44,6 +44,19 @@ def _apply(database_url: str) -> None:
         connection.execute(_MIGRATION.read_text())
 
 
+def test_standalone_context_migration_matches_bootstrap_section() -> None:
+    standalone = _MIGRATION.read_text().splitlines()
+    assert standalone[2] == "BEGIN;"
+    assert standalone[-1] == "COMMIT;"
+    migration_body = "\n".join((*standalone[:2], *standalone[3:-1]))
+
+    bootstrap = (SCHEMA_DIR / "silver.sql").read_text()
+    section_start = bootstrap.index(
+        "-- Additive, idempotent schema for versioned source context."
+    )
+    assert migration_body == bootstrap[section_start:].rstrip("\n")
+
+
 def test_silver_bootstrap_remains_inside_caller_transaction(
     integration_database_url: str,
 ) -> None:
@@ -83,12 +96,47 @@ def test_context_migration_creates_tables_and_is_idempotent(
         first_run_shape = _shape(url, "source_context_run")
         first_outcome_shape = _shape(url, "source_context_outcome")
 
+        with psycopg.connect(url) as connection:
+            connection.execute(
+                "CREATE INDEX source_context_snapshot_source_stable_idx "
+                "ON silver.source_context_snapshot (source, stable_id)"
+            )
         _apply(url)
 
         assert first_snapshot_shape == _shape(url, "source_context_snapshot")
         assert first_run_shape == _shape(url, "source_context_run")
         assert first_outcome_shape == _shape(url, "source_context_outcome")
         with psycopg.connect(url) as connection:
+            indexes = connection.execute(
+                "SELECT indexname, indexdef FROM pg_indexes "
+                "WHERE schemaname = 'silver' AND tablename = 'source_context_outcome' "
+                "ORDER BY indexname"
+            ).fetchall()
+            assert dict(indexes) == {
+                "source_context_outcome_run_idx": (
+                    "CREATE INDEX source_context_outcome_run_idx ON "
+                    "silver.source_context_outcome USING btree (run_id, status)"
+                ),
+                "source_context_outcome_snapshot_idx": (
+                    "CREATE INDEX source_context_outcome_snapshot_idx ON "
+                    "silver.source_context_outcome USING btree (snapshot_id)"
+                ),
+                "source_context_outcome_run_record_uq": (
+                    "CREATE UNIQUE INDEX source_context_outcome_run_record_uq ON "
+                    "silver.source_context_outcome USING btree (run_id, source, stable_id)"
+                ),
+                "source_context_outcome_pkey": (
+                    "CREATE UNIQUE INDEX source_context_outcome_pkey ON "
+                    "silver.source_context_outcome USING btree (id)"
+                ),
+            }
+            snapshot_indexes = connection.execute(
+                "SELECT indexname FROM pg_indexes "
+                "WHERE schemaname = 'silver' AND tablename = 'source_context_snapshot'"
+            ).fetchall()
+            assert (
+                "source_context_snapshot_source_stable_idx",
+            ) not in snapshot_indexes
             assert connection.execute(
                 "INSERT INTO silver.source_context_run "
                 "(source, mode, parser_version, input_fingerprint, status) "

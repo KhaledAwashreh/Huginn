@@ -95,10 +95,11 @@ CREATE TABLE IF NOT EXISTS silver.source_context_outcome (
     CONSTRAINT source_context_outcome_run_record_uq UNIQUE (run_id, source, stable_id)
 );
 
-CREATE INDEX IF NOT EXISTS source_context_snapshot_source_stable_idx
-    ON silver.source_context_snapshot (source, stable_id);
+DROP INDEX IF EXISTS silver.source_context_snapshot_source_stable_idx;
 CREATE INDEX IF NOT EXISTS source_context_outcome_run_idx
     ON silver.source_context_outcome (run_id, status);
+CREATE INDEX IF NOT EXISTS source_context_outcome_snapshot_idx
+    ON silver.source_context_outcome (snapshot_id);
 
 -- CREATE TABLE IF NOT EXISTS alone can silently accept an incompatible table.
 -- Verify required column types/nullability and named constraints on reruns.
