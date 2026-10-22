@@ -5,6 +5,11 @@ below are explicit operator migrations; no migration framework has been
 chosen. Apply all seven base files to a new database in this
 order:
 
+`silver.sql` includes the additive source-context sidecar for fresh databases.
+Existing databases use `silver-source-context.sql` as a separate, transactional
+migration before the explicit capture command. See
+[`docs/source-context.md`](../../docs/source-context.md) for audit and capture.
+
 1. `00_extensions.sql`
 2. `ops.sql` (pipeline-run metadata; no foreign keys in or out, so it can apply anywhere after the extension, listed here early)
 3. `bronze.sql`

@@ -148,7 +148,8 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 1. Per-source staging tables, each conformed to a common shape but not merged across sources (ADR-0001), so HN's cleaning logic and YC's stay independently inspectable.
 2. One cross-source `resolved_signals` table then runs entity resolution (section 6) at event grain, one row per original signal, raw company name replaced by a resolved canonical identifier.
 3. No dimension/fact split at this layer. That is Gold's job, per Databricks and Kimball.
-4. Current-state upsert only, no version history. Bronze does not preserve prior versions either, it holds only the latest raw payload per entity (section 4.1 point 4), so a wrong entity-resolution merge has no prior raw state anywhere in the pipeline to diagnose or roll back from. Accepted trade-off, revisit if it bites in practice.
+4. The source-specific staging and resolved-signal tables remain current-state upserts. Bronze also holds only the latest raw payload per entity (section 4.1 point 4).
+5. `silver.source_context_snapshot` is a narrow exception: an explicit preservation command stores versioned, source-keyed text and fields before further projection. Its run and outcome tables record exclusions and observations independently of company identity. This sidecar does not change staging, resolution, Gold, or Match eligibility. It cannot recover raw versions that Bronze already overwrote. See [source-context.md](source-context.md).
 
 ### 4.3 Gold
 
