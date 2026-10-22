@@ -75,6 +75,7 @@ SCHEMA_FILES = (
     "operational-account-role.sql",
     "ops-pipeline-control.sql",
     "ops-matchmaking-control.sql",
+    "silver-source-currentness.sql",
 )
 """Full fresh bootstrap, including migrations that depend on all base tables.
 
