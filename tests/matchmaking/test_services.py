@@ -29,6 +29,7 @@ from huginn.matchmaking.application.services.batch_matchmaking_service import (
 from huginn.matchmaking.application.services.matchmaking_service import (
     MatchmakingService,
 )
+from huginn.matchmaking.domain.entities.match import Match, MatchStatus
 from huginn.matchmaking.persistence.errors.database import (
     CommitOutcomeUnknownError,
     RetryableTransactionError,
@@ -52,12 +53,15 @@ class Uow:
         candidates=(),
         failure=None,
         availability=UserAvailability.ACTIVE,
+        insert_result=None,
     ):
         self.reads = 0
         self.commits = 0
         self.inserts = []
+        self.insert_calls = []
         self.windows = []
         self.failure = failure
+        self.insert_result = insert_result
         self.configuration = SimpleNamespace(
             user_availability=lambda user: availability,
             list_active_strategies=lambda user: strategies,
@@ -71,9 +75,10 @@ class Uow:
         self.windows.append(window)
         return self.rows
 
-    def insert(self, user, company):
+    def insert(self, user, company, *, observation_ids, window):
         self.inserts.append(company)
-        return None
+        self.insert_calls.append((user, company, observation_ids, window))
+        return self.insert_result
 
     def __enter__(self):
         return self
@@ -107,17 +112,23 @@ def strategy(user, *, industries=({"name": "Software"},)):
 def test_union_memoization_counts_existing_and_commits():
     user = uuid4()
     ids = sorted((uuid4(), uuid4()))
+    proof = (uuid4(),)
     uow = Uow(
-        (strategy(user), strategy(user)), tuple(CompanyCandidate(id) for id in ids)
+        (strategy(user), strategy(user)),
+        tuple(CompanyCandidate(id, proof) for id in ids),
     )
+    as_of = datetime(2026, 10, 2, tzinfo=UTC)
     response = MatchmakingService(lambda: uow, Clock(), lambda delay: None).execute(
-        MatchmakingRequest(user, NOW)
+        MatchmakingRequest(user, NOW, as_of)
     )
     assert (
         response.unique_candidates_count == response.existing_matches_skipped_count == 2
     )
     assert response.strategies_evaluated == 2
     assert uow.reads == 1 and uow.inserts == ids and uow.commits == 1
+    assert [call[2] for call in uow.insert_calls] == [proof, proof]
+    assert all(call[3] == uow.windows[0] for call in uow.insert_calls)
+    assert all(call[3].as_of == as_of for call in uow.insert_calls)
 
 
 def test_incomplete_and_disabled_do_not_query_candidates():
@@ -136,10 +147,15 @@ def test_incomplete_and_disabled_do_not_query_candidates():
 
 def test_retry_discards_attempt_and_keeps_window():
     user = uuid4()
+    first_proof = (uuid4(),)
     first = Uow(
-        (strategy(user),), (CompanyCandidate(uuid4()),), RetryableTransactionError()
+        (strategy(user),),
+        (CompanyCandidate(uuid4(), first_proof),),
+        RetryableTransactionError(),
     )
-    second = Uow((strategy(user),), ())
+    retry_company = uuid4()
+    retry_proof = (uuid4(),)
+    second = Uow((strategy(user),), (CompanyCandidate(retry_company, retry_proof),))
     attempts = iter((first, second))
     delays = []
     clock = Clock()
@@ -147,9 +163,14 @@ def test_retry_discards_attempt_and_keeps_window():
         MatchmakingRequest(user, NOW)
     )
     assert (
-        response.unique_candidates_count == 0 and delays == [0.05] and clock.calls == 1
+        response.unique_candidates_count == 1 and delays == [0.05] and clock.calls == 1
     )
     assert first.windows == second.windows
+    assert first.insert_calls[0][2] == first_proof
+    assert second.insert_calls[0][2] == retry_proof
+    assert second.insert_calls == [
+        (user, retry_company, retry_proof, second.windows[0])
+    ]
 
 
 def test_commit_uncertainty_never_retries():
@@ -278,7 +299,7 @@ def test_exclusion_scope_can_qualify_through_another_strategy():
         return (
             ()
             if company in criteria.excluded_company_ids
-            else (CompanyCandidate(company),)
+            else (CompanyCandidate(company, (uuid4(),)),)
         )
 
     uow.candidates.find_candidates = candidates
@@ -286,6 +307,91 @@ def test_exclusion_scope_can_qualify_through_another_strategy():
         MatchmakingRequest(user, NOW)
     )
     assert response.unique_candidates_count == 1 and uow.inserts == [company]
+
+
+def test_distinct_criteria_union_deduplicates_and_sorts_company_evidence():
+    from dataclasses import replace
+
+    user = uuid4()
+    company = uuid4()
+    other_company = uuid4()
+    proof_a, proof_b, proof_c = sorted(uuid4() for _ in range(3))
+    first = strategy(user)
+    second = replace(first, strategy_id=uuid4(), industries=({"name": "Finance"},))
+    uow = Uow((first, second))
+    candidate_calls = []
+
+    def candidates(criteria, window):
+        candidate_calls.append((criteria, window))
+        if criteria.industries[0] == "Software":
+            return (
+                CompanyCandidate(company, (proof_b, proof_a)),
+                CompanyCandidate(other_company, (proof_c,)),
+            )
+        return (CompanyCandidate(company, (proof_a, proof_c)),)
+
+    uow.candidates.find_candidates = candidates
+    as_of = datetime(2026, 10, 4, tzinfo=UTC)
+    response = MatchmakingService(lambda: uow, Clock()).execute(
+        MatchmakingRequest(user, NOW, as_of)
+    )
+
+    assert len(candidate_calls) == 2
+    assert uow.inserts == sorted((company, other_company))
+    calls = {call[1]: call for call in uow.insert_calls}
+    assert calls[company][2] == (proof_a, proof_b, proof_c)
+    assert calls[other_company][2] == (proof_c,)
+    assert all(
+        call[3].cutoff == NOW and call[3].as_of == as_of for call in calls.values()
+    )
+    assert response.unique_candidates_count == 2
+
+
+def test_created_match_receives_selected_evidence_and_original_window():
+    user = uuid4()
+    company = uuid4()
+    observation_ids = tuple(sorted((uuid4(), uuid4())))
+    created_match = Match(uuid4(), user, company, MatchStatus.NEW, None, NOW, NOW)
+    uow = Uow(
+        (strategy(user),),
+        (CompanyCandidate(company, observation_ids),),
+        insert_result=created_match,
+    )
+    as_of = datetime(2026, 10, 5, tzinfo=UTC)
+
+    response = MatchmakingService(lambda: uow, Clock()).execute(
+        MatchmakingRequest(user, NOW, as_of)
+    )
+
+    assert response.created_matches == (created_match,)
+    assert uow.insert_calls == [(user, company, observation_ids, uow.windows[0])]
+    assert uow.insert_calls[0][3].cutoff == NOW
+    assert uow.insert_calls[0][3].as_of == as_of
+
+
+def test_excluded_strategy_does_not_contribute_its_observations():
+    from dataclasses import replace
+
+    user = uuid4()
+    company = uuid4()
+    blocked = replace(
+        strategy(user),
+        geographies=({"kind": "region", "value": "Europe"},),
+    )
+    allowed = strategy(user)
+    allowed_proof = uuid4()
+    uow = Uow((blocked, allowed))
+    candidate_calls = []
+
+    def candidates(criteria, window):
+        candidate_calls.append(criteria)
+        return (CompanyCandidate(company, (allowed_proof,)),)
+
+    uow.candidates.find_candidates = candidates
+    MatchmakingService(lambda: uow, Clock()).execute(MatchmakingRequest(user, NOW))
+
+    assert len(candidate_calls) == 1
+    assert uow.insert_calls[0][2] == (allowed_proof,)
 
 
 def test_region_exclusion_skips_without_candidate_query():

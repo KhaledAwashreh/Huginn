@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 import psycopg
 import pytest
 
+from huginn.matchmaking.domain.value_objects.signal_window import SignalWindow
 from huginn.matchmaking.persistence.errors.database import (
     CommitOutcomeUnknownError,
     DatabaseOperationError,
@@ -86,7 +89,7 @@ def test_live_readiness_and_repeatable_read_snapshot(integration_database_url):
 
     check_readiness(integration_database_url)
     with psycopg.connect(integration_database_url) as seed:
-        user, company = _insert_user_and_company(seed)
+        user, _company_id = _insert_user_and_company(seed)
     with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
         assert uow.configuration.user_availability(user) == "active"
         with psycopg.connect(integration_database_url) as editor:
@@ -107,15 +110,25 @@ def test_live_partial_insertion_is_rolled_back(integration_database_url):
     from uuid import uuid4
 
     from tests.matchmaking.test_schema_migrations import _insert_user_and_company
+    from tests.matchmaking.test_sql_repositories import _evidence_id, _signal
 
     with psycopg.connect(integration_database_url) as seed:
         user, company = _insert_user_and_company(seed)
+        _signal(seed, company, "other", datetime(2025, 1, 1, tzinfo=UTC))
+        evidence_id = _evidence_id(seed, company)
     with (
         pytest.raises(DatabaseOperationError),
         SqlMatchmakingUnitOfWork(integration_database_url) as uow,
     ):
-        assert uow.matches.insert_if_absent(user, company)
-        uow.matches.insert_if_absent(user, uuid4())
+        window = SignalWindow(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        assert uow.matches.insert_if_absent(
+            user, company, observation_ids=(evidence_id,), window=window
+        )
+        uow.matches.insert_if_absent(
+            user, uuid4(), observation_ids=(evidence_id,), window=window
+        )
     with psycopg.connect(integration_database_url) as check:
         assert (
             check.execute(

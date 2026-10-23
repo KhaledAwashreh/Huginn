@@ -4,9 +4,10 @@ Audit stored Bronze records and explicitly preserve their lifecycle and identity
 transitions. This extends [source-context preservation](source-context.md).
 Current-signal endpoints use a guarded source-context projection. Match list and
 detail reads retain durable history and report current/historical source-evidence
-availability separately. New-match qualification and automatic evidence capture
-at Match creation remain separate integration work; this projection does not
-establish consulting demand or current ICP fit.
+availability separately. Matchmaking selects guarded observations within the
+original source-event window and captures their immutable IDs only for newly
+created Matches. Source availability does not establish consulting demand or
+current ICP fit on its own.
 
 ## Stored facts
 
@@ -165,7 +166,13 @@ company, with source event time in the original inclusive matching window. These
 checks use the inserting transaction's consistent snapshot. They do not guarantee
 freshness against ingestion committed after that snapshot.
 
-This slice supplies guarded context and history storage/read semantics. The
-existing matchmaking candidate path and its automatic evidence capture still need
-the separate qualifying-evidence integration. Do not treat current-context
-availability, or the presence of the new tables, as completion of that integration.
+Matchmaking uses this view with its existing ICP/exclusion filters and inclusive
+source-event window. It preserves the existing any-kind prospecting rule,
+including directory context, while rejecting stale or unreconciled sources.
+Selected observation IDs survive the per-company strategy union and are inserted
+with the original window in the same transaction as a newly created Match.
+Existing or conflicting Matches receive no evidence backfill. Every tentative
+Match/link for a User rolls back together on failure; retries retain the original
+window and discard evidence from the failed attempt. See [matchmaking.md](matchmaking.md)
+for runtime grants and operator behavior. Company/ICP state and ranking results
+are not snapshotted by this source-evidence capture.

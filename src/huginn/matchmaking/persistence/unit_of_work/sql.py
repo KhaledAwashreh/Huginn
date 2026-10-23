@@ -116,10 +116,23 @@ def check_readiness(database_url: str) -> None:
             "SELECT u.id, u.account_id, a.id, a.status FROM operational.users u LEFT JOIN operational.accounts a ON a.id=u.account_id LIMIT 0",
             "SELECT s.id,s.user_id,s.name,s.service_offering_id,s.ideal_client_profile_id,s.is_active,o.id,o.user_id,p.id,p.user_id,p.industries,p.company_sizes,p.geographies,p.exclusions FROM operational.client_discovery_strategies s LEFT JOIN operational.service_offerings o ON FALSE LEFT JOIN operational.ideal_client_profiles p ON FALSE LIMIT 0",
             "SELECT id,business_sector,company_scale,country FROM gold.company LIMIT 0",
-            "SELECT company_id,occurred_at FROM gold.company_signal LIMIT 0",
+            "SELECT company_id,observation_id,occurred_at FROM gold.current_source_evidence LIMIT 0",
             "SELECT id,user_id,company_id,status,notes,created_at,updated_at FROM operational.match LIMIT 0",
+            "SELECT match_id,observation_id,cutoff,as_of FROM operational.match_source_evidence LIMIT 0",
         ):
             connection.execute(query)
+        grant_row = connection.execute(
+            """
+            SELECT has_column_privilege(current_user, 'operational.match_source_evidence', 'match_id', 'INSERT')
+               AND has_column_privilege(current_user, 'operational.match_source_evidence', 'observation_id', 'INSERT')
+               AND has_column_privilege(current_user, 'operational.match_source_evidence', 'cutoff', 'INSERT')
+               AND has_column_privilege(current_user, 'operational.match_source_evidence', 'as_of', 'INSERT')
+            """
+        ).fetchone()
+        if grant_row is None or not grant_row[0]:
+            raise DatabaseOperationError(
+                "Required Match evidence write privilege unavailable"
+            )
         row = connection.execute("""
             SELECT EXISTS (
                 SELECT 1 FROM pg_constraint c

@@ -16,6 +16,8 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
+from huginn.elt.silver.context.repository import canonical_payload_sha256
+from huginn.elt.silver.context.yc import normalize_yc
 from huginn.matchmaking.application.read_models.user_availability import (
     UserAvailability,
 )
@@ -131,12 +133,7 @@ def _company(
         (company_id, f"{company_id}.example.test", sectors, size, country),
     )
     if signal_at is not None:
-        conn.execute(
-            "INSERT INTO gold.company_signal "
-            "(company_id, source, source_stable_id, signal_type, occurred_at) "
-            "VALUES (%s, 'test', %s, 'other', %s)",
-            (company_id, str(company_id), signal_at),
-        )
+        _signal(conn, company_id, "other", signal_at)
     return company_id
 
 
@@ -145,13 +142,80 @@ def _signal(
     company_id: UUID,
     signal_type: str,
     occurred_at: datetime,
-) -> None:
+) -> UUID:
+    stable_id = f"match-{uuid4()}"
+    domain = conn.execute(
+        "SELECT domain FROM gold.company WHERE id=%s", (company_id,)
+    ).fetchone()[0]
     conn.execute(
         "INSERT INTO gold.company_signal "
         "(company_id, source, source_stable_id, signal_type, occurred_at) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (company_id, f"test-{signal_type}", str(uuid4()), signal_type, occurred_at),
+        "VALUES (%s, 'yc', %s, %s, %s)",
+        (company_id, stable_id, signal_type, occurred_at),
     )
+    launched_at = occurred_at.timestamp()
+    payload = {
+        "id": stable_id,
+        "slug": stable_id,
+        "name": "Match fixture",
+        "website": f"https://{domain}",
+        "status": "Active",
+        "isHiring": False,
+        "launched_at": launched_at,
+        "one_liner": "Directory source fixture",
+    }
+    context = normalize_yc(payload)
+    assert context.status == "captured"
+    conn.execute(
+        "INSERT INTO bronze.api_ingest(source,stable_id,payload,content_hash,run_id) "
+        "VALUES ('yc',%s,%s,'seeded',%s)",
+        (stable_id, psycopg.types.json.Jsonb(payload), uuid4()),
+    )
+    conn.execute(
+        "INSERT INTO silver.resolved_signals(source,source_stable_id,resolved_company_key,company_name_raw,signal_type,key_derivation) "
+        "VALUES ('yc',%s,%s,'Match fixture','other','domain_normalized')",
+        (stable_id, domain),
+    )
+    snapshot_id = conn.execute(
+        """INSERT INTO silver.source_context_snapshot
+           (source,stable_id,source_url,payload_sha256,parser_version,normalized_text,source_fields,source_times)
+           VALUES ('yc',%s,%s,%s,'yc-context-v1',%s,%s,%s) RETURNING id""",
+        (
+            stable_id,
+            context.source_url,
+            canonical_payload_sha256(payload),
+            context.normalized_text,
+            psycopg.types.json.Jsonb(context.source_fields),
+            psycopg.types.json.Jsonb(context.source_times),
+        ),
+    ).fetchone()[0]
+    observation_id = conn.execute(
+        """INSERT INTO silver.source_lifecycle_observation
+           (source,stable_id,raw_token,resolution_token,policy_version,context_version,
+            snapshot_id,listing_state,hiring_state,identity_state,reason,explicit_domain,
+            resolved_company_key,key_derivation,company_id,occurred_at,bronze_fetched_at,
+            bronze_last_checked_at)
+           SELECT 'yc',%s,md5(b.payload::text),
+                  md5(jsonb_build_array(r.resolved_company_key,r.key_derivation)::text),
+                  'source-lifecycle-v1','yc-context-v1',%s,'available','false','consistent',
+                  'seeded',%s,%s,'domain_normalized',%s,to_timestamp(%s),b.fetched_at,b.last_checked_at
+           FROM bronze.api_ingest b JOIN silver.resolved_signals r
+             ON r.source=b.source AND r.source_stable_id=b.stable_id
+           WHERE b.source='yc' AND b.stable_id=%s RETURNING id""",
+        (stable_id, snapshot_id, domain, domain, company_id, launched_at, stable_id),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO silver.source_currentness(source,stable_id,current_observation_id) VALUES ('yc',%s,%s)",
+        (stable_id, observation_id),
+    )
+    return observation_id
+
+
+def _evidence_id(conn: psycopg.Connection, company_id: UUID) -> UUID:
+    return conn.execute(
+        "SELECT observation_id FROM gold.current_source_evidence WHERE company_id=%s ORDER BY observation_id LIMIT 1",
+        (company_id,),
+    ).fetchone()[0]
 
 
 def test_configuration_queries_are_user_scoped_and_validate_active_strategy_rows(
@@ -369,6 +433,14 @@ def test_candidate_query_applies_all_dimensions_exclusions_and_inclusive_signal_
     assert tuple(candidate.company_id for candidate in candidates) == tuple(
         sorted((accepted, accepted_as_of), key=lambda company_id: company_id.int)
     )
+    with psycopg.connect(integration_database_url) as conn:
+        expected_evidence = {
+            company_id: (_evidence_id(conn, company_id),)
+            for company_id in (accepted, accepted_as_of)
+        }
+    assert {
+        candidate.company_id: candidate.observation_ids for candidate in candidates
+    } == expected_evidence
 
 
 def test_candidate_query_normalizes_text_and_accepts_any_industry_size_country(
@@ -476,6 +548,7 @@ def test_insert_if_absent_preserves_existing_workflow_state_and_timestamps(
         for status in statuses:
             user_id, _ = _user(conn)
             company_id = _company(conn, sectors=None)
+            _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
             match_id = uuid4()
             created_at = datetime(
                 2025, 1, status is MatchStatus.NEW and 1 or 2, 3, tzinfo=UTC
@@ -499,7 +572,18 @@ def test_insert_if_absent_preserves_existing_workflow_state_and_timestamps(
 
     for user_id, company_id in user_ids:
         with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
-            assert uow.matches.insert_if_absent(user_id, company_id) is None
+            assert (
+                uow.matches.insert_if_absent(
+                    user_id,
+                    company_id,
+                    observation_ids=(uuid4(),),
+                    window=SignalWindow(
+                        datetime(2025, 1, 1, tzinfo=UTC),
+                        datetime(2026, 1, 1, tzinfo=UTC),
+                    ),
+                )
+                is None
+            )
             uow.commit()
 
     with psycopg.connect(integration_database_url) as conn:
@@ -510,6 +594,12 @@ def test_insert_if_absent_preserves_existing_workflow_state_and_timestamps(
                 (user_id, company_id),
             ).fetchone()
             assert row == expected[company_id]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM operational.match_source_evidence"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_same_company_can_be_created_for_distinct_users(integration_database_url: str):
@@ -517,17 +607,38 @@ def test_same_company_can_be_created_for_distinct_users(integration_database_url
         first_user, _ = _user(conn)
         second_user, _ = _user(conn)
         company_id = _company(conn, sectors=None)
+        _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
+        evidence_id = _evidence_id(conn, company_id)
         conn.commit()
 
     created = []
     for user_id in (first_user, second_user):
         with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
-            match = uow.matches.insert_if_absent(user_id, company_id)
+            match = uow.matches.insert_if_absent(
+                user_id,
+                company_id,
+                observation_ids=(evidence_id,),
+                window=SignalWindow(
+                    datetime(2025, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+                ),
+            )
             assert match is not None
             assert match.user_id == user_id
             created.append(match.id)
             uow.commit()
     assert created[0] != created[1]
+    with psycopg.connect(integration_database_url) as conn:
+        evidence = conn.execute(
+            "SELECT observation_id,cutoff,as_of FROM operational.match_source_evidence WHERE match_id=%s",
+            (created[0],),
+        ).fetchall()
+    assert evidence == [
+        (
+            evidence_id,
+            datetime(2025, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    ]
 
 
 def test_concurrent_insert_if_absent_claims_one_match_across_connections(
@@ -536,6 +647,8 @@ def test_concurrent_insert_if_absent_claims_one_match_across_connections(
     with psycopg.connect(integration_database_url) as conn:
         user_id, _ = _user(conn)
         company_id = _company(conn, sectors=None)
+        _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
+        evidence_id = _evidence_id(conn, company_id)
         conn.commit()
 
     barrier = Barrier(2)
@@ -547,7 +660,15 @@ def test_concurrent_insert_if_absent_claims_one_match_across_connections(
             try:
                 with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
                     barrier.wait(timeout=5) if attempts == 1 else None
-                    result = uow.matches.insert_if_absent(user_id, company_id)
+                    result = uow.matches.insert_if_absent(
+                        user_id,
+                        company_id,
+                        observation_ids=(evidence_id,),
+                        window=SignalWindow(
+                            datetime(2025, 1, 1, tzinfo=UTC),
+                            datetime(2026, 1, 1, tzinfo=UTC),
+                        ),
+                    )
                     uow.commit()
                     return result is not None
             except RetryableTransactionError:

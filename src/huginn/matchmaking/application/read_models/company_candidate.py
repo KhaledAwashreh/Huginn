@@ -5,3 +5,4 @@ from uuid import UUID
 @dataclass(frozen=True)
 class CompanyCandidate:
     company_id: UUID
+    observation_ids: tuple[UUID, ...]

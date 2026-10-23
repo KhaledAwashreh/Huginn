@@ -186,7 +186,7 @@ criteria values and do not depend on application projections.
 
 This slice does not rank candidates or deliver a digest. Existing Matches are
 left unchanged, so this is creation-only matching and does not implement
-resurfacing, sent-history checks, evidence snapshots, or reevaluation. The
+resurfacing, sent-history checks, ranking snapshots, or reevaluation. The
 operator entry point and required schema setup are documented in
 [`matchmaking.md`](matchmaking.md). Scheduler integration remains future work.
 
@@ -195,9 +195,12 @@ is unavailable. They report current source availability separately from stored
 creation-evidence availability. `operational.match_source_evidence` stores immutable
 observation links and original matching windows without reconstructing legacy
 history. Match ID/owner/company identity and context snapshot contents are
-protected. Automatic capture in the creation-only matcher remains pending the
-qualifying-evidence integration; a guarded current-context endpoint does not guard
-that candidate path. See [`source-currentness.md`](source-currentness.md).
+protected. The creation-only matcher selects guarded observation IDs in the
+original inclusive source-event window, unions them across qualifying strategies,
+and stores them atomically with each new Match. Existing Matches receive no
+reconstructed evidence. Directory context remains eligible under the existing
+any-kind prospecting rule; source availability is not inferred consulting demand.
+See [`source-currentness.md`](source-currentness.md).
 
 ## 5. Ingestion
 
@@ -271,7 +274,7 @@ direction; it is not implemented behavior:
 1. A future first ranking may order eligible companies by their freshest qualifying signal. No ranking is produced by the current module.
 2. A later weighted score may be considered after real filtered-data volume exists. Its inputs and weights remain open (Jira KAN-8); the current schema and service do not produce a score or qualitative tier.
 
-Future evidence, recommendation occurrences, and sent-digest snapshots need separate lifecycle design. The current Match stores workflow status and notes, and later matching runs leave those fields unchanged. It has no score snapshot or sent-state freeze.
+Recommendation occurrences, targeting/company-state snapshots and sent-digest snapshots need further lifecycle design. A new Match retains its selected immutable source observations and matching window, while later matching runs preserve its workflow status, notes and original evidence. It has no score snapshot or sent-state freeze.
 
 The feedback loop and digest delivery are not wired to the matching service.
 
