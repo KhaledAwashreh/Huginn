@@ -3,10 +3,12 @@
 `huginn.matchmaking` creates missing `operational.match` rows for an explicit
 set of Users. It reads active discovery strategies and ICPs from operational
 tables and eligible companies/signals from Gold. Each User runs in its own
-transaction, and the batch continues after a User failure.
+transaction, and the batch continues after a User failure. Candidates use the
+guarded `gold.current_source_evidence` projection; newly created Matches retain
+the exact selected source observations and original matching window.
 
-This slice only creates Matches. It does not score or rank candidates, record
-evidence, send a digest, update an existing Match, or resurface dismissed or
+This slice creates Matches and captures their source evidence. It does not score
+or rank candidates, send a digest, update an existing Match, or resurface dismissed or
 previously created Matches. Existing workflow status and notes are preserved.
 The response order is deterministic by User and Company UUID.
 
@@ -25,14 +27,34 @@ schemas and apply only these additive migrations before running the operator:
    the `gold.company_signal_company_occurred_at_idx` lookup index.
 
 Fresh installs include the same constraint and index in `operational.sql` and
-`gold.sql`. Migrations are idempotent for compatible existing objects. Run
+`gold.sql`. Both fresh and existing databases also need these additive source
+evidence migrations after the base schemas:
+
+1. `db/schema/silver-source-context.sql` if source-context tables are absent
+   (fresh `silver.sql` already includes them).
+2. `db/schema/silver-source-currentness.sql`.
+3. `db/schema/gold-current-source-evidence.sql`.
+
+Audit and explicitly reconcile stored inputs before running matching, as described
+in [source-currentness.md](source-currentness.md). Missing, changed or unreconciled
+source observations cannot qualify; the matcher does not fetch or reconcile data.
+
+Migrations are idempotent for compatible existing objects. Run
 them with a schema-administration credential; the runtime credential should
 have `USAGE` on `operational` and `gold`, `SELECT` on the configuration and
 Gold columns read by matchmaking, and `SELECT` on the Match columns used by
 `RETURNING` and the `(user_id, company_id)` conflict target. It also needs
 `INSERT` on `operational.match` columns `user_id`, `company_id`, `status`, and
 `notes`. The unique constraint must be present for the `ON CONFLICT` arbiter.
-The CLI does not create schemas, run migrations, or change grants.
+The runtime also needs `SELECT` on guarded view columns `company_id`,
+`observation_id`, and `occurred_at`, and `SELECT` plus `INSERT` on
+`operational.match_source_evidence` columns `match_id`, `observation_id`, `cutoff`,
+and `as_of`. History reads support readiness; the validation trigger reads the
+Match ID/company and those guarded view columns. The normal view-owner permission
+model does not require blanket Bronze or Silver grants for the matcher. Readiness
+checks the schema, readable projections and history INSERT privileges without a
+write. The CLI does not create schemas, run migrations, reconcile source data,
+or change grants.
 
 ## Run a batch
 
@@ -60,10 +82,16 @@ readiness checks.
 
 `cutoff` and `as-of` bound an inclusive signal window. `as-of` defaults to one
 time captured for the full batch, and every User receives the same UTC window.
-Candidate qualification requires at least one signal inside that window. A
+Candidate qualification requires at least one guarded source observation inside that window. A
 company must also match at least one industry, one selected company-size band,
-and one country in an active ICP. Any current signal type can satisfy the
-window. Values within each dimension are ORed;
+and one country in an active ICP. Any supported current source kind can satisfy
+the window, including directory context with false or unknown hiring. This
+preserves the existing prospecting policy; it does not establish hiring intent,
+consulting demand or a probability of success. A hiring-only policy is separate
+work. Original source dates are used: HN publication, YC launch, or EU listing
+modification. Null dates cannot satisfy a window. Observation/check/ingestion time
+never substitutes for a missing or old source event date.
+Values within each dimension are ORed;
 industries, size, and country are combined with AND. A User qualifies once if
 any active strategy qualifies the company.
 
@@ -92,9 +120,18 @@ three reason codes without exposing their criteria.
 
 The service reads the User's account, active strategies, ICPs, and candidate
 companies in one PostgreSQL `REPEATABLE READ` transaction, then inserts sorted
-distinct Company IDs. The batch is serial and each User has an independent
+distinct Company IDs. Selected observation IDs are unioned per company across
+successful strategies, deduplicated and retained with that same original window.
+Only a newly inserted Match receives source-evidence links, in the same
+transaction. A link validation failure rolls back every tentative Match and link
+for that User. Existing Matches receive no reconstructed history; their IDs,
+workflow status, notes, timestamps and stored evidence remain intact.
+
+The batch is serial and each User has an independent
 transaction. Configuration or Gold changes after a User's snapshot take
-effect on a later run. A failure before acknowledged commit rolls back that
+effect on a later run. Selection and evidence validation are consistent within
+this transaction snapshot, not a guarantee against later ingestion commits.
+A failure before acknowledged commit rolls back that
 User's attempt; tentative Matches, counts, and skipped-strategy results are
 discarded, while other Users in the batch continue.
 
@@ -156,7 +193,7 @@ always names its intended scope.
 ## Future work
 
 The module is not scheduled by ELT and does not deliver user-facing output.
-Scheduler integration, scoring, evidence snapshots, digest composition,
+Scheduler integration, scoring, targeting/company-attribute snapshots, digest composition,
 delivery, and resurfacing need later design and implementation.
 
 ## Administrator execution and shared guard

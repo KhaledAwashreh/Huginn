@@ -88,7 +88,7 @@ def test_read_models_are_frozen_and_preserve_raw_criteria_shapes():
 
     ids = [uuid4() for _ in range(4)]
     config = StrategyConfiguration(*ids[:3], "Strategy", ids[3], None, (), (), ())
-    candidate = CompanyCandidate(uuid4())
+    candidate = CompanyCandidate(uuid4(), (uuid4(),))
 
     assert config.industries is None
     assert candidate.company_id

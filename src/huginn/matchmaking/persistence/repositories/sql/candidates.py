@@ -30,9 +30,16 @@ class SqlCandidateRepository:
                   ARRAY(SELECT lower(btrim(v)) FROM unnest(%s::text[]) AS t(v)) AS excluded_industries,
                   ARRAY(SELECT lower(btrim(v)) FROM unnest(%s::text[]) AS t(v)) AS excluded_countries
             )
-            SELECT c.id AS company_id
+            SELECT c.id AS company_id,
+                   array_agg(DISTINCT evidence.observation_id
+                             ORDER BY evidence.observation_id) AS observation_ids
             FROM gold.company AS c
             CROSS JOIN target AS t
+            JOIN gold.current_source_evidence AS evidence
+              ON evidence.company_id = c.id
+             AND evidence.occurred_at IS NOT NULL
+             AND evidence.occurred_at >= %s::timestamptz
+             AND evidence.occurred_at <= %s::timestamptz
             WHERE EXISTS (
                 SELECT 1 FROM unnest(c.business_sector) AS sector(value)
                 WHERE sector.value IS NOT NULL
@@ -52,12 +59,7 @@ class SqlCandidateRepository:
                   AND lower(btrim(sector.value)) = ANY(t.excluded_industries)
               )
               AND NOT (lower(btrim(c.country)) = ANY(t.excluded_countries))
-              AND EXISTS (
-                SELECT 1 FROM gold.company_signal AS signal
-                WHERE signal.company_id = c.id
-                  AND signal.occurred_at >= %s::timestamptz
-                  AND signal.occurred_at <= %s::timestamptz
-              )
+            GROUP BY c.id
             ORDER BY c.id ASC;
         """,
             (

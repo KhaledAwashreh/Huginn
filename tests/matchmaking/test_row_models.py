@@ -5,6 +5,9 @@ from uuid import uuid4
 import pytest
 
 from huginn.matchmaking.persistence.errors.database import DataIntegrityError
+from huginn.matchmaking.persistence.row_models.company_candidate import (
+    CompanyCandidateRow,
+)
 from huginn.matchmaking.persistence.row_models.json_value import freeze_json_value
 from huginn.matchmaking.persistence.row_models.match import MatchRow
 from huginn.matchmaking.persistence.row_models.strategy_configuration import (
@@ -70,3 +73,12 @@ def test_match_row_rejects_naive_timestamp():
         MatchRow(
             uuid4(), uuid4(), uuid4(), "new", None, datetime.now(), datetime.now(UTC)
         ).to_domain()
+
+
+def test_company_candidate_row_requires_unique_uuid_evidence_and_freezes_it():
+    company_id, first, second = uuid4(), uuid4(), uuid4()
+    row = CompanyCandidateRow(company_id, [second, first])
+    assert row.to_read_model().observation_ids == (second, first)
+    for malformed in ([], [first, first], [first, str(second)], (first, second)):
+        with pytest.raises(DataIntegrityError):
+            CompanyCandidateRow(company_id, malformed)

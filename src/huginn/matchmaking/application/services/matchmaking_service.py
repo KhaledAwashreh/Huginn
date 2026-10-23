@@ -113,7 +113,7 @@ class MatchmakingService:
             configurations = uow.configuration.list_active_strategies(user_id)
             memo: dict[CompiledCriteria, tuple[CompanyCandidate, ...]] = {}
             skipped = []
-            company_ids: set[UUID] = set()
+            evidence_by_company: dict[UUID, set[UUID]] = {}
             for configuration in configurations:
                 criteria = compile_icp(
                     industries=configuration.industries,
@@ -128,11 +128,20 @@ class MatchmakingService:
                     continue
                 if criteria not in memo:
                     memo[criteria] = uow.candidates.find_candidates(criteria, window)
-                company_ids.update(candidate.company_id for candidate in memo[criteria])
+                for candidate in memo[criteria]:
+                    evidence_by_company.setdefault(candidate.company_id, set()).update(
+                        candidate.observation_ids
+                    )
             created = []
             existing = 0
-            for company_id in sorted(company_ids):
-                match = uow.matches.insert_if_absent(user_id, company_id)
+            for company_id in sorted(evidence_by_company):
+                observation_ids = tuple(sorted(evidence_by_company[company_id]))
+                match = uow.matches.insert_if_absent(
+                    user_id,
+                    company_id,
+                    observation_ids=observation_ids,
+                    window=window,
+                )
                 if match is None:
                     existing += 1
                 else:
@@ -146,7 +155,7 @@ class MatchmakingService:
             window.as_of,
             len(configurations),
             len(skipped),
-            len(company_ids),
+            len(evidence_by_company),
             tuple(created),
             existing,
             tuple(sorted(skipped, key=lambda item: item.strategy_id)),
