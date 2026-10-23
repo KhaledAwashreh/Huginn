@@ -330,6 +330,24 @@
             ],
             "title": "Description"
           },
+          "evidence_kind": {
+            "enum": [
+              "hiring",
+              "directory_context"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "hiring_state": {
+            "enum": [
+              "true",
+              "false",
+              "unknown",
+              "not_applicable"
+            ],
+            "title": "Hiring State",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -340,10 +358,27 @@
             "title": "Ingested At",
             "type": "string"
           },
-          "occurred_at": {
-            "format": "date-time",
-            "title": "Occurred At",
+          "observation_id": {
+            "format": "uuid",
+            "title": "Observation Id",
             "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
           },
           "signal_type": {
             "title": "Signal Type",
@@ -384,7 +419,11 @@
           "description",
           "stage",
           "occurred_at",
-          "ingested_at"
+          "ingested_at",
+          "observation_id",
+          "observed_at",
+          "evidence_kind",
+          "hiring_state"
         ],
         "title": "CurrentCompanySignalResponse",
         "type": "object"
@@ -3246,6 +3285,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "current_source_evidence_available": {
+            "title": "Current Source Evidence Available",
+            "type": "boolean"
+          },
+          "historical_evidence_available": {
+            "title": "Historical Evidence Available",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3278,7 +3325,9 @@
           "notes",
           "created_at",
           "updated_at",
-          "company"
+          "company",
+          "historical_evidence_available",
+          "current_source_evidence_available"
         ],
         "title": "UserMatchResponse",
         "type": "object"

@@ -16,3 +16,5 @@ class UserMatchResponse(ResponseModel):
     created_at: datetime
     updated_at: datetime
     company: CurrentCompanyResponse
+    historical_evidence_available: bool
+    current_source_evidence_available: bool

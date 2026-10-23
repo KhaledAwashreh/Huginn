@@ -76,6 +76,7 @@ SCHEMA_FILES = (
     "ops-pipeline-control.sql",
     "ops-matchmaking-control.sql",
     "silver-source-currentness.sql",
+    "gold-current-source-evidence.sql",
 )
 """Full fresh bootstrap, including migrations that depend on all base tables.
 

@@ -68,6 +68,12 @@ function canRetry(error: unknown): boolean {
           <h2 id="match-summary-heading">Match record</h2>
           <StatusLabel :status="match.data.value.status" />
         </div>
+        <p v-if="match.isError.value" class="availability-note">
+          Creation evidence availability could not be refreshed.
+        </p>
+        <p v-else-if="!match.data.value.historical_evidence_available" class="availability-note">
+          Creation evidence is unavailable for this saved match.
+        </p>
         <dl class="summary-grid">
           <div>
             <dt>Match ID</dt>
@@ -100,12 +106,32 @@ function canRetry(error: unknown): boolean {
       <section class="company-context" aria-labelledby="company-context-heading">
         <div class="section-title">
           <div>
-            <h2 id="company-context-heading">Current company context</h2>
-            <p>
+            <h2 id="company-context-heading">
+              {{
+                match.isError.value
+                  ? 'Previously received company details'
+                  : match.data.value.current_source_evidence_available
+                    ? 'Current company context'
+                    : 'Company details'
+              }}
+            </h2>
+            <p v-if="match.isError.value">
+              Previously received company attributes are shown; current availability is unverified.
+            </p>
+            <p v-else>
               These are current company attributes. They do not explain why this match was created.
             </p>
           </div>
         </div>
+        <p v-if="match.isError.value" class="availability-note">
+          Current source context availability could not be refreshed.
+        </p>
+        <p
+          v-else-if="!match.data.value.current_source_evidence_available"
+          class="availability-note"
+        >
+          Current source context is unavailable. The saved match record remains available.
+        </p>
         <dl class="summary-grid">
           <div>
             <dt>Company</dt>
@@ -185,6 +211,10 @@ h2 {
 }
 .section-title p {
   margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
+.availability-note {
+  margin: 0;
   color: var(--color-text-muted);
 }
 .summary-grid {

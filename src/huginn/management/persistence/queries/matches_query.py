@@ -45,6 +45,8 @@ class PostgresMatchesQuery:
             country=row[10],
             company_scale=row[11],
             company_status=row[12],
+            historical_evidence_available=row[13],
+            current_source_evidence_available=row[14],
         )
         company_value = CurrentCompanyRow(
             id=value.company_id,
@@ -74,6 +76,8 @@ class PostgresMatchesQuery:
             value.created_at,
             value.updated_at,
             company,
+            value.historical_evidence_available,
+            value.current_source_evidence_available,
         )
 
     def list_matches(
@@ -89,7 +93,11 @@ class PostgresMatchesQuery:
         rows = self._connection.execute(
             f"""SELECT m.id,m.user_id,m.status,m.notes,m.created_at,m.updated_at,
                        c.id,c.name,c.domain,c.business_sector,c.country,
-                       c.company_scale,c.company_status
+                       c.company_scale,c.company_status,
+                       EXISTS(SELECT 1 FROM operational.match_source_evidence AS e
+                              WHERE e.match_id=m.id),
+                       EXISTS(SELECT 1 FROM gold.current_source_evidence AS s
+                              WHERE s.company_id=m.company_id)
                 FROM operational.match AS m
                 JOIN gold.company AS c ON c.id=m.company_id
                 WHERE {where}
@@ -107,7 +115,11 @@ class PostgresMatchesQuery:
         row = self._connection.execute(
             """SELECT m.id,m.user_id,m.status,m.notes,m.created_at,m.updated_at,
                       c.id,c.name,c.domain,c.business_sector,c.country,
-                      c.company_scale,c.company_status
+                      c.company_scale,c.company_status,
+                      EXISTS(SELECT 1 FROM operational.match_source_evidence AS e
+                             WHERE e.match_id=m.id),
+                      EXISTS(SELECT 1 FROM gold.current_source_evidence AS s
+                             WHERE s.company_id=m.company_id)
                FROM operational.match AS m JOIN gold.company AS c ON c.id=m.company_id
                WHERE m.user_id=%s AND m.id=%s""",
             (user_id, match_id),
@@ -119,11 +131,12 @@ class PostgresMatchesQuery:
     ) -> Page[CurrentCompanySignal]:
         rows = self._connection.execute(
             """SELECT s.id,s.signal_type,s.source,s.source_url,s.description,
-                      s.stage,s.occurred_at,s.ingested_at
+                      s.stage,s.occurred_at,s.ingested_at,s.observation_id,
+                      s.observed_at,s.evidence_kind,s.hiring_state
                FROM operational.match AS m
-               JOIN gold.company_signal AS s ON s.company_id=m.company_id
+               JOIN gold.current_source_evidence AS s ON s.company_id=m.company_id
                WHERE m.user_id=%s AND m.id=%s
-               ORDER BY s.occurred_at DESC,s.id DESC LIMIT %s OFFSET %s""",
+               ORDER BY s.occurred_at DESC NULLS LAST,s.id DESC LIMIT %s OFFSET %s""",
             (user_id, match_id, limit + 1, offset),
         ).fetchall()
         items = tuple(
@@ -136,6 +149,10 @@ class PostgresMatchesQuery:
                 value.stage,
                 value.occurred_at,
                 value.ingested_at,
+                value.observation_id,
+                value.observed_at,
+                value.evidence_kind,
+                value.hiring_state,
             )
             for row in rows[:limit]
             for value in [
@@ -148,6 +165,10 @@ class PostgresMatchesQuery:
                     stage=row[5],
                     occurred_at=row[6],
                     ingested_at=row[7],
+                    observation_id=row[8],
+                    observed_at=row[9],
+                    evidence_kind=row[10],
+                    hiring_state=row[11],
                 )
             ]
         )

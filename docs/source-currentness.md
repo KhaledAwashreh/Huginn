@@ -2,9 +2,11 @@
 
 Audit stored Bronze records and explicitly preserve their lifecycle and identity
 transitions. This extends [source-context preservation](source-context.md).
-It does not yet change matching, current-signal endpoints, Gold materialization,
-or existing Match records. Runtime reader guards and evidence at Match creation
-remain separate integration work.
+Current-signal endpoints use a guarded source-context projection. Match list and
+detail reads retain durable history and report current/historical source-evidence
+availability separately. New-match qualification and automatic evidence capture
+at Match creation remain separate integration work; this projection does not
+establish consulting demand or current ICP fit.
 
 ## Stored facts
 
@@ -113,7 +115,57 @@ independently. History begins when reconciliation observes a transition;
 intermediate raw payload versions already overwritten in Bronze are lost.
 
 Rollback stops explicit reconciliation and retains the additive history tables.
-The existing runtime is unaffected by this foundation. A future guarded-reader
-rollout must separately audit/reconcile before enabling guards, preserve Match
-history, and retain those guards during rollback rather than restore stale
-evidence eligibility.
+Guarded readers require the additional migration below. Retain the guards and
+history during rollback; restoring an unguarded current-context endpoint would
+reintroduce stale evidence.
+
+## Guarded current context and retained Match history
+
+After the base and lifecycle schemas, apply the same additive reader migration
+on fresh and existing databases:
+
+```bash
+rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/gold-current-source-evidence.sql
+```
+
+The migration creates `gold.current_source_evidence` and
+`operational.match_source_evidence`. It does not reconcile records or backfill
+legacy Match evidence. Readiness requires both objects. Prepare and verify the
+schema, audit/reconcile explicitly, then deploy guarded readers; missing or changed
+source observations stay unavailable until reconciled. Never run this sequence
+against a shared database without reviewing the exact target and dry-run impact.
+
+The view checks full raw and resolution tokens, current source and parser policy,
+snapshot identity, available listing, consistent identity, Gold signal company
+association, and the current company domain. Unsupported sources have no legacy
+fallback. `last_checked_at` alone does not invalidate unchanged content. A current
+pointer is insufficient when the underlying raw input or company association has
+changed since reconciliation.
+
+Displayed descriptions, URLs, stages and event times come from preserved source
+context and lifecycle observations. Gold supplies the compatible signal ID and
+its original ingestion metadata; that ingestion time is not proof of source
+freshness. HN and affirmative YC hiring claims are labelled hiring context. YC
+false/unknown hiring and EU listings are directory context, not fabricated
+milestones. Missing event time stays null and is displayed as unknown.
+
+Match list/detail records, workflow status, notes and durable `has_matches` remain
+accessible even when current evidence disappears. `current_source_evidence_available`
+reports whether guarded context exists for the company. It does not mean the
+company still qualifies for the user's ICP. `historical_evidence_available` reports
+stored creation-evidence links only, independently of current pointers or mutable
+Gold signals. Existing Matches without those links report false; today's source
+association is never presented as their creation history. A failed UI refresh
+marks cached source context as previously received and currently unverified.
+
+Snapshots and stored evidence links reject update/delete. A Match cannot change
+its ID, owner or company; status and notes remain editable. Link
+insertion requires the exact guarded observation, its captured context and matching
+company, with source event time in the original inclusive matching window. These
+checks use the inserting transaction's consistent snapshot. They do not guarantee
+freshness against ingestion committed after that snapshot.
+
+This slice supplies guarded context and history storage/read semantics. The
+existing matchmaking candidate path and its automatic evidence capture still need
+the separate qualifying-evidence integration. Do not treat current-context
+availability, or the presence of the new tables, as completion of that integration.

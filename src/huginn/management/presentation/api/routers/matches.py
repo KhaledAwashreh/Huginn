@@ -51,6 +51,8 @@ def _match_response(item) -> UserMatchResponse:
         notes=item.notes,
         created_at=item.created_at,
         updated_at=item.updated_at,
+        historical_evidence_available=item.historical_evidence_available,
+        current_source_evidence_available=item.current_source_evidence_available,
         company=CurrentCompanyResponse(
             name=company.name,
             domain=company.domain,
@@ -157,6 +159,10 @@ def list_match_signals(
                 stage=item.stage,
                 occurred_at=item.occurred_at,
                 ingested_at=item.ingested_at,
+                observation_id=item.observation_id,
+                observed_at=item.observed_at,
+                evidence_kind=item.evidence_kind,
+                hiring_state=item.hiring_state,
             )
             for item in page.items
         ],

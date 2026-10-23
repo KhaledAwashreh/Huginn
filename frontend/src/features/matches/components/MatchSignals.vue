@@ -26,14 +26,30 @@ function canRetry(error: unknown): boolean {
     error.status === 408
   );
 }
+
+function dateLabel(source: string): string {
+  switch (source.toLowerCase()) {
+    case 'hn':
+      return 'Post published';
+    case 'yc':
+      return 'YC launch date';
+    case 'eu_startups':
+      return 'Listing last modified';
+    default:
+      return 'Source date';
+  }
+}
 </script>
 
 <template>
   <section class="signals" data-testid="match-signals" aria-labelledby="signals-heading">
     <div class="section-heading">
       <div>
-        <h2 id="signals-heading">Current company signals</h2>
-        <p>
+        <h2 id="signals-heading">
+          {{ failed && page ? 'Previously received company context' : 'Current company signals' }}
+        </h2>
+        <p v-if="failed && page">Current availability is unverified.</p>
+        <p v-else>
           These are current signals for the company. They do not explain why this match was created.
         </p>
       </div>
@@ -49,7 +65,10 @@ function canRetry(error: unknown): boolean {
       />
     </ErrorState>
     <template v-else-if="page">
-      <ErrorState v-if="failed" message="Signal refresh failed. Showing the last received page.">
+      <ErrorState
+        v-if="failed"
+        message="Previously received company context is shown; current availability is unverified."
+      >
         <Button
           v-if="canRetry(error)"
           label="Retry signals"
@@ -57,16 +76,27 @@ function canRetry(error: unknown): boolean {
           @click="emit('retry')"
         />
       </ErrorState>
-      <EmptyState v-if="!page.items.length" message="No current company signals are available." />
+      <EmptyState
+        v-if="!page.items.length"
+        :message="
+          failed
+            ? 'The previously received page contained no company context. Current availability is unverified.'
+            : 'No current company signals are available.'
+        "
+      />
       <ul v-else class="signal-list">
         <li v-for="signal in page.items" :key="signal.id" data-testid="signal-row">
           <div class="signal-title">
-            <strong>{{ signal.signal_type }}</strong
+            <strong>{{
+              signal.evidence_kind === 'hiring' ? 'Hiring context' : 'Directory context'
+            }}</strong
             ><span>{{ signal.source }}</span>
           </div>
-          <time :datetime="signal.occurred_at">{{
-            new Date(signal.occurred_at).toLocaleString()
-          }}</time>
+          <time v-if="signal.occurred_at" :datetime="signal.occurred_at"
+            >{{ dateLabel(signal.source) }}:
+            {{ new Date(signal.occurred_at).toLocaleString() }}</time
+          >
+          <span v-else class="unknown-date">Event date unknown</span>
           <p v-if="signal.description">{{ signal.description }}</p>
           <p v-if="signal.stage"><span>Stage:</span> {{ signal.stage }}</p>
           <a
@@ -141,11 +171,13 @@ h2 {
 }
 .signal-title span,
 time,
+.unknown-date,
 .source-text {
   color: var(--color-text-muted);
   font-size: 0.9rem;
 }
-time {
+time,
+.unknown-date {
   display: block;
   margin-top: var(--space-1);
 }
