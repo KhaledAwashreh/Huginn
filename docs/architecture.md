@@ -150,7 +150,7 @@ The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns b
 3. No dimension/fact split at this layer. That is Gold's job, per Databricks and Kimball.
 4. The source-specific staging and resolved-signal tables remain current-state upserts. Bronze also holds only the latest raw payload per entity (section 4.1 point 4).
 5. `silver.source_context_snapshot` is a narrow exception: an explicit preservation command stores versioned, source-keyed text and fields before further projection. Its run and outcome tables record exclusions and observations independently of company identity. This sidecar does not change staging, resolution, Gold, or Match eligibility. It cannot recover raw versions that Bronze already overwrote. See [source-context.md](source-context.md).
-6. `silver.source_lifecycle_observation` and `silver.source_currentness` extend that sidecar with immutable source lifecycle/identity observations and one current pointer per source key. Explicit reconciliation validates full stored payload and resolution identity tokens under row locks before atomically appending history and updating the pointer. This foundation does not yet guard runtime recommendation readers or attach evidence to Matches. See [source-currentness.md](source-currentness.md).
+6. `silver.source_lifecycle_observation` and `silver.source_currentness` extend that sidecar with immutable source lifecycle/identity observations and one current pointer per source key. Explicit reconciliation validates full stored payload and resolution identity tokens under row locks before atomically appending history and updating the pointer. `gold.current_source_evidence` guards current-context reads against live input and company-association drift, projecting claim/text/time from preserved observations. It is an availability projection, not a match-qualification policy. See [source-currentness.md](source-currentness.md).
 
 ### 4.3 Gold
 
@@ -189,6 +189,15 @@ left unchanged, so this is creation-only matching and does not implement
 resurfacing, sent-history checks, evidence snapshots, or reevaluation. The
 operator entry point and required schema setup are documented in
 [`matchmaking.md`](matchmaking.md). Scheduler integration remains future work.
+
+Management Match reads preserve durable records even when current source context
+is unavailable. They report current source availability separately from stored
+creation-evidence availability. `operational.match_source_evidence` stores immutable
+observation links and original matching windows without reconstructing legacy
+history. Match ID/owner/company identity and context snapshot contents are
+protected. Automatic capture in the creation-only matcher remains pending the
+qualifying-evidence integration; a guarded current-context endpoint does not guard
+that candidate path. See [`source-currentness.md`](source-currentness.md).
 
 ## 5. Ingestion
 

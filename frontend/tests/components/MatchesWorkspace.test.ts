@@ -9,12 +9,15 @@ import MatchDetailPage from '@/features/matches/pages/MatchDetailPage.vue';
 
 type Match = components['schemas']['UserMatchResponse'];
 type Overview = components['schemas']['MatchesOverviewResponse'];
+type Signal = components['schemas']['CurrentCompanySignalResponse'];
 const companyMatch: Match = {
   id: 'match-001',
   status: 'new',
   created_at: '2026-10-09T12:00:00Z',
   updated_at: '2026-10-09T12:00:00Z',
   notes: null,
+  historical_evidence_available: false,
+  current_source_evidence_available: false,
   company: {
     name: 'Example Company',
     domain: 'example.com',
@@ -68,7 +71,7 @@ const state = vi.hoisted(() => ({
   matchPending: false,
   matchError: false,
   matchApiError: undefined as unknown,
-  signalPage: { items: [], limit: 50, offset: 0, has_more: false },
+  signalPage: { items: [] as Signal[], limit: 50, offset: 0, has_more: false },
   signalPending: false,
   signalError: false,
   signalApiError: undefined as unknown,
@@ -165,6 +168,8 @@ beforeEach(() => {
     created_at: '2026-10-09T12:00:00Z',
     updated_at: '2026-10-09T12:00:00Z',
     notes: null,
+    historical_evidence_available: false,
+    current_source_evidence_available: false,
     company: {
       name: 'Example Company',
       domain: 'example.com',
@@ -272,15 +277,141 @@ describe('matches workspace', () => {
     const wrapper = mount(MatchDetailPage, { global });
     expect(wrapper.text()).toContain('Example Company');
     expect(wrapper.text()).toContain('new');
-    expect(wrapper.text()).toContain('Current company context');
+    expect(wrapper.text()).toContain('Company details');
     expect(wrapper.text()).toContain('They do not explain why this match was created.');
     expect(wrapper.text()).toContain('Current company signals');
     expect(wrapper.text()).toContain('No current company signals are available.');
+    expect(wrapper.text()).toContain('Creation evidence is unavailable for this saved match.');
+    expect(wrapper.text()).toContain(
+      'Current source context is unavailable. The saved match record remains available.',
+    );
     expect(
       wrapper
         .findAll('a[target="_blank"]')
         .every((link) => link.attributes('rel') === 'noopener noreferrer'),
     ).toBe(true);
+  });
+
+  it('labels displayed dates by source and keeps missing dates unknown', () => {
+    const occurredAt = '2015-10-18T00:00:00Z';
+    state.signalPage = {
+      items: [
+        { ...signalForDate('hn', occurredAt, 'signal-hn'), evidence_kind: 'hiring' },
+        { ...signalForDate('yc', occurredAt, 'signal-yc'), evidence_kind: 'directory_context' },
+        {
+          ...signalForDate('eu_startups', occurredAt, 'signal-eu'),
+          evidence_kind: 'directory_context',
+        },
+        { ...signalForDate('unknown-source', occurredAt, 'signal-source-date') },
+        { ...signalForDate('yc', null, 'signal-unknown'), evidence_kind: 'directory_context' },
+      ],
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    };
+
+    const wrapper = mount(MatchDetailPage, { global });
+    const rows = wrapper.findAll('[data-testid="signal-row"]');
+    expect(rows).toHaveLength(5);
+    const rowAt = (index: number) => {
+      const row = rows[index];
+      if (!row) throw new Error(`Expected signal row ${index + 1}`);
+      return row;
+    };
+    const datedRows = [rowAt(0), rowAt(1), rowAt(2), rowAt(3)];
+    const expectedLabels = [
+      'Post published:',
+      'YC launch date:',
+      'Listing last modified:',
+      'Source date:',
+    ];
+    for (const [index, row] of datedRows.entries()) {
+      expect(row.get('time').text()).toContain(expectedLabels[index]);
+      expect(row.get('time').attributes('datetime')).toBe(occurredAt);
+    }
+    const unknownDateRow = rowAt(4);
+    expect(unknownDateRow.text()).toContain('Event date unknown');
+    expect(unknownDateRow.find('time').exists()).toBe(false);
+  });
+
+  it('labels directory context, leaves unknown event dates blank, and marks cached refreshes unverified', () => {
+    state.signalPage = {
+      items: [
+        {
+          id: 'signal-001',
+          observation_id: 'observation-001',
+          evidence_kind: 'directory_context',
+          hiring_state: 'unknown',
+          signal_type: 'other',
+          source: 'yc',
+          source_url: 'https://example.test/company',
+          description: 'Saved directory context',
+          stage: null,
+          occurred_at: null,
+          observed_at: '2026-10-09T12:00:00Z',
+          ingested_at: '2026-10-09T12:00:00Z',
+        },
+      ],
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    };
+    state.signalError = true;
+    state.signalApiError = new Error('Refresh failed');
+    const wrapper = mount(MatchDetailPage, { global });
+    expect(wrapper.get('#signals-heading').text()).toBe('Previously received company context');
+    expect(wrapper.text()).toContain('Current availability is unverified.');
+    expect(wrapper.text()).toContain('Directory context');
+    expect(wrapper.text()).not.toContain('other');
+    expect(wrapper.text()).toContain('Event date unknown');
+    expect(wrapper.find('[data-testid="signal-row"] time').exists()).toBe(false);
+    expect(wrapper.text()).toContain(
+      'Previously received company context is shown; current availability is unverified.',
+    );
+  });
+
+  it('does not describe a cached empty page as having no current signals after refresh failure', () => {
+    state.signalPage = { items: [], limit: 50, offset: 0, has_more: false };
+    state.signalError = true;
+    state.signalApiError = new Error('Refresh failed');
+    const wrapper = mount(MatchDetailPage, { global });
+    expect(wrapper.text()).toContain(
+      'The previously received page contained no company context. Current availability is unverified.',
+    );
+    expect(wrapper.text()).not.toContain('No current company signals are available.');
+  });
+
+  it('keeps creation history and current context availability independent', () => {
+    state.match = {
+      ...state.match,
+      historical_evidence_available: true,
+      current_source_evidence_available: false,
+    };
+    const historicalOnly = mount(MatchDetailPage, { global });
+    expect(historicalOnly.text()).not.toContain('Creation evidence is unavailable');
+    expect(historicalOnly.text()).toContain('Company details');
+    expect(historicalOnly.text()).toContain('Current source context is unavailable');
+
+    state.match = {
+      ...state.match,
+      historical_evidence_available: false,
+      current_source_evidence_available: true,
+    };
+    const currentOnly = mount(MatchDetailPage, { global });
+    expect(currentOnly.text()).toContain('Creation evidence is unavailable');
+    expect(currentOnly.text()).toContain('Current company context');
+    expect(currentOnly.text()).not.toContain('Current source context is unavailable');
+  });
+
+  it('does not present cached match availability as current after a failed detail refresh', () => {
+    state.matchError = true;
+    state.match = {
+      ...state.match,
+      current_source_evidence_available: false,
+    };
+    const wrapper = mount(MatchDetailPage, { global });
+    expect(wrapper.text()).toContain('Current source context availability could not be refreshed.');
+    expect(wrapper.text()).not.toContain('Current source context is unavailable.');
   });
 
   it('keeps existing matches visible when the latest evaluation created none', () => {
@@ -336,10 +467,27 @@ describe('matches workspace', () => {
     state.signalApiError = new ApiError(404, 'not_found', 'Not found');
     const wrapper = mount(MatchDetailPage, { global });
     expect(wrapper.text()).toContain('Example Company');
-    expect(wrapper.text()).toContain('Current company context');
+    expect(wrapper.text()).toContain('Company details');
     expect(wrapper.text()).toContain('Current company signals could not be loaded.');
     expect(wrapper.findAll('button').some((button) => button.text() === 'Retry signals')).toBe(
       false,
     );
   });
 });
+
+function signalForDate(source: string, occurredAt: string | null, id: string): Signal {
+  return {
+    id,
+    observation_id: `observation-${id}`,
+    evidence_kind: 'directory_context',
+    hiring_state: 'unknown',
+    signal_type: 'other',
+    source,
+    source_url: null,
+    description: null,
+    stage: null,
+    occurred_at: occurredAt,
+    observed_at: '2026-10-09T12:00:00Z',
+    ingested_at: '2026-10-09T12:00:00Z',
+  };
+}

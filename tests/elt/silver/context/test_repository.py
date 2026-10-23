@@ -169,11 +169,6 @@ def test_capture_reuses_identical_snapshot_and_keeps_changed_payload_versions(
                 (stable_id,),
             )
             connection.execute(
-                "DELETE FROM silver.source_context_snapshot WHERE source = 'eu_startups' "
-                "AND stable_id = %s",
-                (stable_id,),
-            )
-            connection.execute(
                 "DELETE FROM silver.eu_startups_listings WHERE stable_id = %s",
                 (legacy_id,),
             )
@@ -224,11 +219,6 @@ def test_capture_keeps_status_only_source_observation_without_text(
         with psycopg.connect(integration_database_url) as connection:
             connection.execute(
                 "DELETE FROM silver.source_context_run WHERE id = %s", (result.run_id,)
-            )
-            connection.execute(
-                "DELETE FROM silver.source_context_snapshot WHERE source = 'yc' "
-                "AND stable_id = %s",
-                (stable_id,),
             )
 
 
@@ -579,10 +569,6 @@ def test_interrupted_run_keeps_completed_records_and_marks_partial_progress(
             connection.execute(
                 "DELETE FROM silver.source_context_run WHERE input_fingerprint = %s",
                 (run.input_fingerprint,),
-            )
-            connection.execute(
-                "DELETE FROM silver.source_context_snapshot WHERE stable_id = ANY(%s)",
-                (stable_ids,),
             )
 
 

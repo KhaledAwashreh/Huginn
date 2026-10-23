@@ -19,6 +19,7 @@ rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-pipeline-control.sql
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/ops-matchmaking-control.sql
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/silver-source-currentness.sql
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/gold-current-source-evidence.sql
 ```
 
 `ON_ERROR_STOP` and the single transaction make any SQL error fail the bootstrap without committing a partial schema. The management development database still receives every ELT schema because retained operational tables reference `gold.company`. Use a new, dedicated, disposable database; this bootstrap does not authorize dropping or resetting an existing database.
@@ -32,6 +33,11 @@ Both fresh and existing databases apply `silver-source-currentness.sql` after
 the base schemas and source-context tables. It is the single canonical
 definition of lifecycle observations and current pointers. It does not backfill
 or change matching. See [`docs/source-currentness.md`](../../docs/source-currentness.md).
+
+Then apply `gold-current-source-evidence.sql` for the guarded current-context view,
+immutable Match evidence storage and snapshot/Match identity protections. This
+same file is used for fresh installs and upgrades. It backfills no legacy history
+and does not integrate new-match qualification or automatic evidence capture.
 
 ## Existing pre-management database upgrade
 
@@ -162,6 +168,7 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `silver-eu-startups-tracking-fields.sql` | EU-Startups raw `founded`, `total_funding`, and `company_status` fields plus `founded` / `total_funding` on `silver.resolved_signals` |
 | `silver-source-context.sql` | Versioned source-context snapshots, capture runs, and outcomes; apply to an existing database before running the explicit source-context capture command |
 | `silver-source-currentness.sql` | Immutable lifecycle/identity observations and source current pointers; apply after base schemas and source-context tables before explicit reconciliation, on fresh and existing databases |
+| `gold-current-source-evidence.sql` | Guarded current-source view, immutable Match evidence links and snapshot/Match identity protections; apply after source-currentness on fresh and existing databases before guarded management readers |
 | `gold-company-yc-batch.sql` | `gold.company.yc_batch`, superseded by `gold-company-notes.sql` |
 | `gold-company-notes.sql` | `gold.company.notes` replaces `yc_batch`, rewriting existing values into source-prefixed form |
 | `gold-drop-icp-filter-pass.sql` | drops `icp_filter_pass` from `gold.company` and `gold.company_history`, per ADR-0012 |
@@ -169,15 +176,15 @@ psql "$HUGINN_DATABASE_URL" -f db/schema/gold-company-stage.sql
 | `gold-eu-startups-searched-at.sql` | `gold.company.eu_startups_searched_at`, the EU-Startups search cursor, per ADR-0010 |
 | `ops-job-runs-skipped-status.sql` | `ops.job_runs.status` gains `'skipped'`, per ADR-0014's dependency-aware skip-on-failure policy |
 
-The table above contains the nineteen existing ELT upgrade files. They are idempotent:
+The table above contains the twenty existing ELT upgrade files. They are idempotent:
 re-running one on a database it has already been applied to is a no-op. Apply
 only files whose changes are needed by the commands and schema version in use;
 the full inventory is not a prerequisite list for every command. Automated
 coverage of idempotency is much thinner than the sentence implies:
 
-1. Six of the nineteen ELT upgrades are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`, `silver-source-context.sql` by `tests/elt/silver/context/test_migration.py`, and `silver-source-currentness.sql` by `tests/elt/silver/currentness/test_schema.py`.
+1. Seven of the twenty ELT upgrades are executed against a real Postgres by a test: `gold-company-signal-source-stable-id.sql` by `tests/elt/gold/test_company_signal_migration.py`, `gold-business-sector-array.sql` by `tests/elt/gold/test_business_sector_array_migration.py`, `gold-eu-startups-searched-at.sql` by `tests/elt/gold/test_eu_startups_searched_at_migration.py`, `silver-eu-startups-tracking-fields.sql` by `tests/elt/silver/test_eu_startups_tracking_migration.py`, `silver-source-context.sql` by `tests/elt/silver/context/test_migration.py`, `silver-source-currentness.sql` by `tests/elt/silver/currentness/test_schema.py`, and `gold-current-source-evidence.sql` by `tests/elt/silver/currentness/test_evidence_schema.py`.
 2. The other thirteen have no idempotency or upgrade-path test at all. Nothing in the suite can detect a reordering regression among them.
-3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files plus the role, pipeline-control, matchmaking-control, and source-currentness migrations through the `integration_database_url` fixture. The separate pipeline-control and source-currentness schema tests cover their base-to-additive upgrade paths.
+3. The fresh-install rebuild in CI is not a substitute for the missing tests. `tests/postgres_harness.py` applies the seven base files plus the role, pipeline-control, matchmaking-control, source-currentness and current-source-evidence migrations through the `integration_database_url` fixture. The separate pipeline-control, source-currentness and current-source-evidence schema tests cover their additive upgrade paths.
 4. `tests/elt/silver/test_upsert_sql_shape.py` is a different kind of check: it asserts the Silver upsert's column and placeholder parity as text and applies no schema file.
 
 Three need a word of warning, because idempotent does not mean unconditional:

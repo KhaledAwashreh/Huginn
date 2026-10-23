@@ -196,7 +196,7 @@ def _seed_matching_history(connection, account_id: UUID) -> None:
 
 
 def _seed_owner_matches(connection, user_id: UUID) -> None:
-    """Disposable owner pages with current Gold context, without matching."""
+    """Disposable owner pages and source rows for guarded current context."""
     now = datetime.now(UTC)
     for index in range(105):
         company_id = connection.execute(
@@ -219,17 +219,44 @@ def _seed_owner_matches(connection, user_id: UUID) -> None:
         )
         if index == 0:
             for signal_index in range(105):
+                stable_id = f"browser-owner-{9800 + signal_index}"
+                occurred_at = now - timedelta(minutes=signal_index)
+                payload = {
+                    "id": stable_id,
+                    "type": "comment",
+                    "text": (
+                        f'<a href="https://owner-match-{index}.example.test">'
+                        f"Current match company {index:03d}</a>"
+                        f"<p>Current signal {signal_index:03d}</p>"
+                    ),
+                    "time": int(occurred_at.timestamp()),
+                }
+                connection.execute(
+                    "INSERT INTO bronze.api_ingest (source,stable_id,payload,content_hash,run_id) "
+                    "VALUES ('hn',%s,%s,'browser-fixture',%s)",
+                    (stable_id, Jsonb(payload), uuid4()),
+                )
+                connection.execute(
+                    "INSERT INTO silver.resolved_signals "
+                    "(source,source_stable_id,resolved_company_key,company_name_raw,signal_type,key_derivation) "
+                    "VALUES ('hn',%s,%s,%s,'other','domain_normalized')",
+                    (
+                        stable_id,
+                        f"owner-match-{index}.example.test",
+                        f"Current match company {index:03d}",
+                    ),
+                )
                 connection.execute(
                     "INSERT INTO gold.company_signal(company_id,signal_type,source,source_stable_id,source_url,"
                     "description,stage,occurred_at,ingested_at) VALUES (%s,'hiring','hn',%s,%s,%s,'seed',%s,%s)",
                     (
                         company_id,
-                        f"owner-browser-{signal_index}",
+                        stable_id,
                         "javascript:alert(1)"
                         if signal_index == 0
                         else "https://example.test/signal",
                         f"Current signal {signal_index:03d}",
-                        now - timedelta(minutes=signal_index),
+                        occurred_at,
                         now,
                     ),
                 )
@@ -296,6 +323,12 @@ def main() -> None:
                     datetime.now(UTC) + timedelta(hours=1),
                 ),
             )
+        from huginn.elt.silver.currentness.repository import PostgresLifecycleRepository
+        from huginn.elt.silver.currentness.runner import run_reconcile
+
+        report = run_reconcile("hn", PostgresLifecycleRepository(database_url))
+        if report["status"] != "complete":
+            raise RuntimeError("browser fixture currentness reconcile was incomplete")
         with browser_lifecycle_mail(config) as lifecycle_config:
             uvicorn.run(
                 create_app(lifecycle_config),

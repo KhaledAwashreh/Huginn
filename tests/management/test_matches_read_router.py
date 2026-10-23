@@ -78,6 +78,8 @@ class FakeMatchesServices:
             CurrentCompany(
                 uuid4(), "Acme", "acme.test", ("AI",), "US", "0-10", "Active"
             ),
+            False,
+            False,
         )
         self.calls = []
 
@@ -105,7 +107,18 @@ class FakeMatchesServices:
             raise NotFoundError("Match not found")
         now = self.match.created_at
         signal = CurrentCompanySignal(
-            uuid4(), "hiring", "hn", "https://example.test", "Hiring", "seed", now, now
+            uuid4(),
+            "hiring",
+            "hn",
+            "https://example.test",
+            "Hiring",
+            "seed",
+            now,
+            now,
+            uuid4(),
+            now,
+            "hiring",
+            "true",
         )
         return ListMatchSignalsResponse(
             Page((signal,), request.offset, request.limit, False)
@@ -151,6 +164,8 @@ def test_authenticated_matches_routes_map_current_context_and_bound_pages():
             "company_scale": "0-10",
             "company_status": "Active",
         }
+        assert body["items"][0]["historical_evidence_available"] is False
+        assert body["items"][0]["current_source_evidence_available"] is False
         assert body["offset"] == 4 and body["limit"] == 100
         assert services.calls[-1][1].principal.user_id == owner_id
 
@@ -161,12 +176,19 @@ def test_authenticated_matches_routes_map_current_context_and_bound_pages():
             assert response.status_code == 200
             _private(response)
         assert detail.json()["id"] == str(services.match.id)
+        assert detail.json()["historical_evidence_available"] is False
+        assert detail.json()["current_source_evidence_available"] is False
         assert overview.json() == {
             "has_matches": True,
             "has_active_strategies": True,
             "latest_evaluation": None,
         }
-        assert signals.json()["items"][0]["signal_type"] == "hiring"
+        signal_body = signals.json()["items"][0]
+        assert signal_body["signal_type"] == "hiring"
+        assert signal_body["observation_id"]
+        assert signal_body["observed_at"]
+        assert signal_body["evidence_kind"] == "hiring"
+        assert signal_body["hiring_state"] == "true"
 
         invalid_status = client.get("/api/v1/matches?status=bogus")
         invalid_page = client.get("/api/v1/matches?limit=101")

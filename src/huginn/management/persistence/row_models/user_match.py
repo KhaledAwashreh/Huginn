@@ -22,3 +22,5 @@ class UserMatchRow(BaseModel):
     country: str | None
     company_scale: str | None
     company_status: str | None
+    historical_evidence_available: bool
+    current_source_evidence_available: bool

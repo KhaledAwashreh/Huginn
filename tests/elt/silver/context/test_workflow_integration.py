@@ -243,10 +243,6 @@ def test_cli_audit_capture_twice_preserves_legacy_layers_and_accounts_for_inputs
                 )
             all_ids = [value for values in ids.values() for value in values]
             connection.execute(
-                "DELETE FROM silver.source_context_snapshot WHERE stable_id = ANY(%s)",
-                (all_ids,),
-            )
-            connection.execute(
                 "DELETE FROM gold.company_signal WHERE source_stable_id = ANY(%s)",
                 (all_ids,),
             )

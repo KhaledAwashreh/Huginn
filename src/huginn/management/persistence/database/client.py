@@ -44,6 +44,11 @@ _PROBES = (
     "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
     "is_active, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.client_discovery_strategies LIMIT 0",
+    "SELECT id, company_id, observation_id, signal_type, source, source_stable_id, "
+    "source_url, description, stage, occurred_at, ingested_at, observed_at, "
+    "evidence_kind, hiring_state FROM gold.current_source_evidence LIMIT 0",
+    "SELECT match_id, observation_id, cutoff, as_of "
+    f"FROM {MANAGEMENT_SCHEMA}.match_source_evidence LIMIT 0",
 )
 
 

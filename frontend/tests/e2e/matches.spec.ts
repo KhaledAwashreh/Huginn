@@ -65,8 +65,9 @@ test('owned matches, status and >100 pagination, current signals, safe links and
     page.getByText('Stored notes <script>plain text</script>', { exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId('signal-row')).toHaveCount(50);
+  await expect(page.getByTestId('signal-row').first()).toContainText('Hiring context');
   await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0);
-  await expect(page.getByText('javascript:alert(1)', { exact: true })).toBeVisible();
+  await expect(page.getByText('javascript:alert(1)', { exact: true })).toHaveCount(0);
   await expect(
     page.locator(
       'a[href="https://owner-match-0.example.test/"], a[href="https://owner-match-0.example.test"]',

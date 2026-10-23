@@ -27,3 +27,15 @@ def test_ready_detects_missing_required_column(empty_management_database_url):
         conn.commit()
 
     assert readiness.is_ready() is False
+
+
+def test_ready_requires_guarded_context_view_and_match_evidence_table(
+    empty_management_database_url,
+):
+    with psycopg.connect(empty_management_database_url, autocommit=True) as conn:
+        for filename in SCHEMA_FILES:
+            conn.execute((SCHEMA_DIR / filename).read_text())
+        conn.execute("DROP VIEW gold.current_source_evidence")
+        conn.execute("DROP TABLE operational.match_source_evidence")
+
+    assert PostgresReadiness(empty_management_database_url).is_ready() is False

@@ -1,10 +1,23 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import psycopg
+import pytest
 from psycopg.types.json import Jsonb
 
+from huginn.elt.silver.context.models import SourceExtraction
+from huginn.elt.silver.currentness.models import LifecycleFacts
+from huginn.elt.silver.currentness.repository import PostgresLifecycleRepository
 from huginn.management.domain.value_objects.match_status import MatchStatus
 from huginn.management.persistence.queries.matches_query import PostgresMatchesQuery
+from tests.postgres_harness import provisioned_postgres
+
+
+@pytest.fixture(scope="module")
+def current_evidence_database_url() -> Iterator[str]:
+    with provisioned_postgres("huginn_match_evidence_query") as database_url:
+        yield database_url
 
 
 def _user(conn, tag):
@@ -48,16 +61,16 @@ def test_match_reads_are_owner_scoped_stably_ordered_read_only_and_overview_is_d
                 "INSERT INTO operational.match(user_id,company_id) VALUES (%s,%s)",
                 (other_id, other_company_id),
             )
-            signal_new = conn.execute(
+            conn.execute(
                 """INSERT INTO gold.company_signal(company_id,source,source_stable_id,signal_type,occurred_at)
-                   VALUES (%s,'hn',%s,'hiring',now()) RETURNING id""",
+                   VALUES (%s,'hn',%s,'hiring',now())""",
                 (company_id, str(uuid4())),
-            ).fetchone()[0]
-            signal_old = conn.execute(
+            )
+            conn.execute(
                 """INSERT INTO gold.company_signal(company_id,source,source_stable_id,signal_type,occurred_at)
-                   VALUES (%s,'hn',%s,'funding',now()-interval '1 day') RETURNING id""",
+                   VALUES (%s,'hn',%s,'funding',now()-interval '1 day')""",
                 (company_id, str(uuid4())),
-            ).fetchone()[0]
+            )
 
             old_run = uuid4()
             conn.execute(
@@ -119,15 +132,14 @@ def test_match_reads_are_owner_scoped_stably_ordered_read_only_and_overview_is_d
             detail = query.get_match(owner_id, latest_id)
             assert detail is not None and detail.status == MatchStatus("dismissed")
             assert detail.company.name == "Matches Co"
+            assert detail.historical_evidence_available is False
+            assert detail.current_source_evidence_available is False
             assert query.get_match(owner_id, uuid4()) is None
             assert query.get_match(other_id, latest_id) is None
             signal_page = query.list_match_signals(owner_id, latest_id, 0, 1)
-            assert [item.id for item in signal_page.items] == [signal_new]
-            assert signal_page.has_more is True
-            assert (
-                query.list_match_signals(owner_id, latest_id, 1, 1).items[0].id
-                == signal_old
-            )
+            assert signal_page.items == ()
+            assert signal_page.has_more is False
+            assert query.list_match_signals(other_id, latest_id, 0, 1).items == ()
 
             overview = query.overview_for(owner_id)
             assert overview.has_matches is True
@@ -180,3 +192,132 @@ def test_match_reads_are_owner_scoped_stably_ordered_read_only_and_overview_is_d
             )
         finally:
             conn.rollback()
+
+
+def test_match_signals_read_reconciled_context_and_sort_unknown_dates_last(
+    current_evidence_database_url,
+):
+    event_time = datetime(2025, 1, 2, tzinfo=UTC)
+    stable_ids = (f"match-ctx-{uuid4().hex}-dated", f"match-ctx-{uuid4().hex}-unknown")
+    domain = f"match-{uuid4().hex}.example.test"
+    with psycopg.connect(current_evidence_database_url) as conn:
+        owner_id, _ = _user(conn, "current-context")
+        company_id = conn.execute(
+            "INSERT INTO gold.company(domain,name) VALUES (%s,'Current Co') RETURNING id",
+            (domain,),
+        ).fetchone()[0]
+        match_id = conn.execute(
+            "INSERT INTO operational.match(user_id,company_id) VALUES (%s,%s) RETURNING id",
+            (owner_id, company_id),
+        ).fetchone()[0]
+        for stable_id in stable_ids:
+            payload = {
+                "id": stable_id,
+                "website": f"https://{domain}",
+                "isHiring": False,
+            }
+            conn.execute(
+                """INSERT INTO bronze.api_ingest
+                   (source,stable_id,payload,content_hash,run_id)
+                   VALUES ('yc',%s,%s,'content-hash',%s)""",
+                (stable_id, Jsonb(payload), uuid4()),
+            )
+            conn.execute(
+                """INSERT INTO silver.resolved_signals
+                   (source,source_stable_id,resolved_company_key,company_name_raw,
+                    signal_type,key_derivation)
+                   VALUES ('yc',%s,%s,'Current Co','hiring','domain_normalized')""",
+                (stable_id, domain),
+            )
+            conn.execute(
+                """INSERT INTO gold.company_signal
+                   (company_id,source,source_stable_id,signal_type,occurred_at,
+                    description)
+                   VALUES (%s,'yc',%s,'hiring',%s,'stale Gold label')""",
+                (
+                    company_id,
+                    stable_id,
+                    event_time,
+                ),
+            )
+        conn.commit()
+
+    repository = PostgresLifecycleRepository(current_evidence_database_url)
+    facts_by_id = {
+        stable_ids[0]: event_time,
+        stable_ids[1]: None,
+    }
+    for item in repository.read_inputs("yc"):
+        if item.stable_id not in facts_by_id:
+            continue
+        repository.reconcile(
+            item,
+            LifecycleFacts(
+                listing_state="available",
+                hiring_state="false",
+                identity_state="consistent",
+                reason="test reconciliation",
+                explicit_domain=domain,
+                occurred_at=facts_by_id[item.stable_id],
+                context=SourceExtraction(
+                    source="yc",
+                    stable_id=item.stable_id,
+                    status="captured",
+                    source_url=f"https://www.ycombinator.com/companies/{item.stable_id}",
+                    normalized_text="Current directory context",
+                    source_fields={"stage": "Seed"},
+                ),
+            ),
+        )
+
+    with psycopg.connect(current_evidence_database_url) as conn:
+        dated_observation_id = conn.execute(
+            """SELECT observation_id FROM gold.current_source_evidence
+               WHERE source_stable_id=%s""",
+            (stable_ids[0],),
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO operational.match_source_evidence
+               (match_id,observation_id,cutoff,as_of)
+               VALUES (%s,%s,%s,%s)""",
+            (
+                match_id,
+                dated_observation_id,
+                event_time - timedelta(days=1),
+                event_time + timedelta(days=1),
+            ),
+        )
+        query = PostgresMatchesQuery(conn)
+        detail = query.get_match(owner_id, match_id)
+        assert detail is not None
+        assert detail.historical_evidence_available is True
+        assert detail.current_source_evidence_available is True
+        first = query.list_match_signals(owner_id, match_id, 0, 1)
+        second = query.list_match_signals(owner_id, match_id, 1, 1)
+        assert first.has_more is True
+        assert len(first.items) == len(second.items) == 1
+        assert first.items[0].source == second.items[0].source == "yc"
+        assert first.items[0].signal_type == second.items[0].signal_type == "other"
+        assert first.items[0].hiring_state == second.items[0].hiring_state == "false"
+        assert (
+            first.items[0].evidence_kind
+            == second.items[0].evidence_kind
+            == "directory_context"
+        )
+        assert first.items[0].occurred_at == event_time
+        assert second.items[0].occurred_at is None
+        assert all(
+            item.description == "Current directory context"
+            for item in (*first.items, *second.items)
+        )
+        conn.execute(
+            """UPDATE bronze.api_ingest
+               SET payload=jsonb_set(payload,'{name}',%s)
+               WHERE source='yc' AND stable_id = ANY(%s)""",
+            (Jsonb("changed"), list(stable_ids)),
+        )
+        assert query.list_match_signals(owner_id, match_id, 0, 10).items == ()
+        stale_detail = query.get_match(owner_id, match_id)
+        assert stale_detail is not None
+        assert stale_detail.historical_evidence_available is True
+        assert stale_detail.current_source_evidence_available is False

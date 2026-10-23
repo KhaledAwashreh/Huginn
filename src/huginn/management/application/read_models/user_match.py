@@ -17,3 +17,5 @@ class UserMatch:
     created_at: datetime
     updated_at: datetime
     company: CurrentCompany
+    historical_evidence_available: bool = False
+    current_source_evidence_available: bool = False

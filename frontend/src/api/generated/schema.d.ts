@@ -760,6 +760,16 @@ export interface components {
             /** Description */
             description: string | null;
             /**
+             * Evidence Kind
+             * @enum {string}
+             */
+            evidence_kind: "hiring" | "directory_context";
+            /**
+             * Hiring State
+             * @enum {string}
+             */
+            hiring_state: "true" | "false" | "unknown" | "not_applicable";
+            /**
              * Id
              * Format: uuid
              */
@@ -770,10 +780,17 @@ export interface components {
              */
             ingested_at: string;
             /**
-             * Occurred At
+             * Observation Id
+             * Format: uuid
+             */
+            observation_id: string;
+            /**
+             * Observed At
              * Format: date-time
              */
-            occurred_at: string;
+            observed_at: string;
+            /** Occurred At */
+            occurred_at: string | null;
             /** Signal Type */
             signal_type: string;
             /** Source */
@@ -1811,6 +1828,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Current Source Evidence Available */
+            current_source_evidence_available: boolean;
+            /** Historical Evidence Available */
+            historical_evidence_available: boolean;
             /**
              * Id
              * Format: uuid
