@@ -34,11 +34,17 @@ def parse_region_facet(response: object) -> tuple[CatalogRegion, ...]:
         flags.append(legacy)
     if exhaustive is not None:
         for name, value in exhaustive.items():
-            if name not in {"facetsCount", "facetValues", "nbHits", "typo"}:
+            if name not in {
+                "facetsCount",
+                "facetValues",
+                "nbHits",
+                "rulesMatch",
+                "typo",
+            }:
                 raise ValueError("unexpected exhaustive metadata")
             if not isinstance(value, bool):
                 raise ValueError("malformed exhaustive metadata flag")
-            if name in {"facetsCount", "facetValues"}:
+            if name in {"facetsCount", "facetValues", "rulesMatch"}:
                 flags.append(value)
     counts_are_exhaustive = legacy is True or (
         isinstance(exhaustive, dict) and exhaustive.get("facetsCount") is True

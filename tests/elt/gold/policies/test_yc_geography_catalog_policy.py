@@ -95,3 +95,17 @@ def test_counts_and_facet_caps_are_validated():
     assert parse_region_facet(response({"Germany": 1})) == (
         CatalogRegion("Germany", 1),
     )
+
+
+def test_complete_query_rules_metadata_is_accepted():
+    document = response({"Germany": 1})
+    document["exhaustive"]["rulesMatch"] = True
+    assert parse_region_facet(document) == (CatalogRegion("Germany", 1),)
+
+
+@pytest.mark.parametrize("flag", [False, "true", 1, None])
+def test_incomplete_or_malformed_query_rules_metadata_is_rejected(flag):
+    document = response({"Germany": 1})
+    document["exhaustive"]["rulesMatch"] = flag
+    with pytest.raises(ValueError, match="truncated|malformed"):
+        parse_region_facet(document)

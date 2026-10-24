@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from huginn.elt.gold.constants.yc_geography_catalog import MAX_FACET_VALUES
 from huginn.elt.gold.models.yc_geography_catalog import YcGeographyCatalog
 from huginn.elt.gold.policies.yc_geography_catalog import (
     classify_region_labels,
@@ -32,7 +33,7 @@ def refresh_yc_geography_catalog(
             "query": "",
             "facets": ["regions"],
             "hitsPerPage": 0,
-            "maxValuesPerFacet": 1000,
+            "maxValuesPerFacet": MAX_FACET_VALUES,
         }
     )
     regions = parse_region_facet(response)
