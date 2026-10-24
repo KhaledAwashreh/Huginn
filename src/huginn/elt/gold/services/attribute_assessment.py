@@ -12,6 +12,7 @@ from uuid import UUID
 
 from huginn.elt.gold.models.assessment_result import AssessmentResult
 from huginn.elt.gold.models.source_fact import SourceFact
+from huginn.elt.gold.models.yc_geography_catalog import YcGeographyCatalog
 from huginn.elt.gold.policies.attribute_assessment import MAPPING_VERSION, assess
 from huginn.elt.gold.policies.attribute_comparison import (
     ALIAS_VERSION,
@@ -47,6 +48,7 @@ def run_assessment(
     windows: Mapping[str, SignalWindow],
     *,
     limit: int | None = None,
+    yc_geography_catalog: YcGeographyCatalog | None = None,
 ) -> AssessmentResult:
     """Read once, evaluate fills and alias alternatives without changing a row."""
     if not criteria or not windows:
@@ -65,7 +67,16 @@ def run_assessment(
     grouped: dict[UUID, list[SourceFact]] = defaultdict(list)
     for fact in facts:
         grouped[fact.company_id].append(fact)
-    proposals = tuple(p for c in companies for p in assess(c, grouped[c.company_id]))
+    catalog_labels = (
+        None
+        if yc_geography_catalog is None
+        else frozenset(yc_geography_catalog.country_labels)
+    )
+    proposals = tuple(
+        p
+        for c in companies
+        for p in assess(c, grouped[c.company_id], yc_country_labels=catalog_labels)
+    )
     changes = defaultdict(dict)
     for proposal in proposals:
         if proposal.status == "proposed":
@@ -233,6 +244,14 @@ def run_assessment(
         "comparisons": comparisons,
         "interpretation": "Attribute eligibility only; no probability, ICP usefulness or service demand is inferred. Source coverage is guarded-only; unavailable upstream inputs require a separate source audit. Gate failures overlap. Alias effects are experimental and separate from fills.",
     }
+    if yc_geography_catalog is not None:
+        summary["yc_geography_catalog"] = {
+            "fingerprint": yc_geography_catalog.fingerprint,
+            "schema_version": yc_geography_catalog.schema_version,
+            "classifier_version": yc_geography_catalog.classifier_version,
+            "reference_version": yc_geography_catalog.reference_version,
+            "fetched_at": yc_geography_catalog.fetched_at.isoformat(),
+        }
     by_id = {f.observation_id: f for f in facts}
     company_tokens = {
         c.company_id: hashlib.sha256(_encode(asdict(c)).encode()).hexdigest()
@@ -241,6 +260,15 @@ def run_assessment(
     receipts = tuple(
         {
             **asdict(p),
+            **(
+                {
+                    "yc_geography_catalog_fingerprint": yc_geography_catalog.fingerprint,
+                    "yc_geography_catalog_version": yc_geography_catalog.classifier_version,
+                    "yc_geography_catalog_reference_version": yc_geography_catalog.reference_version,
+                }
+                if yc_geography_catalog is not None
+                else {}
+            ),
             "company_id": str(p.company_id),
             "company_input_token": company_tokens[p.company_id],
             "supporting_facts": [asdict(by_id[key]) for key in p.supporting_fact_ids],

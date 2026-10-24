@@ -27,6 +27,15 @@ def test_assessment_components_live_in_responsibility_packages() -> None:
         "models/assessment_snapshot.py",
         "models/assessment_result.py",
         "models/attribute_value.py",
+        "models/catalog_region.py",
+        "models/yc_geography_catalog.py",
+        "constants/yc_geography_catalog.py",
+        "policies/yc_geography_catalog.py",
+        "repositories/protocols/yc_geography_catalog.py",
+        "services/yc_geography_catalog.py",
+        "infrastructure/pycountry_reference.py",
+        "infrastructure/yc_geography_catalog_store.py",
+        "presentation/cli/yc_geography_catalog.py",
         "policies/attribute_assessment.py",
         "policies/attribute_comparison.py",
         "policies/country_labels.py",
@@ -55,6 +64,10 @@ def test_dependencies_point_inward_and_models_and_policies_are_pure() -> None:
         "policies/attribute_assessment.py",
         "policies/attribute_comparison.py",
         "policies/country_labels.py",
+        "models/yc_geography_catalog.py",
+        "models/catalog_region.py",
+        "constants/yc_geography_catalog.py",
+        "policies/yc_geography_catalog.py",
     ]
     for module in pure_modules:
         deps = imports(module)
@@ -62,6 +75,24 @@ def test_dependencies_point_inward_and_models_and_policies_are_pure() -> None:
         assert not any("presentation" in dep for dep in deps), module
     assert not any(
         "presentation" in dep for dep in imports("services/attribute_assessment.py")
+    )
+    for pure_module in (
+        "models/yc_geography_catalog.py",
+        "policies/yc_geography_catalog.py",
+    ):
+        assert not any(
+            dep.startswith(("pycountry", "requests")) for dep in imports(pure_module)
+        )
+    assert any(
+        dep.startswith("pycountry")
+        for dep in imports("infrastructure/pycountry_reference.py")
+    )
+    assert not any(
+        "presentation" in dep for dep in imports("services/yc_geography_catalog.py")
+    )
+    assert not any(
+        "presentation" in dep
+        for dep in imports("infrastructure/yc_geography_catalog_store.py")
     )
     assert not any(
         dep.startswith("psycopg")

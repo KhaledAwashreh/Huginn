@@ -566,3 +566,58 @@ def test_country_state_name_ambiguity_abstains_without_a_city_lookup():
         if p.field_name == "country"
     )
     assert proposal.status == "ambiguous"
+
+
+def test_injected_yc_country_catalog_is_exact_and_preserves_source_text() -> None:
+    evidence = country_fact(
+        "yc",
+        {"all_locations": "San Francisco, CA, United States of America"},
+        stable_id="yc",
+    )
+    company_record = company()
+    legacy = next(
+        item
+        for item in assess(company_record, [evidence])
+        if item.field_name == "country"
+    )
+    catalog = next(
+        item
+        for item in assess(
+            company_record,
+            [evidence],
+            yc_country_labels=frozenset({"United States of America"}),
+        )
+        if item.field_name == "country"
+    )
+    assert legacy.status == "ambiguous"
+    assert catalog.status == "proposed"
+    assert catalog.proposed_value == "United States of America"
+
+
+def test_catalog_does_not_make_unobserved_country_an_exact_match() -> None:
+    evidence = country_fact(
+        "yc", {"all_locations": "London, United Kingdom"}, stable_id="yc"
+    )
+    proposal = next(
+        item
+        for item in assess(
+            company(),
+            [evidence],
+            yc_country_labels=frozenset({"United States of America"}),
+        )
+        if item.field_name == "country"
+    )
+    assert proposal.status == "ambiguous"
+
+
+def test_georgia_is_ambiguous_even_if_catalog_contains_it() -> None:
+    evidence = country_fact("yc", {"all_locations": "Atlanta, Georgia"}, stable_id="yc")
+    proposal = next(
+        item
+        for item in assess(
+            company(), [evidence], yc_country_labels=frozenset({"Georgia"})
+        )
+        if item.field_name == "country"
+    )
+    assert proposal.status == "ambiguous"
+    assert proposal.proposed_value is None

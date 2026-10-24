@@ -77,7 +77,9 @@ def _raw_value(fact: SourceFact, key: str) -> tuple[str, str | None]:
 
 
 def _field_candidate(
-    fact: SourceFact, field_name: str
+    fact: SourceFact,
+    field_name: str,
+    yc_country_labels: frozenset[str] | None = None,
 ) -> tuple[str, AttributeValue, str | None]:
     if field_name == "business_sector":
         if fact.source != "yc":
@@ -96,11 +98,13 @@ def _field_candidate(
         status, value = _size_value(raw)
         return status, value, "yc.team_size"
     if field_name == "country":
-        return _country_candidate(fact)
+        return _country_candidate(fact, yc_country_labels)
     return "unsupported", None, None
 
 
-def _country_candidate(fact: SourceFact) -> tuple[str, AttributeValue, str | None]:
+def _country_candidate(
+    fact: SourceFact, yc_country_labels: frozenset[str] | None = None
+) -> tuple[str, AttributeValue, str | None]:
     if fact.source == "yc":
         field_status, encoded = _raw_value(fact, "all_locations")
         if field_status in {"absent", "invalid"}:
@@ -122,7 +126,9 @@ def _country_candidate(fact: SourceFact) -> tuple[str, AttributeValue, str | Non
         ):
             return "ambiguous", None, "yc.all_locations"
         label = components[-1]
-        if label not in YC_COUNTRY_LABELS:
+        if label == "Georgia" or label not in (
+            YC_COUNTRY_LABELS if yc_country_labels is None else yc_country_labels
+        ):
             return "ambiguous", None, "yc.all_locations"
         return "valid", label, "yc.all_locations"
 
@@ -156,9 +162,12 @@ def _proposal(
     company: CompanyAttributes,
     field_name: str,
     facts: list[SourceFact],
+    yc_country_labels: frozenset[str] | None = None,
 ) -> FieldProposal:
     old_value: AttributeValue = getattr(company, field_name)
-    candidates = [(_field_candidate(fact, field_name), fact) for fact in facts]
+    candidates = [
+        (_field_candidate(fact, field_name, yc_country_labels), fact) for fact in facts
+    ]
     usable = [(value, fact) for value, fact in candidates if value[0] == "valid"]
     blockers = [
         (value, fact)
@@ -252,7 +261,7 @@ def _proposal(
         lineage = facts
 
     for fact in lineage:
-        candidate = _field_candidate(fact, field_name)
+        candidate = _field_candidate(fact, field_name, yc_country_labels)
         if candidate[2]:
             fields.update(candidate[2].split("|"))
     return FieldProposal(
@@ -300,7 +309,10 @@ def _canonical(field_name: str, value: AttributeValue) -> object:
 
 
 def assess(
-    company: CompanyAttributes, facts: Iterable[SourceFact]
+    company: CompanyAttributes,
+    facts: Iterable[SourceFact],
+    *,
+    yc_country_labels: frozenset[str] | None = None,
 ) -> tuple[FieldProposal, ...]:
     """Assess all three matching attributes without mutation or inference."""
     matching = sorted(
@@ -312,4 +324,7 @@ def assess(
             str(fact.snapshot_id),
         ),
     )
-    return tuple(_proposal(company, field_name, matching) for field_name in _FIELDS)
+    return tuple(
+        _proposal(company, field_name, matching, yc_country_labels)
+        for field_name in _FIELDS
+    )
