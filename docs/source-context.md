@@ -14,9 +14,9 @@ pipeline, Gold projections, matchmaking, and ranking do not read the sidecar.
    unless `--limit` is given. A positive limit samples in stable MD5 ID order.
 
    ```bash
-   rtk proxy uv run python -m huginn.elt.silver.context audit --source hn --summary .local-runtime/source-context/hn-summary.json
-   rtk proxy uv run python -m huginn.elt.silver.context audit --source yc --summary .local-runtime/source-context/yc-summary.json
-   rtk proxy uv run python -m huginn.elt.silver.context audit --source eu_startups --summary .local-runtime/source-context/eu-summary.json
+   rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_context audit --source hn --summary .local-runtime/source-context/hn-summary.json
+   rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_context audit --source yc --summary .local-runtime/source-context/yc-summary.json
+   rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_context audit --source eu_startups --summary .local-runtime/source-context/eu-summary.json
    ```
 
 3. Pass `--details` only when source text is needed for local review. Its default
@@ -34,6 +34,12 @@ quality measure. EU's raw `category` currently contains country labels, while
 `based_in` provides place names. The sidecar preserves the labels without
 assigning a canonical geography.
 
+Library callers import orchestration from `huginn.elt.silver.services.source_context`.
+Calls requesting summary/detail files supply the `JsonReportWriter` protocol
+implementation explicitly; the CLI composes `FilesystemJsonReportWriter` from
+the Silver infrastructure area. Models, policies and normalizers do not select
+database or filesystem adapters.
+
 ## Capture into a disposable database
 
 Apply `db/schema/silver-source-context.sql` on an existing disposable database,
@@ -43,7 +49,7 @@ The application does not apply migrations at startup.
 
 ```bash
 rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/silver-source-context.sql
-rtk proxy uv run python -m huginn.elt.silver.context capture --source hn --summary .local-runtime/source-context/hn-capture.json
+rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_context capture --source hn --summary .local-runtime/source-context/hn-capture.json
 ```
 
 `capture` is explicit and writes only the new Silver snapshot, run, and outcome

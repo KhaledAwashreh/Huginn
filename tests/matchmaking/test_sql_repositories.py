@@ -16,8 +16,8 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from huginn.elt.silver.context.repository import canonical_payload_sha256
-from huginn.elt.silver.context.yc import normalize_yc
+from huginn.elt.silver.normalizers.yc_context import normalize_yc
+from huginn.elt.silver.policies.source_context import canonical_payload_sha256
 from huginn.matchmaking.application.read_models.user_availability import (
     UserAvailability,
 )

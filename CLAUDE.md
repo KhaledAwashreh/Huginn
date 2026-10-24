@@ -71,6 +71,11 @@ topic, per `learning-items/template.md`. Local for now, syncs to Jira later.
 
 ## Design standards
 
+Code organization is specified in `AGENTS.md`: separate models, policies,
+protocols, repositories, orchestration and presentation by their owning area.
+Do not collect an effort's implementation into a flat feature package. Follow
+the established responsibility layout even for a small initial version.
+
 1. **Medallion, ELT not ETL.** Bronze, Silver, Gold, transform happens inside
    the destination. Generic pattern citations live in
    `architecture-notes/industry-references-elt-medallion.md`, don't restate

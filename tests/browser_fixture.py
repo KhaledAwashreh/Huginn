@@ -323,8 +323,10 @@ def main() -> None:
                     datetime.now(UTC) + timedelta(hours=1),
                 ),
             )
-        from huginn.elt.silver.currentness.repository import PostgresLifecycleRepository
-        from huginn.elt.silver.currentness.runner import run_reconcile
+        from huginn.elt.silver.repositories.source_currentness_repository import (
+            PostgresLifecycleRepository,
+        )
+        from huginn.elt.silver.services.source_currentness import run_reconcile
 
         report = run_reconcile("hn", PostgresLifecycleRepository(database_url))
         if report["status"] != "complete":

@@ -12,8 +12,10 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from huginn.elt.silver.currentness.repository import PostgresLifecycleRepository
-from huginn.elt.silver.currentness.runner import run_reconcile
+from huginn.elt.silver.repositories.source_currentness_repository import (
+    PostgresLifecycleRepository,
+)
+from huginn.elt.silver.services.source_currentness import run_reconcile
 from huginn.matchmaking.application.requests.matchmaking_request import (
     MatchmakingRequest,
 )

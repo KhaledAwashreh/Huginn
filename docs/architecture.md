@@ -136,6 +136,17 @@ flowchart TB
 
 The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns behind these layers are not restated here. The primary sources are collected in `architecture-notes/industry-references-elt-medallion.md`. What follows is only where Huginn makes a choice.
 
+ELT code separates responsibilities within its owning Bronze, Silver or Gold
+area. Values live in `models/`, pure parsing in `normalizers/`, decisions in
+`policies/`, database adapters in `repositories/`, repository contracts in
+`repositories/protocols/`, orchestration in `services/`, and commands and
+serialization in `presentation/`. Services depend on contracts; entry points
+compose concrete adapters. Silver filesystem reporting implements a writer
+Protocol, and pure parsing/policy imports must not transitively load network or
+database clients. Tests mirror these roles. Source context, currentness and
+attribute assessment are responsibilities spread across these areas, not flat
+packages containing an entire effort. See `AGENTS.md` for the review rules.
+
 ### 4.1 Bronze
 
 1. Tables group by ingestion mechanism, not by source: `bronze.api_ingest`, `bronze.web_scrape_ingest`, `bronze.newsletter_ingest`. HN and YC are both `api` today. The candidate sources in [Huginn Concept Doc](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/917506/Huginn+Concept+Doc) section 7 map to `web_scrape` (VC boards, Ramp, Harmonic) or `newsletter` (the four Substack feeds) when added.
