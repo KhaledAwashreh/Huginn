@@ -1,0 +1,1 @@
+"""Company attribute assessment tests."""

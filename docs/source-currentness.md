@@ -176,3 +176,8 @@ Match/link for a User rolls back together on failure; retries retain the origina
 window and discard evidence from the failed attempt. See [matchmaking.md](matchmaking.md)
 for runtime grants and operator behavior. Company/ICP state and ranking results
 are not snapshotted by this source-evidence capture.
+
+The separate [attribute assessment](attribute-assessment.md) reads guarded
+snapshots to propose missing company attributes and compare synthetic matching
+results. It is read-only and keeps country-alias effects separate from field
+fills; it does not deploy schemas, change company attributes or create Matches.
