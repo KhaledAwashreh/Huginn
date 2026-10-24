@@ -156,3 +156,40 @@ def test_fingerprint_covers_company_values_and_source_versions():
         ).summary["input_fingerprint"]
         != changed
     )
+
+
+def test_catalog_identity_is_reported_only_when_catalog_was_supplied():
+    from huginn.elt.gold.models.catalog_region import CatalogRegion
+    from huginn.elt.gold.models.yc_geography_catalog import YcGeographyCatalog
+
+    repository = Repository()
+    base = run_assessment(
+        repository, {"synthetic": CRITERIA}, {"fixed": SignalWindow(NOW, NOW)}
+    )
+    assert "yc_geography_catalog" not in base.summary
+    catalog = YcGeographyCatalog.create(
+        (CatalogRegion("Germany", 1), CatalogRegion("Georgia", 1)),
+        country_labels=("Germany",),
+        unknown_labels=(),
+        ambiguous_labels=("Georgia",),
+        fetched_at=NOW,
+        reference_version="test-reference",
+    )
+    result = run_assessment(
+        repository,
+        {"synthetic": CRITERIA},
+        {"fixed": SignalWindow(NOW, NOW)},
+        yc_geography_catalog=catalog,
+    )
+    assert result.summary["yc_geography_catalog"] == {
+        "fingerprint": catalog.fingerprint,
+        "schema_version": catalog.schema_version,
+        "classifier_version": catalog.classifier_version,
+        "reference_version": catalog.reference_version,
+        "fetched_at": catalog.fetched_at.isoformat(),
+    }
+    assert result.receipts[0]["yc_geography_catalog_fingerprint"] == catalog.fingerprint
+    assert (
+        result.receipts[0]["yc_geography_catalog_reference_version"]
+        == catalog.reference_version
+    )

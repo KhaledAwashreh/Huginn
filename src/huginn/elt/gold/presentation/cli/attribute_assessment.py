@@ -11,6 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
+from huginn.elt.gold.infrastructure.yc_geography_catalog_store import (
+    JsonGeographyCatalogStore,
+)
 from huginn.elt.gold.presentation.serializers.attribute_assessment import (
     json_default,
     write_private,
@@ -100,6 +103,11 @@ def main(
     )
     parser.add_argument("--summary", type=Path)
     parser.add_argument(
+        "--yc-geography-catalog",
+        type=Path,
+        help="Load a previously refreshed local YC geography catalog",
+    )
+    parser.add_argument(
         "--receipts", type=Path, help="Restricted local field lineage (0600)"
     )
     args = parser.parse_args(argv)
@@ -119,6 +127,11 @@ def main(
             criteria,
             {"requested": window},
             limit=args.limit,
+            yc_geography_catalog=(
+                JsonGeographyCatalogStore().load(args.yc_geography_catalog)
+                if args.yc_geography_catalog
+                else None
+            ),
         )
         if args.receipts:
             write_private(args.receipts, result.receipts)

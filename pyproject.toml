@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=46,<51",
     "fastapi>=0.115,<1",
     "psycopg[binary]>=3.3.5",
+    "pycountry>=24.6.1,<27",
     "pydantic>=2.12,<3",
     "python-dotenv>=1.2.3",
     "requests>=2.34.2",

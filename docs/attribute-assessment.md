@@ -65,6 +65,28 @@ Use synthetic inputs: criterion names and taxonomy strings appear in the summary
 The programmatic `run_assessment` API accepts several named windows and criteria
 and captures the source input once for all comparisons.
 
+### Optional YC geography catalog
+
+Refresh the local catalog explicitly before an assessment. Put
+`HUGINN_YC_ALGOLIA_API_KEY` in the normal dotenv environment, then run:
+
+```bash
+uv run python -m huginn.elt.gold.presentation.cli.yc_geography_catalog \
+  --output .local-runtime/assessment/yc-geography-catalog.json
+```
+
+The refresh performs one zero-hit `regions` facet query and requires
+exhaustive counts below Algolia's 1000-value ceiling. It records original labels
+and counts, exact country classifications, classifier/reference versions, fetch
+time and a content fingerprint. A failed query or validation leaves an existing
+cache file untouched. Keep this generated cache under ignored local storage.
+
+Pass the frozen cache to assessment with `--yc-geography-catalog PATH`. Loading
+is local and does not call Algolia. When supplied, YC country proposals are
+limited to the catalog's recognized source labels and report its fingerprint and
+classifier version in the summary and receipts. Without the option, assessment
+keeps its existing frozen country-label behavior. EU country policy is unchanged.
+
 `--limit N` selects the first N companies in UUID order, including companies with
 no current evidence. Its report is explicitly a sample; it cannot establish
 whole-corpus coverage. Without a limit, all Gold companies are in the denominator.
@@ -86,8 +108,10 @@ URL or source text.
   `Unspecified` labels. Tags and descriptions do not create sectors.
 - Country rules use reviewed literal country labels. They preserve source text;
   country aliases are a separate counterfactual. YC multi-location and remote
-  entries abstain. EU category alone cannot establish country: the place must
-  explicitly corroborate it. A city alone does not establish a country.
+  entries abstain. The optional geography catalog recognizes exact country names
+  from the installed `pycountry` reference plus the small YC-specific alias set;
+  Georgia remains ambiguous. EU category alone cannot establish country: the
+  place must explicitly corroborate it. A city alone does not establish a country.
 - HN employment text supplies no automatic company country, sector or headcount.
   EU tags and descriptions supply no automatic sector or size.
 
