@@ -98,7 +98,7 @@ def test_audit_is_aggregate_only_and_fingerprints_expected_raw_and_resolution_to
     assert json.loads(encoded) == report
     assert report["mode"] == "audit"
     assert report["source"] == "yc"
-    assert report["policy_version"] == "source-lifecycle-v1"
+    assert report["policy_version"] == "source-lifecycle-v2"
     assert report["context_version"] == "yc-context-v1"
     assert report["selected_count"] == 2
     assert report["selection"] == {"limit": None, "scope": "all_stored_inputs"}

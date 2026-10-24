@@ -89,7 +89,7 @@ def _seed_current(
            SELECT %s, %s, md5(b.payload::text),
                   md5(jsonb_build_array(r.resolved_company_key,
                                         r.key_derivation)::text),
-                  'source-lifecycle-v1', %s, %s, %s, %s, %s, 'seeded',
+                  'source-lifecycle-v2', %s, %s, %s, %s, %s, 'seeded',
                   %s, %s, 'domain_normalized', %s, %s, b.fetched_at,
                   b.last_checked_at
            FROM {bronze_table} b JOIN silver.resolved_signals r
@@ -349,6 +349,7 @@ def test_view_rejects_unexpected_policy_and_parser_versions(evidence_database_ur
                       bronze_last_checked_at"""
         for field, value in (
             ("policy_version", "source-lifecycle-v0"),
+            ("policy_version", "source-lifecycle-v1"),
             ("context_version", "yc-context-v0"),
         ):
             new_observation = connection.execute(

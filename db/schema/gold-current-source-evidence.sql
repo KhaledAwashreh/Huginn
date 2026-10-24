@@ -30,9 +30,9 @@ WITH bronze_current AS (
 ),
 expected_versions(source, policy_version, parser_version) AS (
     VALUES
-        ('hn', 'source-lifecycle-v1', 'hn-context-v1'),
-        ('yc', 'source-lifecycle-v1', 'yc-context-v1'),
-        ('eu_startups', 'source-lifecycle-v1', 'eu-startups-context-v1')
+        ('hn', 'source-lifecycle-v2', 'hn-context-v1'),
+        ('yc', 'source-lifecycle-v2', 'yc-context-v1'),
+        ('eu_startups', 'source-lifecycle-v2', 'eu-startups-context-v1')
 )
 SELECT
     gs.id,

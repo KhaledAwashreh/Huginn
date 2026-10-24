@@ -32,6 +32,11 @@ listing and identity states. A captured EU-Startups listing remains directory
 context. Its free-form company status is preserved without imposing an
 unverified lifecycle taxonomy.
 
+For HN comments without paragraph boundaries, only the first normalized line
+is treated as the closure header. A `CLOSED NOW` status there withdraws the
+listing; a status on a later line does not. A paragraph-only comment has an
+empty header, so this closure rule does not withdraw it.
+
 Identity uses YC's website, HN's first website link within its header, or the
 scoped EU-Startups website field. HN paragraph boundaries are recognized
 case-insensitively, including attributes. Body links never supply identity.
@@ -187,3 +192,25 @@ The separate [attribute assessment](attribute-assessment.md) reads guarded
 snapshots to propose missing company attributes and compare synthetic matching
 results. It is read-only and keeps country-alias effects separate from field
 fills; it does not deploy schemas, change company attributes or create Matches.
+
+## Explicit HN header closure
+
+Lifecycle policy `source-lifecycle-v2` withdraws an HN listing when a dedicated
+pipe-delimited status segment on the first header line says `CLOSED NOW`,
+optionally followed by punctuation or an explanation after a dash or colon.
+Body-only closure mentions, negations and closure words inside names or URLs do
+not trigger this rule. It is deliberately narrow and does not recognize every
+possible way a poster can announce closure.
+
+The complete source text and source-event timestamp remain preserved. Closure
+applies to that listing; it does not disqualify the company or erase historical
+Match evidence. A closed header takes precedence over an older application
+invitation remaining in the body. This status requires a successful fresh fetch;
+a changed upstream post cannot be detected from an unchanged Bronze payload.
+
+The guarded view expects policy v2 for all sources, matching the shared lifecycle
+policy version. Apply the reviewed `gold-current-source-evidence.sql` view update
+and explicitly reconcile source observations under v2 as part of a deployment.
+After the view update, v1 observations remain history but cannot qualify as
+current evidence. Reconciliation must precede resuming guarded readers. No
+persistent deployment or reconciliation runs automatically from this code change.

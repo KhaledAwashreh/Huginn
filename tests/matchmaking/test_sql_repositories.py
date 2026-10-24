@@ -197,7 +197,7 @@ def _signal(
             bronze_last_checked_at)
            SELECT 'yc',%s,md5(b.payload::text),
                   md5(jsonb_build_array(r.resolved_company_key,r.key_derivation)::text),
-                  'source-lifecycle-v1','yc-context-v1',%s,'available','false','consistent',
+                  'source-lifecycle-v2','yc-context-v1',%s,'available','false','consistent',
                   'seeded',%s,%s,'domain_normalized',%s,to_timestamp(%s),b.fetched_at,b.last_checked_at
            FROM bronze.api_ingest b JOIN silver.resolved_signals r
              ON r.source=b.source AND r.source_stable_id=b.stable_id

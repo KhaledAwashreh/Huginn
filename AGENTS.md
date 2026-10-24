@@ -36,6 +36,13 @@ the relevant sections of `docs/architecture.md` before changing a layer.
    persistent database, run migrations or perform a backfill as a side effect.
 5. Run the relevant tests, `uv run ruff check .`, and
    `uv run ruff format --check .`. Respect the repository commit/push hooks.
+6. Establish functional correctness from real source data and actual outputs.
+   Passing unit or integration tests alone is not proof that a requirement is
+   satisfied. For database writes, read persisted records back and compare their
+   values, source lineage and preserved history with the intended result; check
+   for unintended changes. Use real payloads in owned disposable databases when
+   persistent writes are outside the authorized scope. Distinguish live upstream
+   observations from older stored data and report any difference.
 
 ## Code review rules
 

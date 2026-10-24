@@ -30,7 +30,7 @@ class Repository:
                     "raw-token",
                     "resolution-token",
                     "yc-context-v1",
-                    "source-lifecycle-v1",
+                    "source-lifecycle-v2",
                     NOW,
                     '{"team_size":0,"industries":["B2B"]}',
                 ),
