@@ -32,6 +32,11 @@ listing and identity states. A captured EU-Startups listing remains directory
 context. Its free-form company status is preserved without imposing an
 unverified lifecycle taxonomy.
 
+For HN comments without paragraph boundaries, only the first normalized line
+is treated as the closure header. A `CLOSED NOW` status there withdraws the
+listing; a status on a later line does not. A paragraph-only comment has an
+empty header, so this closure rule does not withdraw it.
+
 Identity uses YC's website, HN's first website link within its header, or the
 scoped EU-Startups website field. HN paragraph boundaries are recognized
 case-insensitively, including attributes. Body links never supply identity.

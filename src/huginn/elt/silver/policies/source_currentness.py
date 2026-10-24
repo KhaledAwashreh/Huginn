@@ -132,10 +132,15 @@ def _context(item: LifecycleInput) -> SourceExtraction:
 
 
 def _hn_header_closed(context: SourceExtraction) -> bool:
-    if context.normalized_text is None or context.header_span is None:
+    if context.normalized_text is None:
         return False
-    start, end = context.header_span
-    header = context.normalized_text[start:end].splitlines()
+    if context.header_span is None and context.body_span is None:
+        header = context.normalized_text.splitlines()
+    elif context.header_span is not None:
+        start, end = context.header_span
+        header = context.normalized_text[start:end].splitlines()
+    else:
+        return False
     if not header:
         return False
     return any(
