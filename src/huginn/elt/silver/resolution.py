@@ -15,9 +15,10 @@ import ipaddress
 import logging
 import socket
 from collections.abc import Callable
-from urllib.parse import urlparse
 
 import requests
+
+from huginn.elt.silver.normalizers.domain import normalize_domain as normalize_domain
 
 logger = logging.getLogger(__name__)
 
@@ -142,24 +143,6 @@ def check_domain_reachable(domain: str, timeout: float = 5.0) -> bool:
         "reachable" if reachable else "unreachable",
     )
     return reachable
-
-
-def normalize_domain(url_or_domain: str) -> str:
-    """Registrable domain, normalized: lowercase, no `www.`, no protocol,
-    no trailing slash or path, no trailing DNS root-label dot. See
-    architecture document section 6 and Jira KAN-69.
-    """
-    value = url_or_domain.strip().lower()
-    if "//" not in value:
-        value = f"//{value}"
-    parsed = urlparse(value)
-    host = parsed.hostname or parsed.path
-    host = host.split("/")[0]
-    if host.startswith("www."):
-        host = host[len("www.") :]
-    if host.endswith("."):
-        host = host[:-1]
-    return host
 
 
 class KeyDerivation:

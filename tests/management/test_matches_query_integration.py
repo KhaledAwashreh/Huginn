@@ -6,9 +6,11 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from huginn.elt.silver.context.models import SourceExtraction
-from huginn.elt.silver.currentness.models import LifecycleFacts
-from huginn.elt.silver.currentness.repository import PostgresLifecycleRepository
+from huginn.elt.silver.models.lifecycle_facts import LifecycleFacts
+from huginn.elt.silver.models.source_extraction import SourceExtraction
+from huginn.elt.silver.repositories.source_currentness_repository import (
+    PostgresLifecycleRepository,
+)
 from huginn.management.domain.value_objects.match_status import MatchStatus
 from huginn.management.persistence.queries.matches_query import PostgresMatchesQuery
 from tests.postgres_harness import provisioned_postgres

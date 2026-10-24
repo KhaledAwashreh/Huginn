@@ -35,7 +35,7 @@ later source or company changes cannot alter a report midway through evaluation.
 Supply explicit timezone-aware inclusive window endpoints:
 
 ```bash
-uv run python -m huginn.elt.gold.attribute_promotion \
+uv run python -m huginn.elt.gold.presentation.cli.attribute_assessment \
   --cutoff 2026-09-01T00:00:00Z \
   --as-of 2026-10-01T00:00:00Z \
   --summary .local-runtime/assessment/report.json \

@@ -53,13 +53,19 @@ Audit uses a repeatable-read, read-only transaction and requires no lifecycle
 migration:
 
 ```bash
-rtk proxy uv run python -m huginn.elt.silver.currentness audit --source yc --summary .local-runtime/currentness/yc-audit.json
+rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_currentness audit --source yc --summary .local-runtime/currentness/yc-audit.json
 ```
 
 Reports contain aggregate states, reasons, selected counts, and a fingerprint
 of selected raw/resolution versions. `--limit 100` selects the first 100 stored
 stable IDs and labels the report as a limited sample. It does not estimate
 full-source coverage. Reports contain no source text or credentials.
+
+Library callers import audit/reconcile services from
+`huginn.elt.silver.services.source_currentness`. To write a summary file, pass a
+`JsonReportWriter` implementation explicitly; the CLI composes the filesystem
+adapter. Parsing and lifecycle decisions remain independent of database,
+network and file-output implementations.
 
 Before reconciliation, back up and inspect the target's schema. Existing
 databases need `silver-source-context.sql` first if its tables are absent.
@@ -68,7 +74,7 @@ after the Bronze, Silver, Gold, and operational base schemas:
 
 ```bash
 rtk proxy psql "$HUGINN_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/silver-source-currentness.sql
-rtk proxy uv run python -m huginn.elt.silver.currentness reconcile --source yc --summary .local-runtime/currentness/yc-reconcile.json
+rtk proxy uv run python -m huginn.elt.silver.presentation.cli.source_currentness reconcile --source yc --summary .local-runtime/currentness/yc-reconcile.json
 ```
 
 The migration owns its transaction, checks existing table compatibility, and
