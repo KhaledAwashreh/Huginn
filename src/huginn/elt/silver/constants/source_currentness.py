@@ -1,1 +1,1 @@
-POLICY_VERSION = "source-lifecycle-v1"
+POLICY_VERSION = "source-lifecycle-v2"

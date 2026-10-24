@@ -328,3 +328,45 @@ def test_non_object_bronze_payload_is_classified_invalid(source, payload):
         status="failed",
         reason="malformed_payload",
     )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "CLOSED NOW",
+        "CLOSED NOW - role filled",
+        "closed now: role filled",
+        "CLOSED NOW!",
+    ],
+)
+def test_explicit_hn_header_closure_withdraws_listing_and_retains_context(status):
+    payload = {
+        "id": 50,
+        "type": "comment",
+        "time": 1_700_000_000,
+        "text": f"Acme | Product Engineer | Freelance / employment | {status}<p>We are reviewing applications on a rolling basis.",
+    }
+    facts = classify(_item("hn", payload))
+    assert facts.listing_state == "withdrawn"
+    assert facts.reason == "hn_explicit_header_closed"
+    assert facts.hiring_state == "true"
+    assert facts.occurred_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+    assert status in facts.context.normalized_text
+    assert "reviewing applications" in facts.context.normalized_text
+    assert facts.context.status == "captured"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Acme | Remote<p>CLOSED NOW - our old office, not this role.",
+        "Acme | NOT CLOSED NOW<p>Apply here.",
+        "Acme | Closed-source engineer<p>Apply here.",
+        "Acme | https://example.test/closed-now<p>Apply here.",
+        "Closed Now Labs | Remote<p>Apply here.",
+        "Acme | Our funding round closed now<p>Apply here.",
+    ],
+)
+def test_hn_closure_words_without_explicit_header_status_stay_available(text):
+    facts = classify(_item("hn", {"id": 51, "type": "comment", "text": text}))
+    assert facts.listing_state == "available"

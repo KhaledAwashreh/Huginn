@@ -131,6 +131,23 @@ def _context(item: LifecycleInput) -> SourceExtraction:
     return normalize_eu_startups(item.payload)
 
 
+def _hn_header_closed(context: SourceExtraction) -> bool:
+    if context.normalized_text is None or context.header_span is None:
+        return False
+    start, end = context.header_span
+    header = context.normalized_text[start:end].splitlines()
+    if not header:
+        return False
+    return any(
+        re.fullmatch(
+            r"\s*closed\s+now(?:\s*[.!]|\s*[-:–—]\s*.*)?\s*",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        for segment in header[0].split("|")[1:]
+    )
+
+
 def classify(item: LifecycleInput) -> LifecycleFacts:
     """Classify one current source observation without I/O or inferred demand."""
     if not isinstance(item.payload, dict):
@@ -201,8 +218,9 @@ def classify(item: LifecycleInput) -> LifecycleFacts:
             reason = "hn_empty_comment"
             hiring_state = "true"
         elif item_type == "comment" and context.status == "captured":
-            listing_state = "available"
-            reason = "hn_valid_comment"
+            closed = _hn_header_closed(context)
+            listing_state = "withdrawn" if closed else "available"
+            reason = "hn_explicit_header_closed" if closed else "hn_valid_comment"
             hiring_state = "true"
         elif item_type == "comment":
             reason = "source_context_invalid"
