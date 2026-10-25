@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from huginn.elt.gold.company import (
     CompanyWriter,
     parse_all_locations,
-    team_size_to_scale,
     write_company,
 )
 from huginn.elt.gold.models import DomainNormalizedSignal
@@ -256,36 +255,6 @@ def test_write_all_omits_stage_entirely_when_no_signal_carries_one():
     assert repo.upserted == [("acme.com", {"name": "Acme"}, False)]
 
 
-def test_team_size_to_scale_returns_none_for_a_missing_headcount():
-    assert team_size_to_scale(None) is None
-
-
-def test_team_size_to_scale_folds_zero_into_the_lowest_band():
-    """Confirmed live: 133 YC rows report team_size=0, all Early stage,
-    all with a populated batch and industry, 41 of them Active. Reads as
-    pre-first-hire, a real small size, not a missing value.
-    """
-    assert team_size_to_scale(0) == "0-10"
-
-
-def test_team_size_to_scale_boundaries_are_inclusive_at_the_top():
-    assert team_size_to_scale(1) == "0-10"
-    assert team_size_to_scale(10) == "0-10"
-    assert team_size_to_scale(11) == "11-100"
-    assert team_size_to_scale(100) == "11-100"
-    assert team_size_to_scale(101) == "101-1000"
-    assert team_size_to_scale(1000) == "101-1000"
-    assert team_size_to_scale(1001) == "1001+"
-
-
-def test_team_size_to_scale_covers_the_real_observed_extremes():
-    """Real values from the live directory, not invented ones."""
-    assert team_size_to_scale(2) == "0-10"
-    assert team_size_to_scale(227) == "101-1000"
-    assert team_size_to_scale(7000) == "1001+"
-    assert team_size_to_scale(10000) == "1001+"
-
-
 def test_write_all_derives_company_scale_from_team_size():
     repo = FakeCompanyRepository(signals=[_signal("acme.com", "Acme", team_size=120)])
     writer = CompanyWriter(repo)
@@ -295,6 +264,22 @@ def test_write_all_derives_company_scale_from_team_size():
     assert repo.upserted == [
         ("acme.com", {"name": "Acme", "company_scale": "101-1000"}, False)
     ]
+
+
+def test_write_all_omits_negative_headcount_without_clearing_existing_scale():
+    repo = FakeCompanyRepository(
+        signals=[_signal("acme.com", "Acme", team_size=-1)],
+        companies={
+            "acme.com": {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "company_scale": "11-100",
+            }
+        },
+    )
+
+    CompanyWriter(repo).write_all()
+
+    assert repo.upserted == [("acme.com", {"name": "Acme"}, False)]
 
 
 def test_write_all_carries_company_status_from_the_signal():

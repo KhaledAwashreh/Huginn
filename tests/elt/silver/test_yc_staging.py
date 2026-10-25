@@ -112,7 +112,7 @@ def test_parse_yc_listing_company_status_is_none_when_the_key_is_absent():
 
 def test_parse_yc_listing_team_size_is_the_reported_headcount():
     """The raw integer, not a band. Bucketing into company_scale bands is
-    Gold's job (see gold.company.team_size_to_scale): the bands are Huginn's
+    Gold's job (see gold.policies.company_scale.team_size_to_scale): the bands are Huginn's
     vocabulary, and Silver conforms a source rather than re-expressing it.
     """
     assert parse_yc_listing(_REAL_HIT_WITH_STATUS_AND_HEADCOUNT).team_size == 50

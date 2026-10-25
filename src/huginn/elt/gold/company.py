@@ -9,6 +9,7 @@ import logging
 from uuid import UUID
 
 from huginn.elt.gold.dimensional import apply_company_update
+from huginn.elt.gold.policies.company_scale import team_size_to_scale
 from huginn.elt.gold.ports import CompanyRepositoryPort
 from huginn.pipeline_control.application.read_models.tracking_context import (
     TrackingContext,
@@ -18,39 +19,6 @@ from huginn.pipeline_control.infrastructure.invocation_company_result_writer imp
 )
 
 logger = logging.getLogger(__name__)
-
-# The four headcount bands gold.company.company_scale is constrained to.
-# Inclusive upper bound, lowest band absorbs team_size=0. Kept as data
-# rather than inlined into a chain of comparisons so the boundary values
-# read in one place next to the schema constraint they must match.
-_SCALE_BANDS: tuple[tuple[int, str], ...] = (
-    (10, "0-10"),
-    (100, "11-100"),
-    (1000, "101-1000"),
-)
-_SCALE_TOP_BAND = "1001+"
-
-
-def team_size_to_scale(team_size: int | None) -> str | None:
-    """Bucket a headcount into one of gold.company_scale's four bands.
-
-    The bucketing lives in Gold, not in Silver, because the bands are
-    Huginn's vocabulary rather than any source's: silver.yc_listings keeps
-    `team_size` as the raw integer YC supplies, and this is the single
-    place that decides what a headcount means (architecture document
-    section 4.3). A second source's headcount can reuse these bands
-    without inventing a parallel set.
-
-    Returns None for a missing headcount, which the caller treats as "this
-    source does not know" rather than as a value that clears whatever an
-    earlier source supplied.
-    """
-    if team_size is None:
-        return None
-    for upper, band in _SCALE_BANDS:
-        if team_size <= upper:
-            return band
-    return _SCALE_TOP_BAND
 
 
 def parse_all_locations(all_locations: str | None) -> tuple[str | None, str | None]:
