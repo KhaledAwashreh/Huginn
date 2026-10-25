@@ -9,6 +9,7 @@ from huginn.elt.gold.models.attribute_value import AttributeValue
 from huginn.elt.gold.models.company_attributes import CompanyAttributes
 from huginn.elt.gold.models.field_proposal import FieldProposal
 from huginn.elt.gold.models.source_fact import SourceFact
+from huginn.elt.gold.policies.company_scale import team_size_to_scale
 from huginn.elt.gold.policies.country_labels import (
     EU_CATEGORY_COUNTRY_LABELS,
     EU_PLACE_COUNTRY_LABELS,
@@ -18,7 +19,6 @@ from huginn.elt.gold.policies.country_labels import (
 
 MAPPING_VERSION = "attribute-mapping-v1"
 _FIELDS = ("business_sector", "company_scale", "country")
-_BANDS = ((10, "0-10"), (100, "11-100"), (1000, "101-1000"))
 
 
 def _size_value(raw: str | None) -> tuple[str, str | None]:
@@ -30,12 +30,10 @@ def _size_value(raw: str | None) -> tuple[str, str | None]:
         return "invalid", None
     if value is None:
         return "absent", None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    scale = team_size_to_scale(value)
+    if scale is None:
         return "invalid", None
-    for upper, band in _BANDS:
-        if value <= upper:
-            return "valid", band
-    return "valid", "1001+"
+    return "valid", scale
 
 
 def _industries(raw: str | None) -> tuple[str, tuple[str, ...] | None]:
