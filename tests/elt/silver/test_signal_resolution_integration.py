@@ -13,6 +13,7 @@ import psycopg
 import pytest
 
 from huginn.elt.silver import signal_resolution
+from huginn.elt.silver.errors.resolution_regression import ResolutionRegressionError
 from huginn.elt.silver.repositories.signal_resolution_repository import (
     PostgresSignalResolutionRepository,
 )
@@ -241,4 +242,51 @@ def test_resolved_signals_leaves_profile_fields_null_for_hn_rows(
             )
             cur.execute(
                 "DELETE FROM silver.hn_postings WHERE stable_id = %s", (stable_id,)
+            )
+
+
+def test_regression_guard_preserves_existing_resolution_row(
+    integration_database_url: str, monkeypatch: pytest.MonkeyPatch
+):
+    """ADR-0018: a rejected candidate never updates even the row timestamp."""
+    stable_id = str(uuid.uuid4())
+    with psycopg.connect(integration_database_url) as connection:
+        _insert_hn_posting(connection, stable_id, "https://guardtestco.example")
+    repository = PostgresSignalResolutionRepository(integration_database_url)
+    try:
+        SignalResolver(repository).resolve_all()
+        with psycopg.connect(integration_database_url) as connection:
+            before = connection.execute(
+                "SELECT to_jsonb(r) FROM silver.resolved_signals r "
+                "WHERE source='hn' AND source_stable_id=%s",
+                (stable_id,),
+            ).fetchone()[0]
+        with repository:
+            identities = repository.read_domain_normalized_identities(
+                (("hn", stable_id),)
+            )
+        assert len(identities) == 1
+        assert identities[0].source_stable_id == stable_id
+        monkeypatch.setattr(
+            signal_resolution, "check_domain_reachable", lambda domain: False
+        )
+
+        with pytest.raises(ResolutionRegressionError):
+            SignalResolver(repository).resolve_all()
+
+        with psycopg.connect(integration_database_url) as connection:
+            after = connection.execute(
+                "SELECT to_jsonb(r) FROM silver.resolved_signals r "
+                "WHERE source='hn' AND source_stable_id=%s",
+                (stable_id,),
+            ).fetchone()[0]
+        assert after == before
+    finally:
+        with psycopg.connect(integration_database_url) as connection:
+            connection.execute(
+                "DELETE FROM silver.resolved_signals WHERE source='hn' AND source_stable_id=%s",
+                (stable_id,),
+            )
+            connection.execute(
+                "DELETE FROM silver.hn_postings WHERE stable_id=%s", (stable_id,)
             )

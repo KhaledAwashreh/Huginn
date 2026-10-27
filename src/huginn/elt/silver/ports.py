@@ -40,6 +40,7 @@ from huginn.elt.silver.models import (
     StagedSignal,
     YcListingStaging,
 )
+from huginn.elt.silver.models.resolution_identity import ResolutionIdentity
 
 
 class RepositoryScopePort(Protocol):
@@ -120,6 +121,12 @@ class SignalResolutionRepositoryPort(RepositoryScopePort, Protocol):
     def read_yc_listings(self) -> list[StagedSignal]: ...
 
     def read_eu_startups_listings(self) -> list[StagedSignal]: ...
+
+    def read_domain_normalized_identities(
+        self, keys: tuple[tuple[str, str], ...]
+    ) -> list[ResolutionIdentity]:
+        """Lock existing domain identities for the exact proposed batch."""
+        ...
 
     def upsert(self, record: ResolvedSignalRecord) -> None: ...
 

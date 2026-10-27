@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 
 from huginn.elt.silver.models import ResolvedSignalRecord, StagedSignal
+from huginn.elt.silver.policies.resolution_regression import check_resolution_regression
 from huginn.elt.silver.ports import SignalResolutionRepositoryPort
 from huginn.elt.silver.resolution import (
     KeyDerivation,
@@ -130,9 +131,10 @@ class SignalResolver:
         """Resolve and upsert every staged signal from every source,
         returning the count of rows upserted (always equals the input
         count; the write executes on every row even when nothing
-        changed).
+        changed). A source cohort exceeding the ADR-0018 downgrade limit raises
+        before any upsert, so a rejected batch returns no successful count.
 
-        Reads and writes open two separate connection scopes rather than
+        Staging reads and guarded writes open two separate connection scopes rather than
         one shared scope, so `resolve_signal()`'s network call (Jira
         KAN-62) never runs while a database connection is held open. See
         ADR-0006 for why this deviates from `huginn.elt.silver.ports`'s
@@ -184,7 +186,7 @@ class SignalResolver:
         *,
         method_name: str,
     ) -> int:
-        """Resolve a detached batch and persist only the records it contains."""
+        """Guard and persist a detached batch atomically; see ADR-0018."""
 
         total = len(staged_signals)
         resolved_records = []
@@ -227,6 +229,19 @@ class SignalResolver:
 
         written = 0
         with self._repository:
+            keys = tuple(
+                (record.source, record.source_stable_id) for record in resolved_records
+            )
+            previous = self._repository.read_domain_normalized_identities(keys)
+            regression = check_resolution_regression(previous, resolved_records)
+            logger.info(
+                "silver.resolved_signals %s: identity guard allowed %d downgrade(s) "
+                "among %d previously resolved signals (limit %d%%)",
+                method_name,
+                regression.downgraded,
+                regression.previously_resolved,
+                regression.max_downgrade_percent,
+            )
             for record in resolved_records:
                 self._repository.upsert(record)
                 written += 1

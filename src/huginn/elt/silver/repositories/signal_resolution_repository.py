@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Self
 
 from huginn.elt.silver.models import ResolvedSignalRecord, StagedSignal
+from huginn.elt.silver.models.resolution_identity import ResolutionIdentity
 from huginn.elt.silver.repositories.postgres_repository import PostgresConnectionScope
 
 _HN_STAGING_SELECT_SQL = """
@@ -33,6 +34,17 @@ _EU_STARTUPS_STAGING_SELECT_SQL = """
            NULL::INTEGER, NULL::TEXT[], NULL::TEXT, NULL::TEXT[], NULL::TEXT,
            founded, total_funding
     FROM silver.eu_startups_listings
+"""
+
+_READ_DOMAIN_IDENTITIES_SQL = """
+    SELECT source, source_stable_id, resolved_company_key
+    FROM silver.resolved_signals
+    WHERE key_derivation = 'domain_normalized'
+      AND (source, source_stable_id) IN (
+          SELECT * FROM unnest(%s::TEXT[], %s::TEXT[])
+      )
+    ORDER BY source, source_stable_id
+    FOR UPDATE
 """
 
 _UPSERT_SQL = """
@@ -123,6 +135,9 @@ class PostgresSignalResolutionRepository:
     connection is held. The staging reads and the writes are therefore two
     separate transactions, not one consistent snapshot; see ADR-0006 for
     why that's an accepted tradeoff for this orchestrator specifically.
+    The write scope first locks prior identities for the exact proposed keys
+    so ADR-0018 checks and upserts share one transaction. Normal pipeline
+    execution uses the existing execution guard to serialize writers.
     Every method here is only valid between `__enter__` and `__exit__`.
     """
 
@@ -150,6 +165,16 @@ class PostgresSignalResolutionRepository:
         return [
             _row_to_staged_signal(source, row) for row in self._scope.cursor.fetchall()
         ]
+
+    def read_domain_normalized_identities(
+        self, keys: tuple[tuple[str, str], ...]
+    ) -> list[ResolutionIdentity]:
+        """Lock only this batch's existing domain identities; see ADR-0018."""
+        self._scope.cursor.execute(
+            _READ_DOMAIN_IDENTITIES_SQL,
+            ([source for source, _ in keys], [stable_id for _, stable_id in keys]),
+        )
+        return [ResolutionIdentity(*row) for row in self._scope.cursor.fetchall()]
 
     def upsert(self, record: ResolvedSignalRecord) -> None:
         """Implement `SignalResolutionRepositoryPort.upsert`."""

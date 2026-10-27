@@ -265,6 +265,16 @@ One risk is carried forward unresolved rather than quietly assumed: YC's Terms o
 
 Domain is the canonical key first. A company's registrable domain, normalized (lowercase, no `www.`, no protocol or trailing slash), is cheap and nearly unambiguous.
 
+Resolution writes are guarded against large per-source regressions. Before any
+upsert, the writer locks prior domain-normalized identities for the exact input
+keys. If more than 10% of one source's prior positive cohort would lose domain
+normalization, the whole resolution batch fails and its review/Gold dependents
+are skipped. Existing resolution data remains unchanged; committed Bronze and
+staging facts remain available for investigation. Valid domain changes and
+out-of-scope records are excluded from the loss count. This operational guard
+is a proposed review boundary with explicit limits, not a network diagnosis or
+an individual retry policy; see ADR-0018.
+
 Where no domain match exists, the fallback is:
 
 1. Normalize the name and strip legal suffixes (Inc., LLC, Ltd.), using OpenSanctions' suffix list rather than a hand-rolled one.

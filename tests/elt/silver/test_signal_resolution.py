@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 import pytest
 
 from huginn.elt.silver import signal_resolution
+from huginn.elt.silver.errors.resolution_regression import ResolutionRegressionError
 from huginn.elt.silver.models import StagedSignal
+from huginn.elt.silver.models.resolution_identity import ResolutionIdentity
 from huginn.elt.silver.resolution import KeyDerivation
 from huginn.elt.silver.signal_resolution import (
     _NON_COMPANY_HOSTS,
@@ -167,10 +169,13 @@ class FakeSignalResolutionRepository:
         hn_postings: list[StagedSignal],
         yc_listings: list[StagedSignal],
         eu_startups_listings: list[StagedSignal] | None = None,
+        previously_resolved: list[ResolutionIdentity] | None = None,
     ) -> None:
         self._hn_postings = hn_postings
         self._yc_listings = yc_listings
         self._eu_startups_listings = eu_startups_listings or []
+        self.previously_resolved = previously_resolved or []
+        self.identity_keys = ()
         self.upserted = []
         self.enter_count = 0
         self.exit_count = 0
@@ -196,6 +201,15 @@ class FakeSignalResolutionRepository:
     def read_eu_startups_listings(self) -> list[StagedSignal]:
         self.calls.append("read_eu_startups")
         return self._eu_startups_listings
+
+    def read_domain_normalized_identities(self, keys):
+        self.calls.append("read_previous")
+        self.identity_keys = keys
+        return [
+            item
+            for item in self.previously_resolved
+            if (item.source, item.source_stable_id) in keys
+        ]
 
     def upsert(self, record) -> None:
         self.calls.append("upsert")
@@ -294,9 +308,7 @@ def test_resolve_all_opens_the_repository_scope_twice_read_then_write(monkeypatc
 
 
 def test_resolve_all_completes_every_read_before_opening_the_write_scope(monkeypatch):
-    """ADR-0006: no upsert may happen inside the read scope, and no read
-    may happen inside the write scope, only sequential
-    enter/read.../exit/enter/upsert.../exit."""
+    """ADR-0006: staging reads precede network IO and the guarded write scope."""
     monkeypatch.setattr(
         signal_resolution, "check_domain_reachable", lambda domain, timeout=5.0: True
     )
@@ -633,3 +645,37 @@ def test_resolve_all_leaves_former_names_and_batch_none_for_hn_rows():
     record = repository.upserted[0]
     assert record.former_names is None
     assert record.batch is None
+
+
+def test_resolve_all_blocks_identity_regression_before_any_upsert(monkeypatch):
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "1", "https://acme.com")],
+        yc_listings=[],
+        previously_resolved=[ResolutionIdentity("hn", "1", "acme.com")],
+    )
+    monkeypatch.setattr(
+        signal_resolution, "check_domain_reachable", lambda domain: False
+    )
+
+    with pytest.raises(ResolutionRegressionError):
+        SignalResolver(repository).resolve_all()
+
+    assert repository.upserted == []
+    assert repository.calls[-2:] == ["read_previous", "exit"]
+
+
+def test_eu_only_guard_reads_exact_batch_keys_after_network_io():
+    repository = FakeSignalResolutionRepository(
+        hn_postings=[_staged_signal("hn", "hn-1", "https://hn.example")],
+        yc_listings=[],
+        eu_startups_listings=[
+            _staged_signal("eu_startups", "eu-1", "https://eu.example")
+        ],
+        previously_resolved=[ResolutionIdentity("hn", "hn-1", "hn.example")],
+    )
+
+    assert SignalResolver(repository).resolve_eu_startups() == 1
+
+    assert repository.identity_keys == (("eu_startups", "eu-1"),)
+    assert repository.calls.index("read_previous") < repository.calls.index("upsert")
+    assert repository.calls.count("enter") == 2
