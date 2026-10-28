@@ -10,6 +10,7 @@ import EmptyState from '../../../../shared/ui/EmptyState.vue';
 import type { components } from '../../../../api/generated/schema';
 import type { ConfigurationOption } from '../api/getConfigurationOptions';
 import { mergeCollectedValues } from '../forms/collectedOptionSelection';
+import { countryIdentity } from '../forms/icpSelectionConflicts';
 type Geography =
   components['schemas']['CountryGeography'] | components['schemas']['RegionGeography'];
 const props = withDefaults(
@@ -18,8 +19,15 @@ const props = withDefaults(
     disabled?: boolean;
     options?: ConfigurationOption[];
     state?: 'loading' | 'error' | 'ready';
+    blockedValues?: string[];
   }>(),
-  { errors: () => [], disabled: false, options: () => [], state: 'loading' },
+  {
+    errors: () => [],
+    disabled: false,
+    options: () => [],
+    state: 'loading',
+    blockedValues: () => [],
+  },
 );
 const rows = defineModel<Geography[]>({ required: true });
 const countries = computed(() =>
@@ -38,6 +46,14 @@ const countryOptions = computed(() => [
 function label(option: ConfigurationOption & { legacy?: boolean }): string {
   const value = option.value || 'Saved blank value';
   return `${value}${option.legacy ? (props.state === 'ready' ? ' · saved value not in collected options' : ' · saved selection') : ` · ${option.company_count} companies collected`}`;
+}
+function blocked(option: ConfigurationOption): boolean {
+  return (
+    !countries.value.includes(option.value) &&
+    (props.blockedValues ?? []).some(
+      (value) => countryIdentity(value) === countryIdentity(option.value),
+    )
+  );
 }
 function updateCountries(selected: string[]): void {
   const nextCountries = mergeCollectedValues(
@@ -89,6 +105,7 @@ function removeRegion(index: number): void {
       :options="countryOptions"
       :option-label="label"
       option-value="value"
+      :option-disabled="blocked"
       display="chip"
       :show-toggle-all="false"
       filter
@@ -118,8 +135,7 @@ function removeRegion(index: number): void {
       />
     </div>
     <p v-if="countries.length === 0" class="note">
-      No countries selected. You can still save this ICP; matching will be incomplete until criteria
-      are selected.
+      No countries selected. Recommendations will not filter by country.
     </p>
     <div class="regions">
       <label
@@ -141,10 +157,7 @@ function removeRegion(index: number): void {
         </span>
       </label>
     </div>
-    <p class="notice">
-      If any region entry is present here, the current matcher skips the whole strategy as
-      unsupported.
-    </p>
+    <p class="notice">Region filters and exclusions are not supported. Use explicit countries.</p>
     <p class="note">
       Company counts describe collected coverage. They do not predict combined ICP matches.
     </p>

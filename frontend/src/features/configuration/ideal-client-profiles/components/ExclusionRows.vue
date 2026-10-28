@@ -11,6 +11,7 @@ import type { components } from '../../../../api/generated/schema';
 import type { ConfigurationOption } from '../api/getConfigurationOptions';
 import { mergeCollectedExclusions } from '../forms/collectedOptionSelection';
 import CompanyExclusionSelect from './CompanyExclusionSelect.vue';
+import { countryIdentity, industryIdentity } from '../forms/icpSelectionConflicts';
 type Exclusion =
   | components['schemas']['CompanyExclusion']
   | components['schemas']['IndustryExclusion']
@@ -22,6 +23,8 @@ const props = withDefaults(
     industries?: ConfigurationOption[];
     countries?: ConfigurationOption[];
     state?: 'loading' | 'error' | 'ready';
+    blockedIndustries?: string[];
+    blockedCountries?: string[];
   }>(),
   {
     errors: () => [],
@@ -29,6 +32,8 @@ const props = withDefaults(
     industries: () => [],
     countries: () => [],
     state: 'loading',
+    blockedIndustries: () => [],
+    blockedCountries: () => [],
   },
 );
 const rows = defineModel<Exclusion[]>({ required: true });
@@ -78,6 +83,22 @@ function makeOptions(
 }
 const industryOptions = computed(() => makeOptions(props.industries, industryValues.value, true));
 const countryOptions = computed(() => makeOptions(props.countries, countryValues.value));
+function blockedIndustry(option: ConfigurationOption): boolean {
+  return (
+    !industryValues.value.includes(option.value) &&
+    (props.blockedIndustries ?? []).some(
+      (value) => industryIdentity(value) === industryIdentity(option.value),
+    )
+  );
+}
+function blockedCountry(option: ConfigurationOption): boolean {
+  return (
+    !countryValues.value.includes(option.value) &&
+    (props.blockedCountries ?? []).some(
+      (value) => countryIdentity(value) === countryIdentity(option.value),
+    )
+  );
+}
 function label(option: ConfigurationOption & { legacy?: boolean }): string {
   const value = option.value || 'Saved blank value';
   return `${value}${option.legacy ? (props.state === 'ready' ? ' · saved value not in collected options' : ' · saved selection') : ` · ${option.company_count} companies collected`}`;
@@ -140,6 +161,7 @@ function setCompany(index: number, id: string): void {
         :options="industryOptions"
         :option-label="label"
         option-value="value"
+        :option-disabled="blockedIndustry"
         display="chip"
         :show-toggle-all="false"
         filter
@@ -176,6 +198,7 @@ function setCompany(index: number, id: string): void {
         :options="countryOptions"
         :option-label="label"
         option-value="value"
+        :option-disabled="blockedCountry"
         display="chip"
         :show-toggle-all="false"
         filter
@@ -267,10 +290,7 @@ function setCompany(index: number, id: string): void {
     <p class="notice">
       Company counts describe collected coverage; they do not predict combined ICP matches.
     </p>
-    <p class="notice">
-      If any region entry is present here, the current matcher skips the whole strategy as
-      unsupported.
-    </p>
+    <p class="notice">Region filters and exclusions are not supported. Use explicit countries.</p>
   </fieldset>
 </template>
 <style scoped>

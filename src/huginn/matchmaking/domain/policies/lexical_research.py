@@ -13,6 +13,7 @@ from huginn.matchmaking.domain.value_objects.ranking_observation import (
 _STOP_WORDS = frozenset(
     [
         "a",
+        "able",
         "an",
         "and",
         "are",
@@ -22,6 +23,8 @@ _STOP_WORDS = frozenset(
         "by",
         "can",
         "company",
+        "client",
+        "clients",
         "companies",
         "consultancy",
         "consulting",
@@ -33,6 +36,7 @@ _STOP_WORDS = frozenset(
         "delivery",
         "for",
         "from",
+        "full",
         "help",
         "helps",
         "helping",
@@ -48,6 +52,7 @@ _STOP_WORDS = frozenset(
         "or",
         "our",
         "provide",
+        "proper",
         "provides",
         "providing",
         "service",
@@ -104,6 +109,7 @@ def assess_topic_overlap(
     industry_match: str = "unknown",
     size_match: str = "unknown",
     country_match: str = "unknown",
+    service_terms: tuple[str, ...] | None = None,
 ) -> RankingAssessment | None:
     evidence = []
     relevant = []
@@ -129,10 +135,18 @@ def assess_topic_overlap(
         if matches:
             hits.update(term for term, _ in matches)
             relevant.append(observation)
+            primary = next(
+                (
+                    match
+                    for term, match in matches
+                    if service_terms and term in service_terms
+                ),
+                matches[0][1],
+            )
             evidence.append(
                 RankingEvidence(
                     observation.observation_id,
-                    _excerpt(observation.description, matches[0][1]),
+                    _excerpt(observation.description, primary),
                 )
             )
     if not relevant:
@@ -152,12 +166,15 @@ def assess_topic_overlap(
         else None
     )
     identity = f"topic-overlap-v1/{company_id}/{as_of.isoformat()}/{','.join(terms)}"
+    service_overlap = service_terms is None or bool(hits & set(service_terms))
+    if service_terms is not None:
+        identity = f"topic-overlap-v2/{company_id}/{as_of.isoformat()}/{','.join(terms)}/{','.join(service_terms)}"
     return RankingAssessment(
         company_id=company_id,
         assessment_id=uuid5(NAMESPACE_URL, identity),
-        service_fit="adjacent",
+        service_fit="adjacent" if service_overlap else "unknown",
         business_context="unknown",
-        service_basis="inferred",
+        service_basis="inferred" if service_overlap else "unknown",
         context_basis="unknown",
         industry_match=industry_match,
         size_match=size_match,
@@ -172,9 +189,16 @@ def assess_topic_overlap(
             "Topic overlap does not establish an internal problem or buyer need.",
             "Budget, independent-project acceptance, sponsor and delivery constraints are unknown.",
             "The source may describe a service sold to customers rather than the company's own need.",
-            "Missing or unmatched company preferences do not exclude research candidates.",
+            "Missing company attributes cannot establish ICP fit.",
         ),
         rationale="Source text overlaps offering topics: "
         + ", ".join(sorted(hits))
-        + ". This supports research but does not establish consulting demand. Business context has not been assessed.",
+        + (
+            ". A service-title topic appears in the source."
+            if service_overlap and service_terms is not None
+            else ". No service-specific title topic was found; context overlap earns no service-fit points."
+            if not service_overlap
+            else "."
+        )
+        + " This supports research but does not establish consulting demand. Business context has not been assessed.",
     )

@@ -30,6 +30,23 @@ def test_offering_terms_are_distinct_bounded_and_ignore_generic_sales_words():
     assert len(offering_terms(" ".join("word" + str(i) for i in range(100)))) <= 24
 
 
+def test_generic_delivery_language_cannot_make_full_time_a_service_match():
+    terms = offering_terms(
+        "Technical Consultant: able to provide full and proper technical solutions to any client at enterprise scale"
+    )
+    assert not {"able", "full", "proper", "client"} & set(terms)
+    assert {"technical", "enterprise", "scale"} <= set(terms)
+    assert (
+        assess_topic_overlap(
+            UUID(int=100),
+            (observation("We are hiring full-time. Client reports available."),),
+            terms,
+            NOW,
+        )
+        is None
+    )
+
+
 def test_topic_overlap_is_grounded_low_confidence_and_never_asserts_internal_need():
     source = observation(
         "We sell onboarding software to customers. We are hiring full-time."
@@ -84,3 +101,25 @@ def test_duplicate_mentions_cannot_raise_service_fit_and_full_source_is_preserve
     )
     assert result.service_fit == "adjacent"
     assert result.observations[0].description == text
+
+
+def test_offering_context_alone_does_not_earn_service_specific_fit_points():
+    context_only = assess_topic_overlap(
+        UUID(int=100),
+        (observation("Enterprise plans start at $999."),),
+        ("enterprise", "technical"),
+        NOW,
+        service_terms=("technical",),
+    )
+    service_related = assess_topic_overlap(
+        UUID(int=101),
+        (observation("Our technical platform team is growing."),),
+        ("enterprise", "technical"),
+        NOW,
+        service_terms=("technical",),
+    )
+    assert context_only.service_fit == "unknown"
+    assert context_only.service_basis == "unknown"
+    assert "service-specific" in context_only.rationale
+    assert service_related.service_fit == "adjacent"
+    assert service_related.service_basis == "inferred"

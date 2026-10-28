@@ -49,34 +49,32 @@ def test_verified_opt_in_and_current_eligibility(management_database_url):
         user, account, strategy = _subscriber(conn, "weekly")
         now = datetime.now(UTC)
         assert repo.subscriptions(100) == ()
-        repo.subscribe(user, strategy, now)
+        repo.subscribe(user, now)
         subscription = repo.subscriptions(100)[0]
         assert subscription.user_id == user
         assert subscription.recipient not in repr(subscription)
         assert repo.eligible(subscription)
-        assert not repo.eligible(
-            DigestSubscription(user, strategy, "stale@example.test")
-        )
+        assert not repo.eligible(DigestSubscription(user, "stale@example.test"))
         conn.execute(
             "UPDATE operational.accounts SET status='disabled' WHERE id=%s", (account,)
         )
         assert repo.subscriptions(100) == ()
         with pytest.raises(ValidationDomainError):
-            repo.subscribe(user, strategy, now)
+            repo.subscribe(user, now)
         conn.execute(
             "UPDATE operational.accounts SET status='active' WHERE id=%s", (account,)
         )
         repo.unsubscribe(user)
         repo.unsubscribe(user)
         assert not repo.eligible(subscription)
-        repo.subscribe(user, strategy, now)
+        repo.subscribe(user, now)
         conn.execute(
             "DELETE FROM operational.account_recovery_identity WHERE account_id=%s",
             (account,),
         )
         assert repo.subscriptions(100) == ()
         with pytest.raises(ValidationDomainError):
-            repo.subscribe(user, strategy, now)
+            repo.subscribe(user, now)
         conn.rollback()
 
 
@@ -89,16 +87,29 @@ def test_reservation_budget_freezes_payload_and_prevents_repeat(
         other, _, other_strategy = _subscriber(conn, "delivery-other")
         now = datetime(2040, 1, 2, tzinfo=UTC)
         week = date(2040, 1, 2)
-        for owner, selected in ((user, strategy), (other, other_strategy)):
-            repo.subscribe(owner, selected, now)
+        for owner, _selected in ((user, strategy), (other, other_strategy)):
+            repo.subscribe(owner, now)
         delivery = repo.reserve(user, week, now, 1)
         assert delivery is not None
         assert repo.reserve(user, week, now, 100) is None
         assert repo.reserve(other, week, now, 1) is None
         batch, company = uuid4(), uuid4()
         conn.execute(
-            "INSERT INTO operational.recommendation_batches(id,user_id,strategy_id,created_at,snapshot) VALUES (%s,%s,%s,%s,'{}')",
-            (batch, user, strategy, now),
+            "INSERT INTO operational.recommendation_batches(id,user_id,strategy_id,created_at,snapshot) VALUES (%s,%s,%s,%s,%s)",
+            (
+                batch,
+                user,
+                strategy,
+                now,
+                psycopg.types.json.Jsonb(
+                    {
+                        "batch": {
+                            "kind": "weekly",
+                            "items": [{"strategies": [{"id": str(strategy)}]}],
+                        }
+                    }
+                ),
+            ),
         )
         assert repo.previous_companies(user) == frozenset()
         recipient = next(
@@ -137,7 +148,7 @@ def test_concurrent_reservations_share_global_budget_and_weekly_identity(
         now = datetime(2041, 2, 4, tzinfo=UTC)
         for index in range(3):
             user, _, strategy = _subscriber(conn, f"concurrent-{index}")
-            repo.subscribe(user, strategy, now)
+            repo.subscribe(user, now)
             users.append(user)
         conn.commit()
 
@@ -169,7 +180,7 @@ def test_empty_and_failed_deliveries_do_not_suppress_companies_next_month(
         repo = _setup(conn)
         user, _, strategy = _subscriber(conn, "month-history")
         now = datetime(2042, 3, 3, tzinfo=UTC)
-        repo.subscribe(user, strategy, now)
+        repo.subscribe(user, now)
         first = repo.reserve(user, now.date(), now, 100)
         repo.settle(first, "empty", now)
         assert repo.previous_companies(user) == frozenset()
@@ -181,8 +192,21 @@ def test_empty_and_failed_deliveries_do_not_suppress_companies_next_month(
         assert repo.previous_companies(user) == frozenset()
         batch, company = uuid4(), uuid4()
         conn.execute(
-            "INSERT INTO operational.recommendation_batches(id,user_id,strategy_id,created_at,snapshot) VALUES (%s,%s,%s,%s,'{}')",
-            (batch, user, strategy, now),
+            "INSERT INTO operational.recommendation_batches(id,user_id,strategy_id,created_at,snapshot) VALUES (%s,%s,%s,%s,%s)",
+            (
+                batch,
+                user,
+                strategy,
+                now,
+                psycopg.types.json.Jsonb(
+                    {
+                        "batch": {
+                            "kind": "weekly",
+                            "items": [{"strategies": [{"id": str(strategy)}]}],
+                        }
+                    }
+                ),
+            ),
         )
         third_day = now + timedelta(days=35)
         third = repo.reserve(user, third_day.date(), third_day, 100)

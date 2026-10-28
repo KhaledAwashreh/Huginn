@@ -14,8 +14,8 @@ class Subscriptions:
         self.disabled = []
         self.enabled = []
 
-    def subscribe(self, user, strategy):
-        self.enabled.append((user, strategy))
+    def subscribe(self, user):
+        self.enabled.append(user)
 
     def unsubscribe(self, user):
         self.disabled.append(user)
@@ -24,16 +24,15 @@ class Subscriptions:
 def test_cli_subscribe_and_dry_run_use_explicit_injected_services(capsys):
     subscriptions = Subscriptions()
     user = uuid4()
-    strategy = uuid4()
     assert (
         main(
-            ["subscribe", "--user-id", str(user), "--strategy-id", str(strategy)],
+            ["subscribe", "--user-id", str(user)],
             config_factory=lambda: None,
             subscriptions_factory=lambda _: subscriptions,
         )
         == 0
     )
-    assert subscriptions.enabled == [(user, strategy)]
+    assert subscriptions.enabled == [user]
     assert '"subscribed"' in capsys.readouterr().out
 
     class Digest:

@@ -1,7 +1,7 @@
 """Compare explicit preferences without interpreting unknowns as exclusions."""
 
-import pycountry
-
+from huginn.management.application.policies.country_identity import normalize_country
+from huginn.management.application.policies.icp_selection import validate_icp_selection
 from huginn.management.application.read_models.recommendation_company import (
     RecommendationCompany,
 )
@@ -21,26 +21,14 @@ def preference_status(actual, items, key):
     return "match" if wanted & known else "mismatch"
 
 
-def _country(value):
-    if not isinstance(value, str) or not value.strip():
-        return None
-    value = {"uk": "GB", "united states of america": "US"}.get(
-        value.strip().casefold(), value.strip()
-    )
-    try:
-        return pycountry.countries.lookup(value).alpha_2
-    except LookupError:
-        return None
-
-
 def country_preference(actual, geographies):
     countries = [
-        _country(geo.get("value"))
+        normalize_country(geo.get("value"))
         for geo in geographies
         if geo.get("kind") == "country"
     ]
     wanted = {country for country in countries if country is not None}
-    known = _country(actual)
+    known = normalize_country(actual)
     if not wanted or known is None:
         return "unknown"
     if known in wanted:
@@ -54,12 +42,49 @@ def validate_exclusions(exclusions):
     for item in exclusions:
         if item.get("kind") == "geography":
             geo = item.get("geography", {})
-            if geo.get("kind") != "country" or _country(geo.get("value")) is None:
+            if (
+                geo.get("kind") != "country"
+                or normalize_country(geo.get("value")) is None
+            ):
                 raise ValidationDomainError(
                     "Choose explicit country exclusions before generating research recommendations"
                 )
         elif item.get("kind") not in {"company", "industry"}:
             raise ValidationDomainError("Unsupported research exclusion")
+
+
+def validate_icp_filters(icp: dict) -> None:
+    validate_icp_selection(
+        icp.get("industries", []), icp.get("geographies", []), icp.get("exclusions", [])
+    )
+    for geo in icp.get("geographies", []):
+        if geo.get("kind") != "country" or normalize_country(geo.get("value")) is None:
+            raise ValidationDomainError(
+                "Choose recognized countries for ICP geography filters"
+            )
+
+
+def icp_fit(company: RecommendationCompany, icp: dict) -> dict[str, str]:
+    """OR within dimensions; every known populated dimension must agree."""
+    statuses = {
+        "industry": preference_status(
+            company.business_sector, icp.get("industries", []), "name"
+        ),
+        "size": preference_status(
+            company.company_scale, icp.get("company_sizes", []), "band"
+        ),
+        "country": country_preference(company.country, icp.get("geographies", [])),
+    }
+    configured = {
+        "industry": "industries",
+        "size": "company_sizes",
+        "country": "geographies",
+    }
+    return {
+        field: status
+        for field, status in statuses.items()
+        if icp.get(configured[field])
+    }
 
 
 def excluded_from_research(company: RecommendationCompany, exclusions):

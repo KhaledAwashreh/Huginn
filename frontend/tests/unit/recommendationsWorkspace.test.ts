@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   strategies: vi.fn(),
   feedback: vi.fn(),
+  weekly: vi.fn(),
+}));
+vi.mock('../../src/features/recommendations/api/listWeeklyMatches', () => ({
+  listWeeklyMatches: mocks.weekly,
 }));
 vi.mock('../../src/features/session/composables/useSession', () => ({
   useSession: () => ({ context: mocks.session }),
@@ -35,6 +39,7 @@ vi.mock(
 function batch(id: string, strategy_id: string): RecommendationBatch {
   return {
     id,
+    kind: 'on_demand',
     strategy_id,
     created_at: '2026-10-28T00:00:00Z',
     algorithm_version: 'v1',
@@ -47,12 +52,13 @@ function batch(id: string, strategy_id: string): RecommendationBatch {
 function setup(
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
   requestedBatch = ref(''),
+  weekly = ref(false),
 ) {
   let workspace!: ReturnType<typeof useRecommendations>;
   mount(
     defineComponent({
       setup() {
-        workspace = useRecommendations(requestedBatch);
+        workspace = useRecommendations(requestedBatch, weekly);
         return () => null;
       },
     }),
@@ -72,6 +78,18 @@ beforeEach(() => {
     has_more: false,
   });
   mocks.feedback.mockResolvedValue([]);
+});
+
+it('weekly history opens its saved selection without generating or fetching on-demand latest', async () => {
+  mocks.weekly.mockResolvedValue([batch('weekly-batch', 'strategy-1')]);
+  mocks.saved.mockResolvedValue(batch('weekly-batch', 'strategy-1'));
+  const workspace = setup(undefined, ref(''), ref(true));
+  await flushPromises();
+  await workspace.generate();
+  expect(workspace.batch.data.value?.id).toBe('weekly-batch');
+  expect(mocks.generate).not.toHaveBeenCalled();
+  expect(mocks.latest).not.toHaveBeenCalled();
+  expect(mocks.strategies).not.toHaveBeenCalled();
 });
 it('treats a missing latest batch as empty and resumes another selected strategy', async () => {
   mocks.latest

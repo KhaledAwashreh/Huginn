@@ -6,6 +6,10 @@ import { ApiError } from '../../../src/api/apiError';
 import ServiceOfferingForm from '../../../src/features/configuration/offerings/components/ServiceOfferingForm.vue';
 import IdealClientProfileForm from '../../../src/features/configuration/ideal-client-profiles/components/IdealClientProfileForm.vue';
 import type { components } from '../../../src/api/generated/schema';
+import IndustryRows from '../../../src/features/configuration/ideal-client-profiles/components/IndustryRows.vue';
+import GeographyRows from '../../../src/features/configuration/ideal-client-profiles/components/GeographyRows.vue';
+import ExclusionRows from '../../../src/features/configuration/ideal-client-profiles/components/ExclusionRows.vue';
+import MultiSelect from 'primevue/multiselect';
 
 vi.mock('vue-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-router')>()),
@@ -34,6 +38,74 @@ const serviceProps = {
 };
 
 describe('configuration drafts', () => {
+  it('shows existing ICP conflicts, prevents saving and keeps conflicting chips removable', async () => {
+    const save = vi.fn();
+    const wrapper = mount(IdealClientProfileForm, {
+      props: {
+        initial: {
+          name: 'Existing ICP',
+          industries: [{ name: 'Analytics' }],
+          company_sizes: [],
+          geographies: [{ kind: 'country', value: 'USA' }],
+          exclusions: [
+            { kind: 'industry', name: 'Analytics' },
+            { kind: 'geography', geography: { kind: 'country', value: 'United States' } },
+          ],
+        },
+        existing: true,
+        save,
+        refreshSaved: vi.fn(),
+        afterSave: vi.fn(),
+      },
+      global: { plugins: [PrimeVue, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
+    });
+    await wrapper.get('#icp-name').setValue('Changed ICP');
+    expect(wrapper.text()).toContain('Analytics is both selected and excluded');
+    expect(wrapper.text()).toContain('United States is both selected and excluded');
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+    await wrapper.get('form').trigger('submit');
+    expect(save).not.toHaveBeenCalled();
+    wrapper.findComponent(IndustryRows).vm.$emit('update:modelValue', []);
+    wrapper.findComponent(GeographyRows).vm.$emit('update:modelValue', []);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('both selected and excluded');
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('disables selected values in exclusions and excluded values in selection lists', () => {
+    const analytics = { value: 'Analytics', company_count: 5 };
+    const retail = { value: 'Retail', company_count: 3 };
+    const options = [analytics, retail];
+    const industry = mount(IndustryRows, {
+      props: { modelValue: [], blockedValues: [' analytics '], options, state: 'ready' },
+      global: { plugins: [PrimeVue] },
+    });
+    const disabled = industry.findComponent(MultiSelect).props('optionDisabled') as (value: {
+      value: string;
+      company_count: number;
+    }) => boolean;
+    expect(disabled(analytics)).toBe(true);
+    expect(disabled(retail)).toBe(false);
+    const exclusions = mount(ExclusionRows, {
+      props: {
+        modelValue: [],
+        blockedIndustries: ['Analytics'],
+        blockedCountries: ['USA'],
+        industries: options,
+        countries: [{ value: 'United States', company_count: 2 }],
+        state: 'ready',
+      },
+      global: { plugins: [PrimeVue, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
+    });
+    const selectors = exclusions.findAllComponents(MultiSelect);
+    expect((selectors.at(0)?.props('optionDisabled') as typeof disabled)(analytics)).toBe(true);
+    expect(
+      (selectors.at(1)?.props('optionDisabled') as typeof disabled)({
+        value: 'United States',
+        company_count: 2,
+      }),
+    ).toBe(true);
+  });
   it('keeps its one-time initialization across prop refreshes and cancel restores its baseline', async () => {
     const wrapper = mount(ServiceOfferingForm, {
       props: serviceProps,

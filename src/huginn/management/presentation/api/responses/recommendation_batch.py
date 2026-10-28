@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -18,3 +19,4 @@ class RecommendationBatchResponse(BaseModel):
     candidate_count: int
     retrieval_limit: int
     items: list[RecommendationItemResponse]
+    kind: Literal["on_demand", "weekly"] = "on_demand"

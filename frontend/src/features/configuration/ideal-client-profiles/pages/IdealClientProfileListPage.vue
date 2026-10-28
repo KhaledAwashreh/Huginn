@@ -187,6 +187,17 @@ td {
 thead {
   background: var(--color-surface-muted);
 }
+tr > :first-child {
+  min-width: 12rem;
+  width: 12rem;
+}
+tr > :last-child {
+  min-width: 11rem;
+  width: 11rem;
+}
+thead th {
+  white-space: nowrap;
+}
 .criteria {
   display: grid;
   min-width: 20rem;

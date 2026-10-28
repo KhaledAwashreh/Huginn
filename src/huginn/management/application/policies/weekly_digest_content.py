@@ -7,7 +7,7 @@ def weekly_digest_body(
     batch: dict, week: date, batch_url: str, unsubscribe_url: str
 ) -> str:
     lines = [
-        f"Your Huginn research picks — week of {week.isoformat()}",
+        f"Your Huginn Weekly Matches — week of {week.isoformat()}",
         "",
         "These are research ideas, not confirmed buying intent.",
         "",
@@ -22,7 +22,19 @@ def weekly_digest_body(
             )
         )
         for evidence in item["evidence"][:1]:
-            lines.extend((f"Source: {evidence['quote']}", f"{evidence['source_url']}"))
+            lines.extend(
+                (
+                    f"Source: {evidence['quote']}",
+                    f"Source date: {evidence.get('occurred_at') or 'Unknown'}",
+                    f"{evidence['source_url']}",
+                )
+            )
+        for strategy in item.get("strategies", []):
+            lines.append(f"Strategy: {strategy['name']} — {strategy['offering']}")
+        for field, status in item.get("icp_fit", {}).items():
+            lines.append(
+                f"ICP {field}: {'unverified' if status == 'unknown' else status}"
+            )
         lines.append("")
     lines.extend(
         (
@@ -32,4 +44,4 @@ def weekly_digest_body(
             "",
         )
     )
-    return "\n".join(lines)
+    return "\n".join(lines).replace("\r\n", "\n").replace("\r", "\n")

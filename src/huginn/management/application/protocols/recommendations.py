@@ -11,6 +11,10 @@ from huginn.management.application.read_models.recommendation_profile import (
 
 
 class RecommendationRepository(Protocol):
+    def active_strategy_ids(self, user_id: UUID) -> tuple[UUID, ...]: ...
+    def weekly_batches(
+        self, user_id: UUID, limit: int, offset: int
+    ) -> tuple[str, ...]: ...
     def profile(
         self, user_id: UUID, strategy_id: UUID
     ) -> RecommendationProfile | None: ...
@@ -22,6 +26,7 @@ class RecommendationRepository(Protocol):
         limit: int = 200,
         *,
         exclude_company_ids: frozenset[UUID] = frozenset(),
+        offset: int = 0,
     ) -> tuple[RecommendationCompany, ...]: ...
     def save_batch(
         self,

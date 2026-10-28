@@ -22,9 +22,7 @@ class Work:
 
 class Store:
     def __init__(self):
-        self.subscription = DigestSubscription(
-            uuid4(), uuid4(), "verified@example.test"
-        )
+        self.subscription = DigestSubscription(uuid4(), "verified@example.test")
         self.company = uuid4()
         self.claimed = False
         self.prepared = []
@@ -57,8 +55,8 @@ class Recommendations:
         self.calls = []
         self.empty = False
 
-    def generate(self, user, strategy, limit, *, exclude_company_ids=frozenset()):
-        self.calls.append((user, strategy, limit, exclude_company_ids))
+    def generate_weekly(self, user, *, exclude_company_ids=frozenset()):
+        self.calls.append((user, exclude_company_ids))
         return {
             "id": str(uuid4()),
             "items": []
@@ -120,7 +118,7 @@ def test_weekly_job_saves_payload_and_uses_existing_ranker_and_link():
     assert recommendations.calls[0][-1] == frozenset((store.company,))
     assert len(store.prepared) == 1
     message = sender.messages[0]
-    assert "https://huginn.example/recommendations?batch=" in message.body
+    assert "https://huginn.example/weekly-matches?batch=" in message.body
     assert "/weekly-digest/unsubscribe#user_id=" in message.body
     assert "Example company" in message.body
     assert "confirmed" in message.body

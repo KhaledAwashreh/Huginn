@@ -7,7 +7,11 @@ import { getLatestRecommendations } from '../api/getLatestRecommendations';
 import { generateRecommendations } from '../api/generateRecommendations';
 import { listRecommendationFeedback } from '../api/listRecommendationFeedback';
 import { ApiError } from '../../../api/apiError';
-export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('')) {
+import { listWeeklyMatches } from '../api/listWeeklyMatches';
+export function useRecommendations(
+  requestedBatch: Readonly<Ref<string>> = ref(''),
+  weekly: Readonly<Ref<boolean>> = ref(false),
+) {
   const session = useSession();
   const client = useQueryClient();
   const identity = computed(() =>
@@ -19,6 +23,7 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
   );
   const strategyId = ref('');
   const pinnedBatch = ref(requestedBatch.value);
+  const historyOffset = ref(0);
   let selectingSavedStrategy = false;
   function setSavedStrategy(value: string) {
     selectingSavedStrategy = true;
@@ -30,9 +35,11 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
   let version = 0;
   watch(identity, () => {
     setSavedStrategy('');
+    pinnedBatch.value = requestedBatch.value;
     version++;
     generating.value = false;
     generationError.value = '';
+    historyOffset.value = 0;
   });
   watch(
     strategyId,
@@ -50,9 +57,24 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
     setSavedStrategy('');
     version++;
   });
+  watch(weekly, () => {
+    pinnedBatch.value = requestedBatch.value;
+    setSavedStrategy('');
+    historyOffset.value = 0;
+    version++;
+  });
+  const weeklyHistory = useQuery({
+    queryKey: computed(() => ['recommendations', identity.value, 'weekly', historyOffset.value]),
+    enabled: computed(() => Boolean(session.context.value && weekly.value)),
+    queryFn: ({ signal }) => listWeeklyMatches(historyOffset.value, signal),
+  });
+  watch([weeklyHistory.data, requestedBatch], ([value]) => {
+    const first = value?.[0];
+    if (weekly.value && !pinnedBatch.value && first) pinnedBatch.value = first.id;
+  });
   const strategies = useQuery({
     queryKey: computed(() => ['recommendations', identity.value, 'strategies']),
-    enabled: computed(() => Boolean(session.context.value)),
+    enabled: computed(() => Boolean(session.context.value && !weekly.value)),
     queryFn: async ({ signal }) => {
       const items = [];
       let offset = 0;
@@ -77,7 +99,7 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     enabled: computed(() =>
-      Boolean(session.context.value && (pinnedBatch.value || strategyId.value)),
+      Boolean(session.context.value && (pinnedBatch.value || (!weekly.value && strategyId.value))),
     ),
     queryFn: async ({ signal }) => {
       if (pinnedBatch.value) return getRecommendationBatch(pinnedBatch.value, signal);
@@ -112,7 +134,7 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
     },
   });
   async function generate() {
-    if (!strategyId.value || generating.value) return;
+    if (weekly.value || !strategyId.value || generating.value) return;
     pinnedBatch.value = '';
     const started = version;
     const key = [...batchKey.value];
@@ -130,7 +152,7 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
           error instanceof ApiError && error.status === 403
             ? 'Reload the page before trying again.'
             : error instanceof ApiError && error.status === 422
-              ? 'Review your strategy and offering topics before generating recommendations. Use explicit countries for geographic exclusions; region exclusions are not supported.'
+              ? 'Review your strategy, offering topics and ICP selections. Selected industries or countries cannot also be excluded. Use explicit countries for geography; region filters and exclusions are not supported.'
               : 'Recommendations could not be generated. Try again.';
     } finally {
       if (started === version) generating.value = false;
@@ -138,6 +160,8 @@ export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('
   }
   return {
     identity,
+    weeklyHistory,
+    historyOffset,
     pinnedBatch,
     strategyId,
     strategies,

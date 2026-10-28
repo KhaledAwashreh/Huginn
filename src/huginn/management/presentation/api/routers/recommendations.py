@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 
 from huginn.management.domain.value_objects.recommendation_feedback import (
     RecommendationFeedback,
@@ -66,6 +66,25 @@ def latest_recommendations(
 ):
     result = dependencies.recommendation_service.latest(
         authenticated.principal.user_id, strategy_id
+    )
+    _private(response)
+    return result
+
+
+@router.get(
+    "/weekly",
+    response_model=list[RecommendationBatchResponse],
+    responses=error_responses(401),
+)
+def weekly_matches(
+    authenticated: Authenticated,
+    response: Response,
+    dependencies: Management,
+    limit: int = Query(default=12, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+):
+    result = dependencies.recommendation_service.weekly(
+        authenticated.principal.user_id, limit, offset
     )
     _private(response)
     return result

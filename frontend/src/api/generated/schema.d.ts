@@ -595,6 +595,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recommendations/weekly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Weekly Matches */
+        get: operations["weekly_matches_api_v1_recommendations_weekly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/recommendations/{batch_id}": {
         parameters: {
             query?: never;
@@ -1564,6 +1581,12 @@ export interface components {
             id: string;
             /** Items */
             items: components["schemas"]["RecommendationItemResponse"][];
+            /**
+             * Kind
+             * @default on_demand
+             * @enum {string}
+             */
+            kind: "on_demand" | "weekly";
             /** Retrieval Limit */
             retrieval_limit: number;
             /**
@@ -1706,6 +1729,10 @@ export interface components {
             confidence: "high" | "medium" | "low";
             /** Evidence */
             evidence: components["schemas"]["RecommendationEvidenceResponse"][];
+            /** Icp Fit */
+            icp_fit?: {
+                [key: string]: "match" | "unknown" | "mismatch";
+            };
             /** Id */
             id: string;
             /** Rationale */
@@ -1717,8 +1744,22 @@ export interface components {
              * @enum {string}
              */
             selection_type: "exploration" | "exploitation";
+            /** Strategies */
+            strategies?: components["schemas"]["RecommendationStrategyResponse"][];
             /** Unknowns */
             unknowns: string[];
+        };
+        /** RecommendationStrategyResponse */
+        RecommendationStrategyResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Offering */
+            offering: string;
         };
         /** RegionGeography */
         RegionGeography: {
@@ -6887,6 +6928,59 @@ export interface operations {
             };
             /** @description Request failed */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    weekly_matches_api_v1_recommendations_weekly_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationBatchResponse"][];
+                };
+            };
+            /** @description Request failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

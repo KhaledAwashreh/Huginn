@@ -20,7 +20,7 @@ const isAdminRoute = computed(() => route.path === '/admin' || route.path.starts
 
 const workspaceItems = [
   { label: 'Workspace', to: '/' },
-  { label: 'Matches', to: '/matches' },
+  { label: 'Weekly Matches', to: '/weekly-matches' },
   { label: 'Recommendations', to: '/recommendations' },
 ];
 const businessItems = [
@@ -33,7 +33,6 @@ const accountItems = [{ label: 'Account & security', to: '/account' }];
 const administrationItems = [
   { label: 'Administration overview', to: '/admin' },
   { label: 'Data collection', to: '/admin/pipeline' },
-  { label: 'Matchmaking', to: '/admin/matchmaking' },
 ];
 const workspaceSections = computed(() => {
   const sections: { label: string; items: NavigationItem[] }[] = [

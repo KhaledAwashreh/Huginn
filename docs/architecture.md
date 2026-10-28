@@ -319,7 +319,7 @@ to current guarded source evidence, the built-in ranker and immutable
 `operational.recommendation_feedback` against an owned batch and recommendation
 identity. See [`research-recommendations.md`](research-recommendations.md) for
 the runtime, migration and conservative topic-overlap assessment contract.
-Opt-in weekly SMTP delivery now saves a frozen email and batch reference, reserves one automatic attempt per User/week, excludes previously sent companies, and supports signed unsubscribe. See [`weekly-digest.md`](weekly-digest.md) for the cron command, existing SMTP settings and deliberate no-automatic-retry semantics. New Matches retain selected
+Weekly Matches share the recommendation evaluator: OR within ICP fields, AND across populated fields, known mismatches excluded, missing values explicitly unverified. A scheduled selection scores candidates across all valid active strategies, deduplicates companies and selects up to seven total. On-demand Recommendations remain scoped to one strategy. Opt-in weekly SMTP delivery saves that frozen selection and email reference, reserves one automatic attempt per User/week, excludes previously sent companies, and supports signed unsubscribe. See [`weekly-digest.md`](weekly-digest.md) for the cron command, existing SMTP settings and deliberate no-automatic-retry semantics. New Matches retain selected
 immutable source observations and matching windows; later matching runs
 preserve workflow status, notes and original evidence. Matches have no score
 snapshot or sent-state freeze. The standalone operator writes local research JSON; the connected workspace

@@ -125,6 +125,7 @@ def test_management_routes_are_registered():
     assert routes == {
         ("/api/v1/recommendations", "POST"),
         ("/api/v1/recommendations/latest", "GET"),
+        ("/api/v1/recommendations/weekly", "GET"),
         ("/api/v1/recommendations/{batch_id}", "GET"),
         ("/api/v1/recommendations/{batch_id}/feedback", "GET"),
         ("/api/v1/recommendations/{batch_id}/feedback", "POST"),

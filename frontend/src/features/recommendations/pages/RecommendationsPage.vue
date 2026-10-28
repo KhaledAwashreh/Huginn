@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
+import {
+  onBeforeRouteLeave,
+  onBeforeRouteUpdate,
+  useRoute,
+  useRouter,
+  RouterLink,
+} from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
@@ -16,7 +22,38 @@ const router = useRouter();
 const requestedBatch = computed(() =>
   typeof route.query.batch === 'string' ? route.query.batch : '',
 );
-const workspace = useRecommendations(requestedBatch);
+const weekly = computed(() => route.path === '/weekly-matches');
+const workspace = useRecommendations(requestedBatch, weekly);
+watch(
+  () => route.query.strategy,
+  (value) => {
+    if (!weekly.value && !requestedBatch.value && typeof value === 'string')
+      workspace.strategyId.value = value;
+  },
+  { immediate: true },
+);
+const displayedBatch = computed(() => {
+  const batch = workspace.batch.data.value;
+  if (!batch || !weekly.value || typeof route.query.strategy !== 'string') return batch;
+  return {
+    ...batch,
+    items: batch.items.filter((item) =>
+      item.strategies?.some((strategy) => strategy.id === route.query.strategy),
+    ),
+  };
+});
+function selectWeek(value: string) {
+  if (!canLeave()) return;
+  dirty.value = {};
+  void router.replace({ query: { ...route.query, batch: value } });
+}
+function changeHistoryPage(direction: number) {
+  if (!canLeave()) return;
+  dirty.value = {};
+  workspace.pinnedBatch.value = '';
+  workspace.historyOffset.value = Math.max(0, workspace.historyOffset.value + direction * 12);
+  clearBatchLink();
+}
 const client = useQueryClient();
 const dirty = ref<Record<string, boolean>>({});
 watch(workspace.identity, () => {
@@ -28,7 +65,7 @@ function canLeave() {
 }
 onBeforeRouteLeave(canLeave);
 onBeforeRouteUpdate((to, from) => {
-  if (to.query.batch === from.query.batch) return true;
+  if (to.query.batch === from.query.batch && to.query.strategy === from.query.strategy) return true;
   if (!canLeave()) return false;
   dirty.value = {};
   return true;
@@ -64,28 +101,76 @@ async function saved(entry: RecommendationFeedback) {
 <template>
   <div class="recommendations-page">
     <PageHeader
-      title="Research recommendations"
-      description="Review companies for your discovery strategy, assess the evidence, and record what happens next."
+      :title="weekly ? 'Weekly Matches' : 'Recommendations'"
+      :description="
+        weekly
+          ? 'Up to seven companies selected automatically each week across your active strategies. These are the selections prepared for your weekly email.'
+          : 'Explore outreach recommendations on demand for a selected active discovery strategy.'
+      "
     />
     <p class="guidance">
       Scores indicate research relevance. Source overlap does not prove buying intent. Confirm the
       company’s needs and buying role before outreach.
     </p>
+    <RouterLink v-if="weekly" to="/matches">Earlier match history, notes and statuses</RouterLink>
     <LoadingState
-      v-if="workspace.strategies.isPending.value && !workspace.strategies.data.value"
+      v-if="!weekly && workspace.strategies.isPending.value && !workspace.strategies.data.value"
       message="Loading discovery strategies…"
     />
     <ErrorState
-      v-else-if="workspace.strategies.isError.value && !workspace.strategies.data.value"
+      v-else-if="!weekly && workspace.strategies.isError.value && !workspace.strategies.data.value"
       message="Discovery strategies could not be loaded."
       ><Button label="Retry strategies" @click="workspace.strategies.refetch()"
     /></ErrorState>
-    <template v-else-if="workspace.strategies.data.value?.length || workspace.pinnedBatch.value">
+    <LoadingState
+      v-else-if="weekly && workspace.weeklyHistory.isPending.value"
+      message="Loading weekly history…"
+    />
+    <ErrorState
+      v-else-if="weekly && workspace.weeklyHistory.isError.value"
+      message="Weekly history could not be loaded."
+      ><Button label="Retry weekly history" @click="workspace.weeklyHistory.refetch()"
+    /></ErrorState>
+    <template
+      v-else-if="weekly || workspace.strategies.data.value?.length || workspace.pinnedBatch.value"
+    >
       <ErrorState
-        v-if="workspace.strategies.isError.value"
+        v-if="!weekly && workspace.strategies.isError.value"
         message="Discovery strategies could not be refreshed. Previously received strategies remain available."
       />
-      <div class="toolbar">
+      <div v-if="weekly" class="toolbar">
+        <div class="field">
+          <label for="weekly-selection">Weekly selection</label>
+          <Select
+            input-id="weekly-selection"
+            aria-label="Weekly selection"
+            :model-value="workspace.pinnedBatch.value"
+            :options="
+              (workspace.weeklyHistory.data.value ?? []).map((batch) => ({
+                id: batch.id,
+                label: new Date(batch.created_at).toLocaleDateString(),
+              }))
+            "
+            option-label="label"
+            option-value="id"
+            placeholder="No weekly selections yet"
+            @update:model-value="selectWeek"
+          />
+        </div>
+        <Button
+          label="Newer weeks"
+          severity="secondary"
+          :disabled="workspace.historyOffset.value === 0"
+          @click="changeHistoryPage(-1)"
+        />
+        <Button
+          label="Older weeks"
+          severity="secondary"
+          :disabled="(workspace.weeklyHistory.data.value?.length ?? 0) < 12"
+          @click="changeHistoryPage(1)"
+        />
+      </div>
+      <div v-else class="toolbar">
         <div class="field">
           <label for="recommendation-strategy">Discovery strategy</label
           ><Select
@@ -111,13 +196,25 @@ async function saved(entry: RecommendationFeedback) {
           @click="generate"
         />
       </div>
+      <RouterLink
+        v-if="!weekly && workspace.strategyId.value"
+        :to="{ path: '/weekly-matches', query: { strategy: workspace.strategyId.value } }"
+        >View Weekly Matches for this strategy</RouterLink
+      >
+      <RouterLink v-if="weekly && route.query.strategy" to="/weekly-matches"
+        >Show matches across all strategies</RouterLink
+      >
       <ErrorState
         v-if="workspace.generationError.value"
         :message="workspace.generationError.value"
       />
       <EmptyState
-        v-if="!workspace.strategyId.value && !workspace.pinnedBatch.value"
-        message="Choose a strategy to resume its latest recommendations or generate a new list."
+        v-if="!workspace.pinnedBatch.value && (weekly || !workspace.strategyId.value)"
+        :message="
+          weekly
+            ? 'Weekly Matches appear automatically after your first scheduled email. You can explore Recommendations while you wait.'
+            : 'Choose a strategy to resume its latest recommendations or generate a new list.'
+        "
       />
       <LoadingState
         v-else-if="workspace.batch.isFetching.value && !workspace.batch.data.value"
@@ -153,14 +250,18 @@ async function saved(entry: RecommendationFeedback) {
           ><Button label="Retry feedback history" @click="workspace.feedback.refetch()"
         /></ErrorState>
         <EmptyState
-          v-if="!workspace.batch.data.value.items.length"
-          message="This assessment returned no recommendations. Review your strategy or try again when new source evidence is available."
+          v-if="!displayedBatch?.items.length"
+          :message="
+            weekly
+              ? 'No companies were selected for this strategy in this weekly batch.'
+              : 'This assessment returned no recommendations. Review your strategy or try again when new source evidence is available.'
+          "
         />
         <RecommendationList
           v-else
           :key="`${workspace.identity.value}:${workspace.batch.data.value.id}`"
           :inert="workspace.generating.value || workspace.batch.isFetching.value"
-          :batch="workspace.batch.data.value"
+          :batch="displayedBatch!"
           :feedback="workspace.feedback.data.value ?? []"
           :feedback-available="workspace.feedback.isSuccess.value"
           @saved="saved"

@@ -9,6 +9,7 @@ import EmptyState from '../../../../shared/ui/EmptyState.vue';
 import type { components } from '../../../../api/generated/schema';
 import { mergeCollectedValues } from '../forms/collectedOptionSelection';
 import type { ConfigurationOption } from '../api/getConfigurationOptions';
+import { industryIdentity } from '../forms/icpSelectionConflicts';
 
 const props = withDefaults(
   defineProps<{
@@ -16,8 +17,15 @@ const props = withDefaults(
     disabled?: boolean;
     options?: ConfigurationOption[];
     state?: 'loading' | 'error' | 'ready';
+    blockedValues?: string[];
   }>(),
-  { errors: () => [], disabled: false, options: () => [], state: 'loading' },
+  {
+    errors: () => [],
+    disabled: false,
+    options: () => [],
+    state: 'loading',
+    blockedValues: () => [],
+  },
 );
 const rows = defineModel<components['schemas']['Industry'][]>({ required: true });
 const values = computed(() => rows.value.map((row) => row.name));
@@ -37,6 +45,14 @@ const options = computed(() => {
 function label(option: ConfigurationOption & { legacy?: boolean }): string {
   const value = option.value || 'Saved blank value';
   return `${value}${option.legacy ? (props.state === 'ready' ? ' · saved value not in collected options' : ' · saved selection') : ` · ${option.company_count} companies collected`}`;
+}
+function blocked(option: ConfigurationOption): boolean {
+  return (
+    !values.value.includes(option.value) &&
+    (props.blockedValues ?? []).some(
+      (value) => industryIdentity(value) === industryIdentity(option.value),
+    )
+  );
 }
 function update(selected: string[]): void {
   rows.value = mergeCollectedValues(
@@ -68,6 +84,7 @@ function update(selected: string[]): void {
       :options="options"
       :option-label="label"
       option-value="value"
+      :option-disabled="blocked"
       display="chip"
       :show-toggle-all="false"
       filter
@@ -92,8 +109,7 @@ function update(selected: string[]): void {
       <FieldFeedback v-for="(message, index) in errors" :key="index" :message="message" />
     </div>
     <p v-if="values.length === 0" class="note">
-      No industries selected. You can still save this ICP; matching will be incomplete until
-      criteria are selected.
+      No industries selected. Recommendations will not filter by industry.
     </p>
     <p class="note">
       Company counts describe collected coverage. They do not predict combined ICP matches.

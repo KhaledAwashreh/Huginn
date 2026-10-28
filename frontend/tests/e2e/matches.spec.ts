@@ -15,7 +15,7 @@ test('owned matches, status and >100 pagination, current signals, safe links and
   baseURL,
 }) => {
   await login(page, 'browser-matches');
-  await page.getByRole('link', { name: 'Matches', exact: true }).click();
+  await page.goto('/matches');
   await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   await expect(page.getByTestId('match-row')).toHaveCount(50);
   await expect(page.getByTestId('match-row').first()).toContainText('Current match company 000');

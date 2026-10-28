@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router';
 import type { RecommendationBatch } from '../models/recommendation';
 import type { RecommendationFeedback } from '../models/recommendationFeedback';
 import RecommendationFeedbackForm from './RecommendationFeedbackForm.vue';
@@ -38,6 +39,15 @@ const labels = {
         </div>
       </div>
       <p>{{ item.rationale }}</p>
+      <p v-for="strategy in item.strategies ?? []" :key="strategy.id">
+        <RouterLink :to="{ path: '/recommendations', query: { strategy: strategy.id } }">{{
+          strategy.name
+        }}</RouterLink>
+        · {{ strategy.offering }}
+      </p>
+      <p v-if="Object.values(item.icp_fit ?? {}).includes('unknown')">
+        Some ICP information is unverified. Review the assessment details before outreach.
+      </p>
       <details>
         <summary>Assessment, evidence and feedback for {{ item.company.name }}</summary>
         <div class="details-content">

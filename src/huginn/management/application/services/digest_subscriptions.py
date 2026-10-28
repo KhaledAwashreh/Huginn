@@ -20,9 +20,9 @@ class DigestSubscriptionService:
         self._uow = uow_factory
         self._repository = repository_factory
 
-    def subscribe(self, user_id: UUID, strategy_id: UUID):
+    def subscribe(self, user_id: UUID):
         with self._uow() as work:
-            self._repository(work).subscribe(user_id, strategy_id, datetime.now(UTC))
+            self._repository(work).subscribe(user_id, datetime.now(UTC))
             work.commit()
 
     def unsubscribe(self, user_id: UUID):

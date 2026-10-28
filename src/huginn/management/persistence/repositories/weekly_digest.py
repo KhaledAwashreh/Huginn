@@ -19,9 +19,12 @@ _ELIGIBLE = """FROM operational.weekly_digest_subscriptions d
     JOIN operational.users u ON u.id=d.user_id
     JOIN operational.accounts a ON a.id=u.account_id
     JOIN operational.account_recovery_identity r ON r.account_id=a.id
-    JOIN operational.client_discovery_strategies s ON s.id=d.strategy_id AND s.user_id=u.id
     WHERE d.enabled AND a.status='active' AND r.verified_email IS NOT NULL
-      AND r.verified_at IS NOT NULL AND s.is_active"""
+      AND r.verified_at IS NOT NULL AND EXISTS (
+        SELECT 1 FROM operational.client_discovery_strategies s
+        JOIN operational.service_offerings o ON o.id=s.service_offering_id AND o.user_id=s.user_id
+        JOIN operational.ideal_client_profiles i ON i.id=s.ideal_client_profile_id AND i.user_id=s.user_id
+        WHERE s.user_id=u.id AND s.is_active)"""
 
 
 def _aware(now: datetime) -> None:
@@ -33,19 +36,20 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
     def __init__(self, connection: DatabaseSession) -> None:
         self.connection = connection
 
-    def subscribe(self, user_id: UUID, strategy_id: UUID, now: datetime) -> None:
+    def subscribe(self, user_id: UUID, now: datetime) -> None:
         _aware(now)
         row = self.connection.execute(
-            """INSERT INTO operational.weekly_digest_subscriptions(user_id,strategy_id,enabled,updated_at)
-            SELECT u.id,s.id,true,%s FROM operational.users u
+            """INSERT INTO operational.weekly_digest_subscriptions(user_id,enabled,updated_at)
+            SELECT u.id,true,%s FROM operational.users u
             JOIN operational.accounts a ON a.id=u.account_id
             JOIN operational.account_recovery_identity r ON r.account_id=a.id
-            JOIN operational.client_discovery_strategies s ON s.user_id=u.id
-            WHERE u.id=%s AND s.id=%s AND s.is_active AND a.status='active'
-              AND r.verified_email IS NOT NULL AND r.verified_at IS NOT NULL
-            ON CONFLICT (user_id) DO UPDATE SET strategy_id=EXCLUDED.strategy_id,
-                enabled=true,updated_at=EXCLUDED.updated_at RETURNING user_id""",
-            (now, user_id, strategy_id),
+            WHERE u.id=%s AND a.status='active' AND r.verified_email IS NOT NULL AND r.verified_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM operational.client_discovery_strategies s
+                JOIN operational.service_offerings o ON o.id=s.service_offering_id AND o.user_id=s.user_id
+                JOIN operational.ideal_client_profiles i ON i.id=s.ideal_client_profile_id AND i.user_id=s.user_id
+                WHERE s.user_id=u.id AND s.is_active)
+            ON CONFLICT (user_id) DO UPDATE SET enabled=true,updated_at=EXCLUDED.updated_at RETURNING user_id""",
+            (now, user_id),
         ).fetchone()
         if row is None:
             raise ValidationDomainError(
@@ -64,7 +68,7 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
                 "Digest subscription limit must be between 1 and 10000"
             )
         rows = self.connection.execute(
-            "SELECT d.user_id,d.strategy_id,r.verified_email "
+            "SELECT d.user_id,r.verified_email "
             + _ELIGIBLE
             + " ORDER BY (SELECT max(created_at) FROM operational.weekly_digest_deliveries h WHERE h.user_id=d.user_id) NULLS FIRST,d.user_id LIMIT %s",
             (limit,),
@@ -74,12 +78,9 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
     def eligible(self, subscription: DigestSubscription) -> bool:
         return (
             self.connection.execute(
-                "SELECT 1 "
-                + _ELIGIBLE
-                + " AND d.user_id=%s AND d.strategy_id=%s AND r.verified_email=%s",
+                "SELECT 1 " + _ELIGIBLE + " AND d.user_id=%s AND r.verified_email=%s",
                 (
                     subscription.user_id,
-                    subscription.strategy_id,
                     subscription.recipient,
                 ),
             ).fetchone()
@@ -141,7 +142,12 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
             WHERE d.id=%s AND d.state='preparing' AND EXISTS (
                 SELECT 1 FROM operational.recommendation_batches b
                 JOIN operational.weekly_digest_subscriptions s ON s.user_id=d.user_id
-                WHERE b.id=%s AND b.user_id=d.user_id AND b.strategy_id=s.strategy_id
+                WHERE b.id=%s AND b.user_id=d.user_id AND s.enabled AND b.snapshot->'batch'->>'kind'='weekly'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(b.snapshot->'batch'->'items') item
+                    WHERE NOT EXISTS (SELECT 1 FROM operational.client_discovery_strategies strategy
+                      WHERE strategy.user_id=d.user_id AND strategy.is_active
+                        AND strategy.id=(item->'strategies'->0->>'id')::uuid))
             ) RETURNING d.id""",
             (
                 batch_id,

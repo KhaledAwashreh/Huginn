@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from uuid import UUID
 
+from huginn.management.application.policies.icp_selection import validate_icp_selection
 from huginn.management.domain.entities.ideal_client_profile import IdealClientProfile
 from huginn.management.domain.errors.errors import NotFoundError
 from huginn.management.domain.value_objects.common import (
@@ -33,6 +34,9 @@ class IdealClientProfileService:
     def create(
         self, principal: Principal, profile: NewIdealClientProfile
     ) -> IdealClientProfile:
+        validate_icp_selection(
+            profile.industries, profile.geographies, profile.exclusions
+        )
         with self._uow_factory() as uow:
             value = self._profiles_factory(uow).create(
                 NewIdealClientProfile(
@@ -77,6 +81,11 @@ class IdealClientProfileService:
             if value is None:
                 raise NotFoundError("ICP not found")
             if changes.supplied_fields:
+                # Validate the merged row while UPDATE holds its lock. A failed
+                # validation rolls back, including competing partial patches.
+                validate_icp_selection(
+                    value.industries, value.geographies, value.exclusions
+                )
                 uow.commit()
             return value
 

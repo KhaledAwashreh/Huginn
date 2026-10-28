@@ -2445,6 +2445,15 @@
             "title": "Items",
             "type": "array"
           },
+          "kind": {
+            "default": "on_demand",
+            "enum": [
+              "on_demand",
+              "weekly"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "retrieval_limit": {
             "title": "Retrieval Limit",
             "type": "integer"
@@ -2784,6 +2793,18 @@
             "title": "Evidence",
             "type": "array"
           },
+          "icp_fit": {
+            "additionalProperties": {
+              "enum": [
+                "match",
+                "unknown",
+                "mismatch"
+              ],
+              "type": "string"
+            },
+            "title": "Icp Fit",
+            "type": "object"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2803,6 +2824,13 @@
             ],
             "title": "Selection Type",
             "type": "string"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendationStrategyResponse"
+            },
+            "title": "Strategies",
+            "type": "array"
           },
           "unknowns": {
             "items": {
@@ -2824,6 +2852,30 @@
           "evidence"
         ],
         "title": "RecommendationItemResponse",
+        "type": "object"
+      },
+      "RecommendationStrategyResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "offering": {
+            "title": "Offering",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "offering"
+        ],
+        "title": "RecommendationStrategyResponse",
         "type": "object"
       },
       "RegionGeography": {
@@ -15641,6 +15693,131 @@
           }
         ],
         "summary": "Latest Recommendations",
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/v1/recommendations/weekly": {
+      "get": {
+        "operationId": "weekly_matches_api_v1_recommendations_weekly_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecommendationBatchResponse"
+                  },
+                  "title": "Response Weekly Matches Api V1 Recommendations Weekly Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unexpected application error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Weekly Matches",
         "tags": [
           "recommendations"
         ]

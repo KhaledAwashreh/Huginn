@@ -36,6 +36,29 @@ class Service:
     def review(self, *args):
         raise NotFoundError("Recommendation not found")
 
+    def weekly(self, user, limit, offset):
+        self.calls.append((user, limit, offset))
+        return []
+
+
+def test_weekly_history_is_owner_scoped_read_only_and_private():
+    owner = uuid4()
+    service = Service()
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(owner),
+        recommendation_service=service,
+    )
+    with TestClient(app) as client:
+        url = "/api/v1/recommendations/weekly"
+        assert client.get(url).status_code == 401
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        response = client.get(url, params={"limit": 2, "offset": 3})
+        assert response.status_code == 200 and response.json() == []
+        assert response.headers["cache-control"] == "no-store"
+        assert service.calls[-1] == (owner, 2, 3)
+        assert client.post(url, headers={"X-CSRF-Token": "csrf"}).status_code == 405
+
 
 def test_recommendation_mutation_requires_session_csrf_and_owner_identity():
     owner = uuid4()

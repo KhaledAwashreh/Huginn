@@ -2,10 +2,11 @@
 BEGIN;
 CREATE TABLE IF NOT EXISTS operational.weekly_digest_subscriptions (
     user_id UUID PRIMARY KEY REFERENCES operational.users(id),
-    strategy_id UUID NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT true,
     updated_at TIMESTAMPTZ NOT NULL
 );
+-- Existing opt-ins now cover all valid active strategies; preserve consent.
+ALTER TABLE operational.weekly_digest_subscriptions DROP COLUMN IF EXISTS strategy_id;
 CREATE TABLE IF NOT EXISTS operational.weekly_digest_deliveries (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES operational.users(id),

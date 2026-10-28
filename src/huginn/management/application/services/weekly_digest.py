@@ -98,19 +98,17 @@ class WeeklyDigestService:
                 result["skipped"] += 1
                 continue
             try:
-                batch = self._recommendations.generate(
+                batch = self._recommendations.generate_weekly(
                     subscription.user_id,
-                    subscription.strategy_id,
-                    5,
                     exclude_company_ids=previous,
                 )
                 if not batch["items"]:
                     self._settle(delivery_id, "empty")
                     result["empty"] += 1
                     continue
-                subject = f"Huginn: your weekly research picks ({week.isoformat()})"
+                subject = f"Huginn: your Weekly Matches ({week.isoformat()})"
                 token = digest_unsubscribe_token(self._key, subscription.user_id)
-                batch_url = f"{self._origin}/recommendations?batch={batch['id']}"
+                batch_url = f"{self._origin}/weekly-matches?batch={batch['id']}"
                 unsubscribe_url = f"{self._origin}/weekly-digest/unsubscribe#user_id={subscription.user_id}&token={token}"
                 body = weekly_digest_body(batch, week, batch_url, unsubscribe_url)
                 message = WeeklyDigestMessage(

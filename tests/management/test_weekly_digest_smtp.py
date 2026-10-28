@@ -1,14 +1,55 @@
 from dataclasses import FrozenInstanceError, replace
+from datetime import date
 from email import message_from_bytes, policy
 
 import pytest
 
+from huginn.management.application.policies.weekly_digest_content import (
+    weekly_digest_body,
+)
 from huginn.management.application.read_models.weekly_digest_message import (
     WeeklyDigestMessage,
 )
 from huginn.management.config import ManagementConfig
 from huginn.management.delivery.smtp_digest_mail_sender import SmtpDigestMailSender
 from tests.management.test_lifecycle_smtp import _smtp_sink
+
+
+def test_frozen_digest_body_and_smtp_agree_for_mixed_source_line_endings():
+    body = weekly_digest_body(
+        {
+            "items": [
+                {
+                    "company": {"name": "Example", "domain": "example.test"},
+                    "score": 27,
+                    "rationale": "Grounded research",
+                    "evidence": [
+                        {
+                            "quote": "First line\r\n\r\nSecond line\rThird line",
+                            "source_url": "https://example.test",
+                            "occurred_at": None,
+                        }
+                    ],
+                }
+            ]
+        },
+        date(2026, 10, 26),
+        "https://example.test/batch",
+        "https://example.test/unsubscribe",
+    )
+    assert "\r" not in body
+    assert "First line\n\nSecond line\nThird line" in body
+    with _smtp_sink() as server:
+        sender = SmtpDigestMailSender(
+            ManagementConfig(
+                database_url="unused",
+                smtp_host=server.server_address[0],
+                smtp_port=server.server_address[1],
+            )
+        )
+        sender.send(replace(_message(), body=body))
+        received = message_from_bytes(server.messages[0], policy=policy.default)
+        assert received.get_content().replace("\r\n", "\n").rstrip() == body.rstrip()
 
 
 def _message():

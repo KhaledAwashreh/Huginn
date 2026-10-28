@@ -4,6 +4,7 @@ import RecommendationList from '../../src/features/recommendations/components/Re
 import type { RecommendationBatch } from '../../src/features/recommendations/models/recommendation';
 it('shows company attributes frozen in the assessment, with explicit unknowns and source dates', () => {
   const batch: RecommendationBatch = {
+    kind: 'on_demand',
     id: 'batch-1',
     strategy_id: 'strategy-1',
     created_at: '2026-10-28T00:00:00Z',

@@ -30,7 +30,6 @@ def main(
         "subscribe", help="Explicitly opt in one pilot user"
     )
     subscribe.add_argument("--user-id", required=True, type=UUID)
-    subscribe.add_argument("--strategy-id", required=True, type=UUID)
     unsubscribe = commands.add_parser("unsubscribe")
     unsubscribe.add_argument("--user-id", required=True, type=UUID)
     send = commands.add_parser("send", help="Run once; schedule weekly with cron")
@@ -51,7 +50,7 @@ def main(
         else:
             service = subscriptions_factory(config)
             if args.command == "subscribe":
-                service.subscribe(args.user_id, args.strategy_id)
+                service.subscribe(args.user_id)
             else:
                 service.unsubscribe(args.user_id)
             result = {
