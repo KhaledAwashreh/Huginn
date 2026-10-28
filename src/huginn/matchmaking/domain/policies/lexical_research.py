@@ -89,7 +89,7 @@ def offering_terms(text: str) -> tuple[str, ...]:
                 if len(term) >= 4 and term.casefold() not in _STOP_WORDS
             }
         )
-    )[:24]
+    )
 
 
 def _excerpt(text: str, match: re.Match) -> str:

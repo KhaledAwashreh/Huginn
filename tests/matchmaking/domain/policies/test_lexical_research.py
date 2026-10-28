@@ -23,11 +23,11 @@ def observation(text, days=1, identity=1):
     )
 
 
-def test_offering_terms_are_distinct_bounded_and_ignore_generic_sales_words():
+def test_offering_terms_are_distinct_and_ignore_generic_sales_words():
     assert offering_terms(
         "We provide consulting services to help your onboarding and onboarding teams"
     ) == ("onboarding",)
-    assert len(offering_terms(" ".join("word" + str(i) for i in range(100)))) <= 24
+    assert len(offering_terms(" ".join("word" + str(i) for i in range(100)))) == 100
 
 
 def test_generic_delivery_language_cannot_make_full_time_a_service_match():
@@ -123,3 +123,18 @@ def test_offering_context_alone_does_not_earn_service_specific_fit_points():
     assert "service-specific" in context_only.rationale
     assert service_related.service_fit == "adjacent"
     assert service_related.service_basis == "inferred"
+
+
+def test_later_alphabet_service_terms_still_reach_topic_assessment():
+    terms = offering_terms(
+        "Accessibility accounting analytics architecture auditing automation banking "
+        "benchmarking budgeting cloud coaching compliance cybersecurity data design "
+        "development discovery engineering finance governance infrastructure integration "
+        "leadership observability operations performance planning platform reliability "
+        "reporting scalability security strategy testing training transformation vulnerability"
+    )
+    source = observation("Vulnerability remediation.")
+    result = assess_topic_overlap(UUID(int=100), (source,), terms, NOW)
+    assert result is not None
+    assert result.relevant_observation_ids == (source.observation_id,)
+    assert result.evidence[0].quote in source.description

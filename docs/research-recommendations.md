@@ -35,7 +35,7 @@ selection uses this same evaluation across all active strategies; see
 
 1. Generation snapshots the owned strategy, offering, ICP and professional
    profile. Retrieval terms come from distinct offering-name/description words
-   of at least four characters, excluding common generic words. At most 24
+   of at least four characters, excluding common generic words. All distinct
    terms are retained in sorted order and recorded in the snapshot. This is
    `topic-overlap-v2`, an initial lexical baseline, not a contextual language
    model. Short abbreviations, synonyms and different wording can be missed.

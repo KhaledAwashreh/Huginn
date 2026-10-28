@@ -11,6 +11,7 @@ from huginn.management.persistence.database.client import PsycopgDatabaseSession
 from huginn.management.persistence.repositories.recommendations import (
     PostgresRecommendationRepository,
 )
+from huginn.matchmaking.domain.policies.lexical_research import offering_terms
 from tests.management.test_matches_query_integration import _user
 
 
@@ -327,8 +328,9 @@ def test_whole_word_retrieval_precedes_company_limit(management_database_url):
         )
     with psycopg.connect(management_database_url) as conn:
         repository = PostgresRecommendationRepository(PsycopgDatabaseSession(conn))
+        terms = offering_terms(" ".join(f"alpha{i}" for i in range(24)) + " data")
         result = repository.candidates(
-            ("data",), now - timedelta(days=1), now + timedelta(days=1), limit=1
+            terms, now - timedelta(days=1), now + timedelta(days=1), limit=1
         )
         assert [company.company_id for company in result] == [relevant_company]
         assert result[0].observations[0].description == "Data pipeline consulting"
