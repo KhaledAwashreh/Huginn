@@ -22,7 +22,10 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   });
   await industries.focus();
   await industries.press('ArrowDown');
-  await page.getByRole('option', { name: /^Analytics ·/ }).click();
+  const selectedIndustry = page.getByRole('option', { name: /^Analytics ·/ });
+  await expect(selectedIndustry).toHaveAttribute('aria-selected', 'true');
+  await industries.press('Space');
+  await expect(selectedIndustry).toHaveAttribute('aria-selected', 'false');
   await industries.press('Escape');
   await expect(
     page.getByText('Analytics is both selected and excluded.', { exact: false }),
@@ -37,7 +40,10 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   const countries = page.getByRole('combobox', { name: 'Collected countries', exact: true });
   await countries.focus();
   await countries.press('ArrowDown');
-  await page.getByRole('option', { name: /^USA ·/ }).click();
+  const selectedCountry = page.getByRole('option', { name: /^USA ·/ });
+  await expect(selectedCountry).toHaveAttribute('aria-selected', 'true');
+  await countries.press('Space');
+  await expect(selectedCountry).toHaveAttribute('aria-selected', 'false');
   await countries.press('Escape');
   await expect(page.getByText('both selected and excluded', { exact: false })).toHaveCount(0);
   await countries.focus();
