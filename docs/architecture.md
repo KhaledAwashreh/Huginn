@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; an authenticated research recommendation flow now connects broad source retrieval, built-in ranking and stored feedback; digest delivery remains unbuilt. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; an authenticated research recommendation flow now connects broad source retrieval, built-in ranking and stored feedback; a simple opt-in weekly SMTP digest is implemented. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -11,7 +11,7 @@ Architecture at a glance:
 2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
 4. Matching: a synchronous operator batch creates missing per-User Matches from current ICPs and recent Gold signals. A separate authenticated recommendation flow ranks broader source candidates and stores feedback (section 7).
-5. Delivery: a weekly email digest is the product direction; digest composition and delivery are not implemented.
+5. Delivery: a weekly email digest is the product direction; opt-in weekly composition and SMTP delivery are implemented by an explicit scheduled command.
 6. Out of scope this phase: everything above the domain layer (chatbot, dashboard, memory).
 
 ---
@@ -319,7 +319,7 @@ to current guarded source evidence, the built-in ranker and immutable
 `operational.recommendation_feedback` against an owned batch and recommendation
 identity. See [`research-recommendations.md`](research-recommendations.md) for
 the runtime, migration and conservative topic-overlap assessment contract.
-Sent-digest snapshots and delivery lifecycle remain deferred. New Matches retain selected
+Opt-in weekly SMTP delivery now saves a frozen email and batch reference, reserves one automatic attempt per User/week, excludes previously sent companies, and supports signed unsubscribe. See [`weekly-digest.md`](weekly-digest.md) for the cron command, existing SMTP settings and deliberate no-automatic-retry semantics. New Matches retain selected
 immutable source observations and matching windows; later matching runs
 preserve workflow status, notes and original evidence. Matches have no score
 snapshot or sent-state freeze. The standalone operator writes local research JSON; the connected workspace

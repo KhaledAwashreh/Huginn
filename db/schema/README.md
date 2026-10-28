@@ -205,3 +205,9 @@ configuration changes or strategy deletion. Feedback references an occurrence
 inside its owned saved batch. No existing Match or source records are changed.
 Application startup applies no DDL. The same file supports fresh installs and
 existing databases, and can be reapplied without changing saved history.
+# Weekly digest
+
+After the recommendation migration, explicitly apply
+`operational-weekly-digest.sql` to enable operator-managed subscriptions and
+weekly delivery reservations. See [the digest runbook](../../docs/weekly-digest.md).
+Application startup performs no DDL.

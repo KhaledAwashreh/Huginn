@@ -186,3 +186,20 @@ def test_feedback_rejects_unknown_values_and_mutable_or_oversized_inputs():
     ):
         with pytest.raises(ValidationDomainError):
             RecommendationFeedback(**kwargs)
+
+
+def test_sent_companies_are_removed_before_the_candidate_limit():
+    svc, store, _ = service()
+    previous = frozenset((store.company.company_id,))
+
+    def candidates(terms, cutoff, as_of, limit, *, exclude_company_ids):
+        assert exclude_company_ids == previous
+        return ()
+
+    store.candidates = candidates
+    assert (
+        svc.generate(store.owner, store.strategy, 5, exclude_company_ids=previous)[
+            "items"
+        ]
+        == []
+    )

@@ -54,7 +54,14 @@ class RecommendationService:
         self._repository = repository_factory
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    def generate(self, user_id: UUID, strategy_id: UUID, limit: int = 10) -> dict:
+    def generate(
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        limit: int = 10,
+        *,
+        exclude_company_ids: frozenset[UUID] = frozenset(),
+    ) -> dict:
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValidationDomainError(
                 "Recommendation limit must be between one and twenty"
@@ -73,12 +80,18 @@ class RecommendationService:
                     "Offering needs descriptive topics before generating recommendations"
                 )
             companies = repository.candidates(
-                terms, now - timedelta(days=365), now, 200
+                terms,
+                now - timedelta(days=365),
+                now,
+                200,
+                exclude_company_ids=exclude_company_ids,
             )
             icp = profile_data.get("icp", {})
             validate_exclusions(icp.get("exclusions", []))
             assessments = []
             for company in companies:
+                if company.company_id in exclude_company_ids:
+                    continue
                 if excluded_from_research(company, icp.get("exclusions", [])):
                     continue
                 assessment = assess_topic_overlap(
@@ -99,6 +112,10 @@ class RecommendationService:
                 if assessment is not None:
                     assessments.append(assessment)
             profile_data["retrieval_terms"] = list(terms)
+            if exclude_company_ids:
+                profile_data["previously_sent_company_ids"] = sorted(
+                    str(value) for value in exclude_company_ids
+                )
             request = ResearchRankingRequest(
                 str(strategy_id),
                 _dump(profile_data),

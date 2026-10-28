@@ -19,6 +19,9 @@ from huginn.management.application.services.authentication import Authentication
 from huginn.management.application.services.current_session_service import (
     CurrentSessionService,
 )
+from huginn.management.application.services.digest_subscriptions import (
+    DigestSubscriptionService,
+)
 from huginn.management.application.services.discovery_strategies import (
     ClientDiscoveryStrategyService,
 )
@@ -112,6 +115,9 @@ from huginn.management.persistence.repositories.service_offering import (
 )
 from huginn.management.persistence.repositories.session import PostgresSessionRepository
 from huginn.management.persistence.repositories.user import PostgresUserRepository
+from huginn.management.persistence.repositories.weekly_digest import (
+    PostgresWeeklyDigestRepository,
+)
 from huginn.management.presentation.api.errors.handlers import (
     register_exception_handlers,
     suppress_handled_server_error_tracebacks,
@@ -129,6 +135,9 @@ from huginn.management.presentation.api.routers.configuration_options import (
 )
 from huginn.management.presentation.api.routers.current_user import (
     router as current_user_router,
+)
+from huginn.management.presentation.api.routers.digest_unsubscribe import (
+    router as digest_unsubscribe_router,
 )
 from huginn.management.presentation.api.routers.discovery_strategies import (
     router as discovery_strategies_router,
@@ -199,6 +208,7 @@ class ManagementDependencies:
     list_match_signals_service: Any = None
     get_matches_overview_service: Any = None
     recommendation_service: Any = None
+    digest_subscriptions_service: Any = None
     pipeline_services: Any = None
     matchmaking_services: Any = None
     clock: Callable[[], datetime] | None = None
@@ -258,6 +268,7 @@ def create_app(
     list_match_signals_service: Any | None = None,
     get_matches_overview_service: Any | None = None,
     recommendation_service: Any | None = None,
+    digest_subscriptions_service: Any | None = None,
     current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     pipeline_services: Any | None = None,
@@ -344,6 +355,13 @@ def create_app(
         get_company_option_service=GetCompanyOptionService(
             make_uow,
             query_factory=lambda work: PostgresConfigurationOptionsQuery(
+                work.connection
+            ),
+        ),
+        digest_subscriptions_service=digest_subscriptions_service
+        or DigestSubscriptionService(
+            make_uow,
+            repository_factory=lambda work: PostgresWeeklyDigestRepository(
                 work.connection
             ),
         ),
@@ -503,6 +521,7 @@ def create_app(
     app.include_router(configuration_options_router)
     app.include_router(matches_router)
     app.include_router(recommendations_router)
+    app.include_router(digest_unsubscribe_router)
     mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

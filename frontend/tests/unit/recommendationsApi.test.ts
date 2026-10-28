@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { configureApiClient } from '../../src/api/client';
 import { generateRecommendations } from '../../src/features/recommendations/api/generateRecommendations';
+import { getRecommendationBatch } from '../../src/features/recommendations/api/getRecommendationBatch';
 import { getLatestRecommendations } from '../../src/features/recommendations/api/getLatestRecommendations';
 import { saveRecommendationFeedback } from '../../src/features/recommendations/api/saveRecommendationFeedback';
 beforeEach(() => {
@@ -36,4 +37,14 @@ it('sends detailed feedback with both batch and recommendation identity', async 
   await saveRecommendationFeedback('batch-1', draft);
   expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/recommendations/batch-1/feedback');
   expect(fetcher.mock.calls[0]?.[1]?.body).toBe(JSON.stringify(draft));
+});
+
+it('loads the exact saved batch through the session API', async () => {
+  const fetcher = vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async () => new Response('{}', { status: 200 }));
+  const controller = new AbortController();
+  await getRecommendationBatch('saved-batch', controller.signal);
+  expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/recommendations/saved-batch');
+  expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
 });

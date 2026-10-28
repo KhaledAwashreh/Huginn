@@ -8,6 +8,7 @@ import type { RecommendationBatch } from '../../src/features/recommendations/mod
 const mocks = vi.hoisted(() => ({
   session: { value: null as unknown },
   latest: vi.fn(),
+  saved: vi.fn(),
   generate: vi.fn(),
   strategies: vi.fn(),
   feedback: vi.fn(),
@@ -17,6 +18,9 @@ vi.mock('../../src/features/session/composables/useSession', () => ({
 }));
 vi.mock('../../src/features/recommendations/api/getLatestRecommendations', () => ({
   getLatestRecommendations: mocks.latest,
+}));
+vi.mock('../../src/features/recommendations/api/getRecommendationBatch', () => ({
+  getRecommendationBatch: mocks.saved,
 }));
 vi.mock('../../src/features/recommendations/api/generateRecommendations', () => ({
   generateRecommendations: mocks.generate,
@@ -40,12 +44,15 @@ function batch(id: string, strategy_id: string): RecommendationBatch {
     items: [],
   };
 }
-function setup(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function setup(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  requestedBatch = ref(''),
+) {
   let workspace!: ReturnType<typeof useRecommendations>;
   mount(
     defineComponent({
       setup() {
-        workspace = useRecommendations();
+        workspace = useRecommendations(requestedBatch);
         return () => null;
       },
     }),
@@ -147,4 +154,58 @@ it('does not repopulate cleared session cache if identity changes while generati
   expect(
     client.getQueryData(['recommendations', 'account-1:user-1:proof-1', 'latest', 'strategy-1']),
   ).toBeUndefined();
+});
+
+it('opens the exact saved batch without requesting the latest assessment', async () => {
+  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
+  const workspace = setup(undefined, ref('sent-batch'));
+  await flushPromises();
+  expect(mocks.saved).toHaveBeenCalledWith('sent-batch', expect.any(AbortSignal));
+  expect(mocks.latest).not.toHaveBeenCalled();
+  expect(workspace.batch.data.value?.id).toBe('sent-batch');
+  expect(workspace.strategyId.value).toBe('strategy-1');
+});
+it('keeps an unavailable saved batch as an error without falling back to latest', async () => {
+  mocks.saved.mockRejectedValue(new ApiError(404, 'not_found', 'Missing'));
+  const workspace = setup(undefined, ref('missing-batch'));
+  await flushPromises();
+  expect(workspace.batch.isError.value).toBe(true);
+  expect(mocks.latest).not.toHaveBeenCalled();
+});
+it('loads saved batches again under a changed identity', async () => {
+  mocks.saved
+    .mockResolvedValueOnce(batch('sent-batch', 'strategy-1'))
+    .mockRejectedValueOnce(new ApiError(404, 'not_found', 'Missing'));
+  const workspace = setup(undefined, ref('sent-batch'));
+  await flushPromises();
+  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'proof-2' };
+  await flushPromises();
+  expect(mocks.saved).toHaveBeenCalledTimes(2);
+  expect(workspace.batch.data.value).toBeUndefined();
+  expect(workspace.batch.isError.value).toBe(true);
+});
+it('resumes latest after explicitly changing strategy from a saved batch', async () => {
+  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
+  mocks.latest.mockResolvedValue(batch('new-batch', 'strategy-2'));
+  const workspace = setup(undefined, ref('sent-batch'));
+  await flushPromises();
+  workspace.strategyId.value = 'strategy-2';
+  await flushPromises();
+  expect(workspace.batch.data.value?.id).toBe('new-batch');
+});
+
+it('generates a new batch and stays on it when the saved link is cleared', async () => {
+  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
+  mocks.latest.mockResolvedValue(batch('old-latest', 'strategy-1'));
+  mocks.generate.mockResolvedValue(batch('new-batch', 'strategy-1'));
+  const requested = ref('sent-batch');
+  const workspace = setup(undefined, requested);
+  await flushPromises();
+  const pending = workspace.generate();
+  requested.value = '';
+  await pending;
+  await flushPromises();
+  expect(workspace.pinnedBatch.value).toBe('');
+  expect(workspace.strategyId.value).toBe('strategy-1');
+  expect(workspace.batch.data.value?.id).toBe('new-batch');
 });

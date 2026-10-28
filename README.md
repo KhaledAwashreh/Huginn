@@ -6,7 +6,7 @@ Architecture: `docs/architecture.md`. Decision records: `adr/`. Research backing
 
 ## Status
 
-Ingestion and the Bronze write path are implemented for HN, YC, OpenCorporates, and EU-Startups. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests for HN, YC, and EU-Startups through the pipeline entrypoint below. OpenCorporates is not yet wired into Silver/Gold. The scoring and digest layers are not built.
+Ingestion and the Bronze write path are implemented for HN, YC, OpenCorporates, and EU-Startups. Silver (per-source staging plus cross-source resolution) and Gold (the `Company` dimension and `CompanySignal` fact) are implemented and covered by unit and integration tests for HN, YC, and EU-Startups through the pipeline entrypoint below. OpenCorporates is not yet wired into Silver/Gold. Research recommendation ranking and detailed feedback are implemented. A simple opt-in weekly SMTP digest reuses that ranking; see the [digest setup guide](docs/weekly-digest.md) for provider configuration and scheduling.
 
 ## Setup
 

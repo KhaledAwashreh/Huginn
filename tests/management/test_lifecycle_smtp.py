@@ -19,8 +19,9 @@ from huginn.management.application.read_models.lifecycle_mail_message import (
 from huginn.management.config import ManagementConfig
 from huginn.management.delivery.smtp_lifecycle_mail_sender import (
     SmtpLifecycleMailSender,
-    _send_smtp,
+    _render,
 )
+from huginn.management.delivery.smtp_transport import send_smtp
 from huginn.management.delivery.templates.reset_password import render_reset_mail
 from huginn.management.delivery.templates.verify_email import (
     render_verification_mail,
@@ -351,11 +352,11 @@ def test_sender_uses_starttls_with_default_context_and_authentication(
         return FakeSmtp()
 
     monkeypatch.setattr(
-        "huginn.management.delivery.smtp_lifecycle_mail_sender.smtplib.SMTP",
+        "huginn.management.delivery.smtp_transport.smtplib.SMTP",
         smtp_factory,
     )
     monkeypatch.setattr(
-        "huginn.management.delivery.smtp_lifecycle_mail_sender.ssl.create_default_context",
+        "huginn.management.delivery.smtp_transport.ssl.create_default_context",
         lambda: "default-tls-context",
     )
     config = ManagementConfig(
@@ -368,8 +369,12 @@ def test_sender_uses_starttls_with_default_context_and_authentication(
         smtp_password="smtp-secret",
     )
 
-    _send_smtp(
-        config, LifecycleMailMessage("ada@example.test", "verify_email", "valid-proof")
+    send_smtp(
+        config,
+        _render(
+            config,
+            LifecycleMailMessage("ada@example.test", "verify_email", "valid-proof"),
+        ),
     )
 
     assert calls[0][0] == "factory"
@@ -410,11 +415,11 @@ def test_sender_uses_implicit_tls_and_raises_when_recipient_is_refused(monkeypat
         return FakeSmtp()
 
     monkeypatch.setattr(
-        "huginn.management.delivery.smtp_lifecycle_mail_sender.smtplib.SMTP_SSL",
+        "huginn.management.delivery.smtp_transport.smtplib.SMTP_SSL",
         smtp_ssl_factory,
     )
     monkeypatch.setattr(
-        "huginn.management.delivery.smtp_lifecycle_mail_sender.ssl.create_default_context",
+        "huginn.management.delivery.smtp_transport.ssl.create_default_context",
         lambda: "default-tls-context",
     )
     config = ManagementConfig(
@@ -424,9 +429,14 @@ def test_sender_uses_implicit_tls_and_raises_when_recipient_is_refused(monkeypat
     )
 
     with pytest.raises(smtplib.SMTPRecipientsRefused):
-        _send_smtp(
+        send_smtp(
             config,
-            LifecycleMailMessage("ada@example.test", "reset_password", "valid-proof"),
+            _render(
+                config,
+                LifecycleMailMessage(
+                    "ada@example.test", "reset_password", "valid-proof"
+                ),
+            ),
         )
 
     assert calls[0][0] == "factory"

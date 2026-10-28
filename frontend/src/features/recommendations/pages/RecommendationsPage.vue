@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
@@ -11,7 +11,12 @@ import LoadingState from '../../../shared/ui/LoadingState.vue';
 import RecommendationList from '../components/RecommendationList.vue';
 import { useRecommendations } from '../composables/useRecommendations';
 import type { RecommendationFeedback } from '../models/recommendationFeedback';
-const workspace = useRecommendations();
+const route = useRoute();
+const router = useRouter();
+const requestedBatch = computed(() =>
+  typeof route.query.batch === 'string' ? route.query.batch : '',
+);
+const workspace = useRecommendations(requestedBatch);
 const client = useQueryClient();
 const dirty = ref<Record<string, boolean>>({});
 watch(workspace.identity, () => {
@@ -22,15 +27,31 @@ function canLeave() {
   return !hasDirty.value || window.confirm('Discard your unsaved feedback?');
 }
 onBeforeRouteLeave(canLeave);
+onBeforeRouteUpdate((to, from) => {
+  if (to.query.batch === from.query.batch) return true;
+  if (!canLeave()) return false;
+  dirty.value = {};
+  return true;
+});
+function clearBatchLink() {
+  if (!route.query.batch) return;
+  const query = { ...route.query };
+  delete query.batch;
+  void router.replace({ query });
+}
 function selectStrategy(value: string) {
   if (!canLeave()) return;
   dirty.value = {};
+  workspace.pinnedBatch.value = '';
   workspace.strategyId.value = value;
+  clearBatchLink();
 }
 async function generate() {
   if (!canLeave()) return;
   dirty.value = {};
-  await workspace.generate();
+  const pending = workspace.generate();
+  clearBatchLink();
+  await pending;
 }
 async function saved(entry: RecommendationFeedback) {
   if (entry.batch_id !== workspace.batch.data.value?.id) return;
@@ -59,7 +80,7 @@ async function saved(entry: RecommendationFeedback) {
       message="Discovery strategies could not be loaded."
       ><Button label="Retry strategies" @click="workspace.strategies.refetch()"
     /></ErrorState>
-    <template v-else-if="workspace.strategies.data.value?.length">
+    <template v-else-if="workspace.strategies.data.value?.length || workspace.pinnedBatch.value">
       <ErrorState
         v-if="workspace.strategies.isError.value"
         message="Discovery strategies could not be refreshed. Previously received strategies remain available."
@@ -71,7 +92,7 @@ async function saved(entry: RecommendationFeedback) {
             input-id="recommendation-strategy"
             aria-label="Discovery strategy"
             :model-value="workspace.strategyId.value"
-            :options="workspace.strategies.data.value"
+            :options="workspace.strategies.data.value ?? []"
             option-label="name"
             option-value="id"
             placeholder="Choose a strategy"
@@ -95,16 +116,20 @@ async function saved(entry: RecommendationFeedback) {
         :message="workspace.generationError.value"
       />
       <EmptyState
-        v-if="!workspace.strategyId.value"
+        v-if="!workspace.strategyId.value && !workspace.pinnedBatch.value"
         message="Choose a strategy to resume its latest recommendations or generate a new list."
       />
       <LoadingState
         v-else-if="workspace.batch.isFetching.value && !workspace.batch.data.value"
-        message="Loading the latest research recommendations…"
+        message="Loading research recommendations…"
       />
       <ErrorState
         v-else-if="workspace.batch.isError.value && !workspace.batch.data.value"
-        message="The latest recommendations could not be loaded."
+        :message="
+          workspace.pinnedBatch.value
+            ? 'This saved assessment could not be loaded. It may be unavailable.'
+            : 'The latest recommendations could not be loaded.'
+        "
         ><Button label="Retry recommendations" @click="workspace.batch.refetch()"
       /></ErrorState>
       <template v-else-if="workspace.batch.data.value">

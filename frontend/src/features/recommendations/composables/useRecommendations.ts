@@ -1,12 +1,13 @@
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type Ref } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { useSession } from '../../session/composables/useSession';
 import { listDiscoveryStrategies } from '../../configuration/discovery-strategies/api/listDiscoveryStrategies';
+import { getRecommendationBatch } from '../api/getRecommendationBatch';
 import { getLatestRecommendations } from '../api/getLatestRecommendations';
 import { generateRecommendations } from '../api/generateRecommendations';
 import { listRecommendationFeedback } from '../api/listRecommendationFeedback';
 import { ApiError } from '../../../api/apiError';
-export function useRecommendations() {
+export function useRecommendations(requestedBatch: Readonly<Ref<string>> = ref('')) {
   const session = useSession();
   const client = useQueryClient();
   const identity = computed(() =>
@@ -17,19 +18,37 @@ export function useRecommendations() {
     ].join(':'),
   );
   const strategyId = ref('');
+  const pinnedBatch = ref(requestedBatch.value);
+  let selectingSavedStrategy = false;
+  function setSavedStrategy(value: string) {
+    selectingSavedStrategy = true;
+    strategyId.value = value;
+    selectingSavedStrategy = false;
+  }
   const generating = ref(false);
   const generationError = ref('');
   let version = 0;
   watch(identity, () => {
-    strategyId.value = '';
+    setSavedStrategy('');
     version++;
     generating.value = false;
     generationError.value = '';
   });
-  watch(strategyId, () => {
+  watch(
+    strategyId,
+    () => {
+      if (!selectingSavedStrategy) pinnedBatch.value = '';
+      version++;
+      generating.value = false;
+      generationError.value = '';
+    },
+    { flush: 'sync' },
+  );
+  watch(requestedBatch, (value) => {
+    if (!value && !pinnedBatch.value) return;
+    pinnedBatch.value = value;
+    setSavedStrategy('');
     version++;
-    generating.value = false;
-    generationError.value = '';
   });
   const strategies = useQuery({
     queryKey: computed(() => ['recommendations', identity.value, 'strategies']),
@@ -47,13 +66,21 @@ export function useRecommendations() {
       return items;
     },
   });
-  const batchKey = computed(() => ['recommendations', identity.value, 'latest', strategyId.value]);
+  const batchKey = computed(() => [
+    'recommendations',
+    identity.value,
+    pinnedBatch.value ? 'saved' : 'latest',
+    pinnedBatch.value || strategyId.value,
+  ]);
   const batch = useQuery({
     queryKey: batchKey,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    enabled: computed(() => Boolean(session.context.value && strategyId.value)),
+    enabled: computed(() =>
+      Boolean(session.context.value && (pinnedBatch.value || strategyId.value)),
+    ),
     queryFn: async ({ signal }) => {
+      if (pinnedBatch.value) return getRecommendationBatch(pinnedBatch.value, signal);
       try {
         return await getLatestRecommendations(strategyId.value, signal);
       } catch (error) {
@@ -62,6 +89,13 @@ export function useRecommendations() {
       }
     },
   });
+  watch(
+    batch.data,
+    (value) => {
+      if (pinnedBatch.value && value) setSavedStrategy(value.strategy_id);
+    },
+    { immediate: true },
+  );
   const feedbackKey = computed(() => [
     'recommendations',
     identity.value,
@@ -79,6 +113,7 @@ export function useRecommendations() {
   });
   async function generate() {
     if (!strategyId.value || generating.value) return;
+    pinnedBatch.value = '';
     const started = version;
     const key = [...batchKey.value];
     generating.value = true;
@@ -103,6 +138,7 @@ export function useRecommendations() {
   }
   return {
     identity,
+    pinnedBatch,
     strategyId,
     strategies,
     batch,

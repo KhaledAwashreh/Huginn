@@ -20,6 +20,8 @@ class RecommendationRepository(Protocol):
         cutoff: datetime,
         as_of: datetime,
         limit: int = 200,
+        *,
+        exclude_company_ids: frozenset[UUID] = frozenset(),
     ) -> tuple[RecommendationCompany, ...]: ...
     def save_batch(
         self,

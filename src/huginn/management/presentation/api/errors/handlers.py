@@ -78,6 +78,7 @@ def _private_headers(request: Request) -> dict[str, str] | None:
         or request.url.path.startswith("/api/v1/matches/")
         or request.url.path == "/api/v1/recommendations"
         or request.url.path.startswith("/api/v1/recommendations/")
+        or request.url.path.startswith("/weekly-digest/")
         or request.url.path == "/api/v1/sessions/current"
         or (
             request.url.path == "/api/v1/configuration-options"

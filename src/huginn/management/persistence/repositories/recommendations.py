@@ -51,6 +51,8 @@ class PostgresRecommendationRepository(RecommendationRepository):
         cutoff: datetime,
         as_of: datetime,
         limit: int = 200,
+        *,
+        exclude_company_ids: frozenset[UUID] = frozenset(),
     ) -> tuple[RecommendationCompany, ...]:
         if cutoff.tzinfo is None or as_of.tzinfo is None or cutoff > as_of:
             raise ValueError("invalid recommendation evidence window")
@@ -66,6 +68,7 @@ class PostgresRecommendationRepository(RecommendationRepository):
                 FROM gold.current_source_evidence
                 WHERE (occurred_at IS NULL OR occurred_at BETWEEN %s AND %s)
                   AND (observed_at IS NULL OR observed_at <= %s)
+                  AND NOT (company_id = ANY(%s::uuid[]))
             ), selected AS (
                 SELECT e.company_id, count(DISTINCT term) AS hits
                 FROM eligible e CROSS JOIN unnest(%s::text[]) AS term
@@ -77,7 +80,7 @@ class PostgresRecommendationRepository(RecommendationRepository):
             FROM selected s JOIN gold.company c ON c.id=s.company_id
             JOIN eligible e ON e.company_id=c.id
             ORDER BY s.hits DESC,c.id,e.occurred_at NULLS LAST,e.observation_id""",
-            (cutoff, as_of, as_of, patterns, limit),
+            (cutoff, as_of, as_of, sorted(exclude_company_ids), patterns, limit),
         ).fetchall()
         grouped: dict[UUID, list] = {}
         metadata: dict[UUID, tuple] = {}
