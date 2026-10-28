@@ -211,3 +211,20 @@ After the recommendation migration, explicitly apply
 `operational-weekly-digest.sql` to enable operator-managed subscriptions and
 weekly delivery reservations. See [the digest runbook](../../docs/weekly-digest.md).
 Application startup performs no DDL.
+
+## Default administrator data seed
+
+`operational-bootstrap-admin.sql` is an explicit, repeatable data migration after
+the account-role and lifecycle schema. The trusted deployment runner
+`docker/seed-admin.py` reads `HUGINN_BOOTSTRAP_ADMIN_USERNAME`,
+`HUGINN_BOOTSTRAP_ADMIN_EMAIL` and `HUGINN_BOOTSTRAP_ADMIN_PASSWORD`, validates and
+hashes the password with the existing scrypt implementation, and supplies only the
+hash and identity via transaction-local `huginn.bootstrap_admin` JSON.
+
+Compose applies this seed in a one-shot service before starting application services,
+for fresh and existing compatible volumes. New Account, User, ProfessionalProfile
+and trusted recovery-identity rows are created in one transaction. Reruns preserve
+existing admin credentials, disablement and profile/recovery state; a pre-existing
+ordinary username or email collision fails instead of granting that user admin
+access. No hardcoded password, verified email claim or recurring password reset is
+introduced. See [Compose administration](../../docs/docker-compose.md#administration-and-data).
