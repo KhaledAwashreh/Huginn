@@ -21,6 +21,7 @@ const isAdminRoute = computed(() => route.path === '/admin' || route.path.starts
 const workspaceItems = [
   { label: 'Workspace', to: '/' },
   { label: 'Matches', to: '/matches' },
+  { label: 'Recommendations', to: '/recommendations' },
 ];
 const businessItems = [
   { label: 'Professional profile', to: '/professional-profile' },

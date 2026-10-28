@@ -194,3 +194,14 @@ Three need a word of warning, because idempotent does not mean unconditional:
 3. `gold-business-sector-array.sql` is guarded on the column's current type, not merely on its existence, and that guard is not optional. Re-applying `ARRAY[business_sector]` to a column that already holds `TEXT[]` wraps every value one dimension deeper, raising no error and leaving the column type at `text[]`. Its tests therefore assert `array_ndims` and the literal value, not just the type, because the type alone does not detect it.
 
 The matchmaking-control migration runs after Gold, operational, role, and pipeline-control setup. It creates durable fixed-target matching receipts and result journals and adds the fixed `pipeline`/`matchmaking` resource discriminator to the existing guard. It preserves active pipeline owner identities and leaves existing Match status and notes unchanged. Run compatible additive upgrades with `ON_ERROR_STOP`; do not reset the base tables.
+
+## Recommendation history
+
+Apply `operational-recommendations.sql` explicitly after the operational schema
+before enabling connected recommendations. The additive migration creates
+immutable owner-scoped recommendation batch snapshots and append-only feedback.
+Batch snapshots retain the original strategy identifier and source context after
+configuration changes or strategy deletion. Feedback references an occurrence
+inside its owned saved batch. No existing Match or source records are changed.
+Application startup applies no DDL. The same file supports fresh installs and
+existing databases, and can be reapplied without changing saved history.

@@ -3,6 +3,7 @@ import { configurationRoutes } from '../features/configuration/routes';
 import { matchmakingRoutes } from '../features/matchmaking/routes';
 import { pipelineRoutes } from '../features/pipeline/routes';
 import { accountLifecycleRoutes } from '../features/account-lifecycle/routes';
+import { recommendationRoutes } from '../features/recommendations/routes';
 import { matchesRoutes } from '../features/matches/routes';
 import RecoveryEmailEnrollment from '../features/account-lifecycle/components/RecoveryEmailEnrollment.vue';
 import { createRouter, createWebHistory } from 'vue-router';
@@ -31,6 +32,7 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage },
     ...accountLifecycleRoutes,
     ...matchesRoutes,
+    ...recommendationRoutes,
     ...configurationRoutes,
     {
       path: '/admin',

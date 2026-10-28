@@ -56,6 +56,7 @@ from huginn.management.application.services.list_matches_service import (
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
 )
+from huginn.management.application.services.recommendations import RecommendationService
 from huginn.management.application.services.resend_verification_service import (
     ResendVerificationService,
 )
@@ -103,6 +104,9 @@ from huginn.management.persistence.repositories.lifecycle_throttle import (
 from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
+from huginn.management.persistence.repositories.recommendations import (
+    PostgresRecommendationRepository,
+)
 from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
@@ -134,6 +138,9 @@ from huginn.management.presentation.api.routers.ideal_client_profiles import (
     router as ideal_client_profiles_router,
 )
 from huginn.management.presentation.api.routers.matches import router as matches_router
+from huginn.management.presentation.api.routers.recommendations import (
+    router as recommendations_router,
+)
 from huginn.management.presentation.api.routers.service_offerings import (
     router as service_offerings_router,
 )
@@ -191,6 +198,7 @@ class ManagementDependencies:
     get_match_service: Any = None
     list_match_signals_service: Any = None
     get_matches_overview_service: Any = None
+    recommendation_service: Any = None
     pipeline_services: Any = None
     matchmaking_services: Any = None
     clock: Callable[[], datetime] | None = None
@@ -249,6 +257,7 @@ def create_app(
     get_match_service: Any | None = None,
     list_match_signals_service: Any | None = None,
     get_matches_overview_service: Any | None = None,
+    recommendation_service: Any | None = None,
     current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     pipeline_services: Any | None = None,
@@ -337,6 +346,14 @@ def create_app(
             query_factory=lambda work: PostgresConfigurationOptionsQuery(
                 work.connection
             ),
+        ),
+        recommendation_service=recommendation_service
+        or RecommendationService(
+            make_uow,
+            repository_factory=lambda work: PostgresRecommendationRepository(
+                work.connection
+            ),
+            clock=clock,
         ),
         list_matches_service=list_matches_service
         or ListMatchesService(
@@ -485,6 +502,7 @@ def create_app(
     app.include_router(account_security_router)
     app.include_router(configuration_options_router)
     app.include_router(matches_router)
+    app.include_router(recommendations_router)
     mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

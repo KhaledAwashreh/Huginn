@@ -21,6 +21,10 @@ def _document(config: ManagementConfig | None = None) -> dict:
 def test_openapi_covers_registered_paths_methods_models_and_errors():
     document = _document()
     expected = {
+        "/api/v1/recommendations": {"post"},
+        "/api/v1/recommendations/latest": {"get"},
+        "/api/v1/recommendations/{batch_id}": {"get"},
+        "/api/v1/recommendations/{batch_id}/feedback": {"get", "post"},
         "/api/v1/matches": {"get"},
         "/api/v1/matches/overview": {"get"},
         "/api/v1/matches/{match_id}": {"get"},
