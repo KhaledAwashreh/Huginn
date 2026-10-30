@@ -57,6 +57,8 @@ def test_weekly_history_is_owner_scoped_read_only_and_private():
         assert response.status_code == 200 and response.json() == []
         assert response.headers["cache-control"] == "no-store"
         assert service.calls[-1] == (owner, 2, 3)
+        assert client.get(url, params={"offset": 2**63 - 1}).status_code == 200
+        assert client.get(url, params={"offset": 2**63}).status_code == 422
         assert client.post(url, headers={"X-CSRF-Token": "csrf"}).status_code == 405
 
 
@@ -116,3 +118,27 @@ def test_feedback_body_is_strict_and_private():
         response = client.post(url, json=base, headers={"X-CSRF-Token": "csrf"})
         assert response.status_code == 404
         assert response.headers["cache-control"] == "no-store"
+
+
+def test_generation_throttle_returns_private_retry_after_response():
+    from huginn.management.application.errors.errors import RateLimitError
+
+    class LimitedService(Service):
+        def generate(self, user, strategy, limit):
+            raise RateLimitError("Recommendation generation limit reached", 42)
+
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(uuid4()),
+        recommendation_service=LimitedService(),
+    )
+    with TestClient(app) as client:
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        response = client.post(
+            "/api/v1/recommendations",
+            json={"strategy_id": str(uuid4())},
+            headers={"X-CSRF-Token": "csrf"},
+        )
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "42"
+    assert response.headers["cache-control"] == "no-store"

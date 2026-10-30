@@ -108,7 +108,13 @@ other SMTP providers through the same settings.
    newer assessment. The opt-out link first displays a confirmation; opening
    or scanning it does not unsubscribe. Its signed capability stays in the URL
    fragment and is submitted only in the confirmation POST body, keeping it out
-   of standard access-log URLs. Confirming stops future weekly emails.
+   of standard access-log URLs. Links are bound to the verified recipient and
+   subscription version; changing recipient or subscribing again invalidates
+   older links. Confirming stops future weekly emails. An email already being
+   handed to SMTP can still arrive if opt-out or a recipient change races with
+   delivery preparation and transport; the database transaction and SMTP
+   acceptance cannot be atomic.
+   Later sends are excluded by subscription and recipient eligibility checks.
    The operator can also run:
 
    ```sh

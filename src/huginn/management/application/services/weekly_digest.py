@@ -80,6 +80,17 @@ class WeeklyDigestService:
             return result
         logger.info("Weekly digest run started, subscriptions=%s", len(subscriptions))
         for subscription in subscriptions:
+            try:
+                profiles = self._recommendations.weekly_profiles(subscription.user_id)
+            except Exception as error:
+                logger.error(
+                    "Digest profile validation failed (%s)", type(error).__name__
+                )
+                result["failed"] += 1
+                continue
+            if not profiles:
+                result["skipped"] += 1
+                continue
             with self._uow() as work:
                 repository = self._repository(work)
                 delivery_id = repository.reserve(
@@ -101,13 +112,19 @@ class WeeklyDigestService:
                 batch = self._recommendations.generate_weekly(
                     subscription.user_id,
                     exclude_company_ids=previous,
+                    profiles=profiles,
                 )
                 if not batch["items"]:
                     self._settle(delivery_id, "empty")
                     result["empty"] += 1
                     continue
                 subject = f"Huginn: your Weekly Matches ({week.isoformat()})"
-                token = digest_unsubscribe_token(self._key, subscription.user_id)
+                token = digest_unsubscribe_token(
+                    self._key,
+                    subscription.user_id,
+                    subscription.recipient,
+                    subscription.version,
+                )
                 batch_url = f"{self._origin}/weekly-matches?batch={batch['id']}"
                 unsubscribe_url = f"{self._origin}/weekly-digest/unsubscribe#user_id={subscription.user_id}&token={token}"
                 body = weekly_digest_body(batch, week, batch_url, unsubscribe_url)

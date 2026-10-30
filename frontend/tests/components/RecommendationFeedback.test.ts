@@ -55,6 +55,7 @@ it('preserves corrections after failure and appends feedback without replacing h
   expect(wrapper.text()).toContain('Feedback saved');
   expect(wrapper.text()).toContain('Earlier assessment');
   expect(wrapper.emitted('saved')).toHaveLength(1);
+  expect(wrapper.emitted('saved')?.[0]?.[0]).toMatchObject({ id: 'feedback-2' });
 });
 
 it('rejects feedback receipts from a different batch and preserves the draft', async () => {

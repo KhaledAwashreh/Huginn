@@ -85,17 +85,23 @@ function selectStrategy(value: string) {
 }
 async function generate() {
   if (!canLeave()) return;
-  dirty.value = {};
-  const pending = workspace.generate();
-  clearBatchLink();
-  await pending;
+  if (await workspace.generate()) {
+    dirty.value = {};
+    clearBatchLink();
+  }
 }
 async function saved(entry: RecommendationFeedback) {
   if (entry.batch_id !== workspace.batch.data.value?.id) return;
   const key = [...workspace.feedbackKey.value];
+  if (!workspace.feedback.isSuccess.value) {
+    await client.invalidateQueries({ queryKey: key });
+    return;
+  }
   await client.cancelQueries({ queryKey: key });
   if (entry.batch_id !== workspace.batch.data.value?.id) return;
-  client.setQueryData<RecommendationFeedback[]>(key, (previous) => [...(previous ?? []), entry]);
+  client.setQueryData<RecommendationFeedback[]>(key, (previous) =>
+    previous?.some((value) => value.id === entry.id) ? previous : [...(previous ?? []), entry],
+  );
 }
 </script>
 <template>
@@ -123,11 +129,11 @@ async function saved(entry: RecommendationFeedback) {
       ><Button label="Retry strategies" @click="workspace.strategies.refetch()"
     /></ErrorState>
     <LoadingState
-      v-else-if="weekly && workspace.weeklyHistory.isPending.value"
+      v-else-if="weekly && workspace.weeklyHistory.isPending.value && !workspace.pinnedBatch.value"
       message="Loading weekly history…"
     />
     <ErrorState
-      v-else-if="weekly && workspace.weeklyHistory.isError.value"
+      v-else-if="weekly && workspace.weeklyHistory.isError.value && !workspace.pinnedBatch.value"
       message="Weekly history could not be loaded."
       ><Button label="Retry weekly history" @click="workspace.weeklyHistory.refetch()"
     /></ErrorState>
@@ -138,6 +144,11 @@ async function saved(entry: RecommendationFeedback) {
         v-if="!weekly && workspace.strategies.isError.value"
         message="Discovery strategies could not be refreshed. Previously received strategies remain available."
       />
+      <ErrorState
+        v-if="weekly && workspace.weeklyHistory.isError.value"
+        message="Weekly history could not be loaded. Showing the linked saved selection."
+        ><Button label="Retry weekly history" @click="workspace.weeklyHistory.refetch()"
+      /></ErrorState>
       <div v-if="weekly" class="toolbar">
         <div class="field">
           <label for="weekly-selection">Weekly selection</label>

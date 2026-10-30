@@ -36,6 +36,12 @@ existing accounts, profiles or companies until you deliberately import a backup.
 Default ports 8080 and 8026 allow it to coexist with the previous local runtime.
 PostgreSQL and SMTP are not published to the host; web ports bind to loopback.
 
+Fresh setup seeds a missing EU-Startups discovery watermark to 365 days ago, so
+normal admin collection can start without authorizing an all-history crawl. Existing
+watermarks and retries are preserved. On an older Compose volume missing this
+state, apply the explicit [watermark migration](../db/schema/README.md#initial-eu-startups-collection-window)
+once, then request collection again; the failed run remains in history.
+
 Schema files run in their explicit dependency order only when PostgreSQL initializes
 an empty volume. Normal application startup and subsequent restarts apply no schema
 migrations; the separate admin data seed is idempotent. The database healthcheck requires the final digest schema as well as TCP
@@ -155,3 +161,19 @@ Production cookies are secure automatically. Keep PostgreSQL and the mailbox
 private; use normal schema-owner/runtime-role permissions for a production database.
 The bundled database user owns its database for local setup. Configure backups and
 the host firewall before accepting pilot users.
+
+## First EU-Startups collection
+
+Fresh database bootstrap initializes an absent EU-Startups watermark to 365 days
+ago, matching the recommendation window. Existing checkpoints and retry rows are
+preserved. For an older Compose volume with no checkpoint, apply once:
+
+```sh
+docker compose exec -T db psql -U huginn -d huginn -v ON_ERROR_STOP=1 \
+  -f /schema/bronze-eu-startups-initial-watermark.sql
+```
+
+Then request collection again from the admin screen. This does not start collection
+or restart services. The previous failure remains in history. Listings modified
+before the seeded boundary are outside initial discovery; this is a date filter,
+not a guarantee of a small request count. See the [schema guide](../db/schema/README.md#initial-eu-startups-collection-window).

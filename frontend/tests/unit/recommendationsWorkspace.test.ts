@@ -82,7 +82,7 @@ beforeEach(() => {
 
 it('weekly history opens its saved selection without generating or fetching on-demand latest', async () => {
   mocks.weekly.mockResolvedValue([batch('weekly-batch', 'strategy-1')]);
-  mocks.saved.mockResolvedValue(batch('weekly-batch', 'strategy-1'));
+  mocks.saved.mockResolvedValue({ ...batch('weekly-batch', 'strategy-1'), kind: 'weekly' });
   const workspace = setup(undefined, ref(''), ref(true));
   await flushPromises();
   await workspace.generate();
@@ -170,7 +170,13 @@ it('does not repopulate cleared session cache if identity changes while generati
   release();
   await pending;
   expect(
-    client.getQueryData(['recommendations', 'account-1:user-1:proof-1', 'latest', 'strategy-1']),
+    client.getQueryData([
+      'recommendations',
+      'account-1:user-1:proof-1',
+      'latest',
+      'strategy-1',
+      'on_demand',
+    ]),
   ).toBeUndefined();
 });
 
@@ -219,11 +225,31 @@ it('generates a new batch and stays on it when the saved link is cleared', async
   const requested = ref('sent-batch');
   const workspace = setup(undefined, requested);
   await flushPromises();
-  const pending = workspace.generate();
+  expect(await workspace.generate()).toBe(true);
   requested.value = '';
-  await pending;
   await flushPromises();
   expect(workspace.pinnedBatch.value).toBe('');
   expect(workspace.strategyId.value).toBe('strategy-1');
   expect(workspace.batch.data.value?.id).toBe('new-batch');
+});
+
+it('preserves a pinned assessment when generation fails', async () => {
+  mocks.saved.mockResolvedValue(batch('historical', 'strategy-1'));
+  mocks.generate.mockRejectedValue(new Error('offline'));
+  const requested = ref('historical');
+  const workspace = setup(undefined, requested);
+  await flushPromises();
+  expect(await workspace.generate()).toBe(false);
+  expect(workspace.pinnedBatch.value).toBe('historical');
+  expect(workspace.batch.data.value?.id).toBe('historical');
+  expect(mocks.latest).not.toHaveBeenCalled();
+});
+
+it('rejects an on-demand batch pinned to weekly matches', async () => {
+  mocks.saved.mockResolvedValue(batch('on-demand', 'strategy-1'));
+  mocks.weekly.mockResolvedValue([]);
+  const workspace = setup(undefined, ref('on-demand'), ref(true));
+  await flushPromises();
+  expect(workspace.batch.isError.value).toBe(true);
+  expect(workspace.batch.data.value).toBeUndefined();
 });

@@ -6,13 +6,24 @@ from fastapi.testclient import TestClient
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
 from huginn.management.presentation.cli.weekly_digest import main
-from huginn.management.security.digest_unsubscribe import digest_unsubscribe_token
+from huginn.management.security.digest_unsubscribe import (
+    digest_unsubscribe_token,
+    valid_digest_unsubscribe,
+)
 
 
 class Subscriptions:
     def __init__(self):
         self.disabled = []
         self.enabled = []
+
+    def unsubscribe_signed(self, user, token, key):
+        if not valid_digest_unsubscribe(
+            key, user, "test@example.test", "version-1", token
+        ):
+            return False
+        self.unsubscribe(user)
+        return True
 
     def subscribe(self, user):
         self.enabled.append(user)
@@ -59,7 +70,12 @@ def test_signed_unsubscribe_get_never_mutates_and_post_only_disables_bound_user(
         digest_subscriptions_service=subscriptions,
     )
     with TestClient(app) as client:
-        query = {"user_id": str(user), "token": digest_unsubscribe_token(key, user)}
+        query = {
+            "user_id": str(user),
+            "token": digest_unsubscribe_token(
+                key, user, "test@example.test", "version-1"
+            ),
+        }
         response = client.get("/weekly-digest/unsubscribe")
         assert response.status_code == 200
         assert '<form method="post"' in response.text
@@ -72,7 +88,11 @@ def test_signed_unsubscribe_get_never_mutates_and_post_only_disables_bound_user(
         assert subscriptions.disabled == []
         assert client.post("/weekly-digest/unsubscribe", data=query).status_code == 200
         assert subscriptions.disabled == [user]
-        for token in ("bad", "é" * 64, digest_unsubscribe_token(key, uuid4())):
+        for token in (
+            "bad",
+            "é" * 64,
+            digest_unsubscribe_token(key, uuid4(), "test@example.test", "version-1"),
+        ):
             assert (
                 client.post(
                     "/weekly-digest/unsubscribe", data={**query, "token": token}
@@ -91,7 +111,12 @@ def test_unsubscribe_query_tokens_are_not_accepted_as_post_authorization():
         digest_subscriptions_service=subscriptions,
     )
     with TestClient(app) as client:
-        query = {"user_id": str(user), "token": digest_unsubscribe_token(key, user)}
+        query = {
+            "user_id": str(user),
+            "token": digest_unsubscribe_token(
+                key, user, "test@example.test", "version-1"
+            ),
+        }
         assert (
             client.post("/weekly-digest/unsubscribe", params=query).status_code == 404
         )

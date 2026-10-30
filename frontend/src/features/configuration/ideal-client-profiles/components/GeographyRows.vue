@@ -134,7 +134,10 @@ function removeRegion(index: number): void {
         :message="message"
       />
     </div>
-    <p v-if="countries.length === 0" class="note">
+    <p v-if="rows.some((row) => row.kind === 'region')" class="note">
+      Remove saved region entries and choose explicit countries before generating recommendations.
+    </p>
+    <p v-else-if="countries.length === 0" class="note">
       No countries selected. Recommendations will not filter by country.
     </p>
     <div class="regions">

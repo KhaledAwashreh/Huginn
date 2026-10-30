@@ -93,16 +93,23 @@ export function useRecommendations(
     identity.value,
     pinnedBatch.value ? 'saved' : 'latest',
     pinnedBatch.value || strategyId.value,
+    weekly.value ? 'weekly' : 'on_demand',
   ]);
   const batch = useQuery({
     queryKey: batchKey,
+    staleTime: 1000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     enabled: computed(() =>
       Boolean(session.context.value && (pinnedBatch.value || (!weekly.value && strategyId.value))),
     ),
     queryFn: async ({ signal }) => {
-      if (pinnedBatch.value) return getRecommendationBatch(pinnedBatch.value, signal);
+      if (pinnedBatch.value) {
+        const saved = await getRecommendationBatch(pinnedBatch.value, signal);
+        if (saved.kind !== (weekly.value ? 'weekly' : 'on_demand'))
+          throw new ApiError(404, 'not_found', 'This assessment belongs to a different workspace.');
+        return saved;
+      }
       try {
         return await getLatestRecommendations(strategyId.value, signal);
       } catch (error) {
@@ -134,17 +141,20 @@ export function useRecommendations(
     },
   });
   async function generate() {
-    if (weekly.value || !strategyId.value || generating.value) return;
-    pinnedBatch.value = '';
+    if (weekly.value || !strategyId.value || generating.value) return false;
     const started = version;
-    const key = [...batchKey.value];
+    const key = ['recommendations', identity.value, 'latest', strategyId.value, 'on_demand'];
     generating.value = true;
     generationError.value = '';
     try {
       const result = await generateRecommendations(strategyId.value);
       if (started === version) {
         await client.cancelQueries({ queryKey: key });
-        if (started === version) client.setQueryData(key, result);
+        if (started === version) {
+          client.setQueryData(key, result);
+          pinnedBatch.value = '';
+          return true;
+        }
       }
     } catch (error) {
       if (started === version)
@@ -153,10 +163,13 @@ export function useRecommendations(
             ? 'Reload the page before trying again.'
             : error instanceof ApiError && error.status === 422
               ? 'Review your strategy, offering topics and ICP selections. Selected industries or countries cannot also be excluded. Use explicit countries for geography; region filters and exclusions are not supported.'
-              : 'Recommendations could not be generated. Try again.';
+              : error instanceof ApiError && error.status === 429
+                ? 'Recommendation generation limit reached. Wait a few minutes before trying again.'
+                : 'Recommendations could not be generated. Try again.';
     } finally {
       if (started === version) generating.value = false;
     }
+    return false;
   }
   return {
     identity,

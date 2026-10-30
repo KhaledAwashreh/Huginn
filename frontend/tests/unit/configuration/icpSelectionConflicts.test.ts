@@ -26,3 +26,8 @@ it('detects industry and country alias conflicts without treating other exclusio
     icpSelectionConflicts({ ...draft, exclusions: [{ kind: 'industry', name: 'Retail' }] }),
   ).toEqual([]);
 });
+
+it('normalizes generic ISO alpha-3 country aliases', () => {
+  expect(countryIdentity('DEU')).toBe(countryIdentity('Germany'));
+  expect(countryIdentity('NGA')).toBe(countryIdentity('Nigeria'));
+});

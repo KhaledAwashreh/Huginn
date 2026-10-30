@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(async ({ request }) => {
+  const reset = await request.post(
+    `http://127.0.0.1:${process.env.HUGINN_BROWSER_API_PORT ?? '8000'}/__fixture__/reset-icp-conflicts`,
+  );
+  expect(reset.ok()).toBe(true);
+});
+
 test('legacy ICP overlaps are visible and removable and new overlaps are disabled', async ({
   page,
 }) => {

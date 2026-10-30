@@ -348,8 +348,22 @@ def main() -> None:
         if report["status"] != "complete":
             raise RuntimeError("browser fixture currentness reconcile was incomplete")
         with browser_lifecycle_mail(config) as lifecycle_config:
+            app = create_app(lifecycle_config)
+
+            @app.post("/__fixture__/reset-icp-conflicts", include_in_schema=False)
+            def reset_icp_conflicts():
+                with psycopg.connect(database_url) as connection:
+                    connection.execute(
+                        """UPDATE operational.ideal_client_profiles
+                        SET industries='[{"name":"Analytics"}]',
+                            geographies='[{"kind":"country","value":"USA"}]',
+                            exclusions='[{"kind":"industry","name":"Analytics"},{"kind":"geography","geography":{"kind":"country","value":"United States"}}]'
+                        WHERE id='00000000-0000-0000-0000-000000000333'"""
+                    )
+                return {"reset": True}
+
             uvicorn.run(
-                create_app(lifecycle_config),
+                app,
                 host="127.0.0.1",
                 port=int(os.environ.get("HUGINN_BROWSER_API_PORT", "8000")),
                 log_level="warning",

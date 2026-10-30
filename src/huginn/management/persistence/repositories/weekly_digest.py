@@ -48,7 +48,7 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
                 JOIN operational.service_offerings o ON o.id=s.service_offering_id AND o.user_id=s.user_id
                 JOIN operational.ideal_client_profiles i ON i.id=s.ideal_client_profile_id AND i.user_id=s.user_id
                 WHERE s.user_id=u.id AND s.is_active)
-            ON CONFLICT (user_id) DO UPDATE SET enabled=true,updated_at=EXCLUDED.updated_at RETURNING user_id""",
+            ON CONFLICT (user_id) DO UPDATE SET enabled=true,updated_at=GREATEST(EXCLUDED.updated_at,operational.weekly_digest_subscriptions.updated_at + interval '1 microsecond') RETURNING user_id""",
             (now, user_id),
         ).fetchone()
         if row is None:
@@ -62,26 +62,50 @@ class PostgresWeeklyDigestRepository(WeeklyDigestRepository):
             (user_id,),
         )
 
+    def subscription(self, user_id: UUID) -> DigestSubscription | None:
+        row = self.connection.execute(
+            """SELECT d.user_id,r.verified_email,d.updated_at
+            FROM operational.weekly_digest_subscriptions d
+            JOIN operational.users u ON u.id=d.user_id
+            JOIN operational.account_recovery_identity r ON r.account_id=u.account_id
+            WHERE d.user_id=%s AND d.enabled AND r.verified_email IS NOT NULL
+            FOR UPDATE OF d,r""",
+            (user_id,),
+        ).fetchone()
+        return (
+            DigestSubscription(row[0], row[1], row[2].astimezone(UTC).isoformat())
+            if row
+            else None
+        )
+
     def subscriptions(self, limit: int) -> tuple[DigestSubscription, ...]:
         if not 1 <= limit <= 10000:
             raise ValidationDomainError(
                 "Digest subscription limit must be between 1 and 10000"
             )
         rows = self.connection.execute(
-            "SELECT d.user_id,r.verified_email "
+            "SELECT d.user_id,r.verified_email,d.updated_at "
             + _ELIGIBLE
             + " ORDER BY (SELECT max(created_at) FROM operational.weekly_digest_deliveries h WHERE h.user_id=d.user_id) NULLS FIRST,d.user_id LIMIT %s",
             (limit,),
         ).fetchall()
-        return tuple(DigestSubscription(*row) for row in rows)
+        return tuple(
+            DigestSubscription(row[0], row[1], row[2].astimezone(UTC).isoformat())
+            for row in rows
+        )
 
     def eligible(self, subscription: DigestSubscription) -> bool:
+        if not subscription.version:
+            return False
         return (
             self.connection.execute(
-                "SELECT 1 " + _ELIGIBLE + " AND d.user_id=%s AND r.verified_email=%s",
+                "SELECT 1 "
+                + _ELIGIBLE
+                + " AND d.user_id=%s AND r.verified_email=%s AND d.updated_at=%s::timestamptz",
                 (
                     subscription.user_id,
                     subscription.recipient,
+                    subscription.version,
                 ),
             ).fetchone()
             is not None

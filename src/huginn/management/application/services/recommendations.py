@@ -7,6 +7,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from huginn.management.application.errors.errors import RateLimitError
 from huginn.management.application.policies.recommendation_geography import (
     resolve_country_evidence,
 )
@@ -15,8 +16,9 @@ from huginn.management.application.policies.recommendation_preferences import (
     excluded_from_research,
     icp_fit,
     preference_status,
-    validate_exclusions,
-    validate_icp_filters,
+)
+from huginn.management.application.policies.recommendation_profile_validation import (
+    validated_profile_inputs,
 )
 from huginn.management.application.policies.weekly_match_selection import (
     select_weekly_matches,
@@ -40,7 +42,6 @@ from huginn.matchmaking.application.services.research_ranking_service import (
 )
 from huginn.matchmaking.domain.policies.lexical_research import (
     assess_topic_overlap,
-    offering_terms,
 )
 from huginn.matchmaking.domain.value_objects.ranking_evidence import RankingEvidence
 
@@ -79,6 +80,11 @@ class RecommendationService:
         logger.info("On-demand recommendation generation started")
         with self._uow() as work:
             repository = self._repository(work)
+            retry_after = repository.generation_retry_after(user_id, now)
+            if retry_after:
+                raise RateLimitError(
+                    "Recommendation generation limit reached", retry_after
+                )
             snapshot = self._build(
                 repository, user_id, strategy_id, limit, now, exclude_company_ids
             )
@@ -92,22 +98,50 @@ class RecommendationService:
         )
         return batch
 
+    def weekly_profiles(self, user_id: UUID) -> tuple:
+        with self._uow() as work:
+            repository = self._repository(work)
+            profiles = []
+            for strategy in repository.active_strategy_ids(user_id):
+                profile = repository.profile(user_id, strategy)
+                if profile is None:
+                    continue
+                try:
+                    validated_profile_inputs(profile)
+                except ValidationDomainError:
+                    continue
+                profiles.append(profile)
+            return tuple(profiles)
+
     def generate_weekly(
-        self, user_id: UUID, *, exclude_company_ids: frozenset[UUID] = frozenset()
+        self,
+        user_id: UUID,
+        *,
+        exclude_company_ids: frozenset[UUID] = frozenset(),
+        profiles: tuple | None = None,
     ) -> dict:
         now = self._clock()
         logger.info("Weekly match selection started")
         with self._uow() as work:
             repository = self._repository(work)
-            strategies = repository.active_strategy_ids(user_id)
-            if not strategies:
+            if profiles is None:
+                profiles = self.weekly_profiles(user_id)
+            if not profiles:
                 raise NotFoundError("No valid active strategy found")
+            strategies = tuple(profile.strategy_id for profile in profiles)
             snapshots = []
-            for strategy in strategies:
+            for profile in profiles:
+                strategy = profile.strategy_id
                 try:
                     snapshots.append(
                         self._build(
-                            repository, user_id, strategy, 20, now, exclude_company_ids
+                            repository,
+                            user_id,
+                            strategy,
+                            20,
+                            now,
+                            exclude_company_ids,
+                            profile=profile,
                         )
                     )
                 except ValidationDomainError, NotFoundError:
@@ -153,23 +187,23 @@ class RecommendationService:
                 )
             ]
 
-    def _build(self, repository, user_id, strategy_id, limit, now, exclude_company_ids):
-        profile = repository.profile(user_id, strategy_id)
+    def _build(
+        self,
+        repository,
+        user_id,
+        strategy_id,
+        limit,
+        now,
+        exclude_company_ids,
+        *,
+        profile=None,
+    ):
+        profile = (
+            profile if profile is not None else repository.profile(user_id, strategy_id)
+        )
         if profile is None:
             raise NotFoundError("Active strategy not found")
-        profile_data = json.loads(profile.snapshot_json)
-        terms = offering_terms(profile.offering_text)
-        service_terms = (
-            offering_terms(profile_data.get("offering", {}).get("name", "")) or terms
-        )
-        if not terms:
-            raise ValidationDomainError(
-                "Offering needs descriptive topics before generating recommendations"
-            )
-        icp = profile_data.get("icp", {})
-        validate_exclusions(icp.get("exclusions", []))
-        # Validate configured geography even when no source candidate exists.
-        validate_icp_filters(icp)
+        profile_data, terms, service_terms, icp = validated_profile_inputs(profile)
         companies = []
         seen = set()
         offset = 0

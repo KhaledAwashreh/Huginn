@@ -1,8 +1,9 @@
+import alpha3 from './countryAlpha3.json';
 import type { IdealClientProfileDraft } from './idealClientProfileDraft';
 
 export const industryIdentity = (value: string): string => value.trim().toLowerCase();
 
-const countryAliases = new Map<string, string>();
+const countryAliases = new Map<string, string>(Object.entries(alpha3));
 const names = new Intl.DisplayNames(['en'], { type: 'region' });
 for (let first = 65; first <= 90; first++) {
   for (let second = 65; second <= 90; second++) {

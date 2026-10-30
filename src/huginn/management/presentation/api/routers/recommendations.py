@@ -38,7 +38,7 @@ def _private(response):
     "",
     status_code=201,
     response_model=RecommendationBatchResponse,
-    responses=error_responses(401, 403, 404, 422),
+    responses=error_responses(401, 403, 404, 422, 429),
 )
 def generate_recommendations(
     body: GenerateRecommendationsRequest,
@@ -81,7 +81,7 @@ def weekly_matches(
     response: Response,
     dependencies: Management,
     limit: int = Query(default=12, ge=1, le=50),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=2**63 - 1),
 ):
     result = dependencies.recommendation_service.weekly(
         authenticated.principal.user_id, limit, offset

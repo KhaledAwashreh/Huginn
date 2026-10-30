@@ -2,7 +2,8 @@
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from math import ceil
 from uuid import UUID
 
 from huginn.management.application.protocols.recommendations import (
@@ -27,6 +28,26 @@ from huginn.matchmaking.domain.value_objects.ranking_observation import (
 class PostgresRecommendationRepository(RecommendationRepository):
     def __init__(self, connection: DatabaseSession) -> None:
         self.connection = connection
+
+    def generation_retry_after(self, user_id: UUID, now: datetime) -> int:
+        self.connection.execute(
+            "SELECT set_config('statement_timeout','15000',true)"
+        ).fetchone()
+        self.connection.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"recommendation-generation/{user_id}",),
+        ).fetchone()
+        row = self.connection.execute(
+            """SELECT count(*),min(created_at) FROM operational.recommendation_batches
+            WHERE user_id=%s AND created_at > %s
+              AND COALESCE(snapshot->'batch'->>'kind','on_demand')='on_demand'""",
+            (user_id, now - timedelta(minutes=15)),
+        ).fetchone()
+        return (
+            max(1, ceil((row[1] + timedelta(minutes=15) - now).total_seconds()))
+            if row[0] >= 6
+            else 0
+        )
 
     def active_strategy_ids(self, user_id: UUID) -> tuple[UUID, ...]:
         return tuple(
@@ -90,6 +111,9 @@ class PostgresRecommendationRepository(RecommendationRepository):
         terms = tuple(sorted({term.lower() for term in terms if term.strip()}))
         if not terms:
             return ()
+        self.connection.execute(
+            "SELECT set_config('statement_timeout','15000',true)"
+        ).fetchone()
         patterns = [r"\m" + re.escape(term) + r"\M" for term in terms]
         rows = self.connection.execute(
             """WITH eligible AS MATERIALIZED (

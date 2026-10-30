@@ -340,3 +340,40 @@ def test_whole_word_retrieval_precedes_company_limit(management_database_url):
             )
             == ()
         )
+
+
+def test_generation_budget_is_per_user_and_serializes_concurrent_requests(
+    management_database_url,
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timedelta
+
+    now = datetime.now(UTC)
+    with psycopg.connect(management_database_url) as conn:
+        conn.execute(Path("db/schema/operational-recommendations.sql").read_text())
+        user, _ = _user(conn, "generation-budget")
+        other, _ = _user(conn, "generation-budget-other")
+        repo = PostgresRecommendationRepository(PsycopgDatabaseSession(conn))
+        for _ in range(5):
+            repo.save_batch(
+                user, uuid4(), uuid4(), now, '{"batch":{"kind":"on_demand"}}'
+            )
+        repo.save_batch(user, uuid4(), uuid4(), now, '{"batch":{"kind":"weekly"}}')
+        conn.commit()
+
+    def try_generate(_):
+        with psycopg.connect(management_database_url) as conn:
+            repo = PostgresRecommendationRepository(PsycopgDatabaseSession(conn))
+            wait = repo.generation_retry_after(user, now)
+            if not wait:
+                repo.save_batch(
+                    user, uuid4(), uuid4(), now, '{"batch":{"kind":"on_demand"}}'
+                )
+            return wait
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(try_generate, range(2))) == [0, 900]
+    with psycopg.connect(management_database_url) as conn:
+        repo = PostgresRecommendationRepository(PsycopgDatabaseSession(conn))
+        assert repo.generation_retry_after(other, now) == 0
+        assert repo.generation_retry_after(user, now + timedelta(minutes=15)) == 0

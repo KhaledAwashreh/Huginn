@@ -6,3 +6,4 @@ from uuid import UUID
 class DigestSubscription:
     user_id: UUID
     recipient: str = field(repr=False)
+    version: str = ""

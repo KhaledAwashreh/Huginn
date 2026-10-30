@@ -8,6 +8,7 @@ from huginn.management.application.protocols.weekly_digest_repository import (
     WeeklyDigestRepository,
 )
 from huginn.management.persistence.contracts.unit_of_work import UnitOfWorkProtocol
+from huginn.management.security.digest_unsubscribe import valid_digest_unsubscribe
 
 
 class DigestSubscriptionService:
@@ -29,3 +30,15 @@ class DigestSubscriptionService:
         with self._uow() as work:
             self._repository(work).unsubscribe(user_id)
             work.commit()
+
+    def unsubscribe_signed(self, user_id: UUID, token: str, signing_key: str) -> bool:
+        with self._uow() as work:
+            repository = self._repository(work)
+            current = repository.subscription(user_id)
+            if current is None or not valid_digest_unsubscribe(
+                signing_key, user_id, current.recipient, current.version, token
+            ):
+                return False
+            repository.unsubscribe(user_id)
+            work.commit()
+            return True

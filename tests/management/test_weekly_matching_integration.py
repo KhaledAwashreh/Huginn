@@ -12,7 +12,10 @@ from huginn.management.app import create_app
 from huginn.management.application.services.recommendations import RecommendationService
 from huginn.management.application.services.weekly_digest import WeeklyDigestService
 from huginn.management.config import ManagementConfig
-from huginn.management.persistence.database.client import ManagementConnectionFactory
+from huginn.management.persistence.database.client import (
+    ManagementConnectionFactory,
+    PsycopgDatabaseSession,
+)
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.repositories.recommendations import (
     PostgresRecommendationRepository,
@@ -154,3 +157,59 @@ def test_seven_weekly_matches_use_shared_icp_rules_and_keep_exact_email_selectio
             "SELECT status,notes FROM operational.match WHERE id=%s", (legacy,)
         ).fetchone() == ("contacted", "Keep original notes")
     assert recommendations.weekly(user)[0] == batch
+
+
+def test_invalid_profile_can_be_corrected_without_losing_weekly_slot(
+    weekly_matching_database_url,
+):
+    url = weekly_matching_database_url
+    with psycopg.connect(url) as conn:
+        conn.execute(Path("db/schema/operational-recommendations.sql").read_text())
+        conn.execute(Path("db/schema/operational-weekly-digest.sql").read_text())
+        user, _, _ = _subscriber(conn, "invalid-slot")
+        conn.execute(
+            'UPDATE operational.ideal_client_profiles SET geographies=\'[{"kind":"region","value":"Europe"}]\' WHERE user_id=%s',
+            (user,),
+        )
+        PostgresWeeklyDigestRepository(PsycopgDatabaseSession(conn)).subscribe(
+            user, datetime.now(UTC)
+        )
+    factory = ManagementConnectionFactory(url)
+
+    def make_work():
+        return UnitOfWork(factory)
+
+    recommendations = RecommendationService(
+        make_work,
+        repository_factory=lambda work: PostgresRecommendationRepository(
+            work.connection
+        ),
+    )
+
+    class Sender:
+        def send(self, message):
+            raise AssertionError("No source candidates; no email should be sent")
+
+    digest = WeeklyDigestService(
+        make_work,
+        repository_factory=lambda work: PostgresWeeklyDigestRepository(work.connection),
+        recommendations=recommendations,
+        sender=Sender(),
+        web_origin="https://example.test",
+        sender_address="weekly@example.test",
+        signing_key="test-key",
+    )
+    assert digest.run()["skipped"] == 1
+    with psycopg.connect(url) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM operational.weekly_digest_deliveries WHERE user_id=%s",
+                (user,),
+            ).fetchone()[0]
+            == 0
+        )
+        conn.execute(
+            "UPDATE operational.ideal_client_profiles SET geographies='[]' WHERE user_id=%s",
+            (user,),
+        )
+    assert digest.run()["empty"] == 1

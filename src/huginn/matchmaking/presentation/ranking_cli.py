@@ -88,8 +88,11 @@ def main(argv=None):
         if args.output is None:
             sys.stdout.write(text)
         else:
-            with args.output.open("x", encoding="utf-8") as stream:
-                stream.write(text)
+            from huginn.matchmaking.presentation.write_ranking_output import (
+                write_ranking_output,
+            )
+
+            write_ranking_output(args.output, text)
         return 0
     except ValueError, TypeError, UnicodeError, RecursionError:
         _error("invalid_ranking_input", "Invalid source-linked ranking input")

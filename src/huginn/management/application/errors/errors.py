@@ -12,4 +12,6 @@ class AuthorizationError(ManagementDomainError):
 
 
 class RateLimitError(ManagementDomainError):
-    pass
+    def __init__(self, message: str, retry_after_seconds: int | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds

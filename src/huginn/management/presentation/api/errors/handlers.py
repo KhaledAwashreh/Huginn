@@ -8,7 +8,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from huginn.management.application.errors.lifecycle import LifecycleRateLimitError
+from huginn.management.application.errors.errors import RateLimitError
 from huginn.management.domain.errors.errors import ManagementDomainError
 from huginn.management.persistence.errors.database import DatabaseError, IntegrityError
 from huginn.management.presentation.api.errors.shapes import (
@@ -111,7 +111,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         shape = domain_error_shape(error)
         headers = _private_headers(request)
-        if isinstance(error, LifecycleRateLimitError):
+        if isinstance(error, RateLimitError) and error.retry_after_seconds is not None:
             headers = {
                 "Retry-After": str(error.retry_after_seconds),
                 "Cache-Control": "no-store",

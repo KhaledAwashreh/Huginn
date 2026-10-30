@@ -1751,6 +1751,8 @@ export interface components {
         };
         /** RecommendationStrategyResponse */
         RecommendationStrategyResponse: {
+            /** Evidence */
+            evidence?: components["schemas"]["RecommendationEvidenceResponse"][];
             /**
              * Id
              * Format: uuid
@@ -1760,6 +1762,10 @@ export interface components {
             name: string;
             /** Offering */
             offering: string;
+            /** Rationale */
+            rationale?: string | null;
+            /** Score */
+            score?: number | null;
         };
         /** RegionGeography */
         RegionGeography: {
@@ -6866,6 +6872,21 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];

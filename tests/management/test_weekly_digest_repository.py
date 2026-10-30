@@ -221,3 +221,56 @@ def test_empty_and_failed_deliveries_do_not_suppress_companies_next_month(
         with pytest.raises(ValidationDomainError):
             repo.prepare(third, batch, recipient, "Changed", "Changed", ())
         conn.rollback()
+
+
+def test_old_unsubscribe_links_fail_after_recipient_change_or_resubscription(
+    management_database_url,
+):
+    from huginn.management.application.services.digest_subscriptions import (
+        DigestSubscriptionService,
+    )
+    from huginn.management.persistence.database.client import (
+        ManagementConnectionFactory,
+    )
+    from huginn.management.persistence.database.unit_of_work import UnitOfWork
+    from huginn.management.security.digest_unsubscribe import digest_unsubscribe_token
+
+    now = datetime.now(UTC)
+    key = "test-signing-key"
+    with psycopg.connect(management_database_url) as conn:
+        repo = _setup(conn)
+        user, account, _ = _subscriber(conn, "recipient-binding")
+        repo.subscribe(user, now)
+        current = repo.subscription(user)
+        old = digest_unsubscribe_token(key, user, current.recipient, current.version)
+        conn.commit()
+    factory = ManagementConnectionFactory(management_database_url)
+    service = DigestSubscriptionService(
+        lambda: UnitOfWork(factory),
+        repository_factory=lambda work: PostgresWeeklyDigestRepository(work.connection),
+    )
+    with psycopg.connect(management_database_url) as conn:
+        conn.execute(
+            "UPDATE operational.account_recovery_identity SET verified_email=%s WHERE account_id=%s",
+            (f"{uuid4()}@example.test", account),
+        )
+    assert not service.unsubscribe_signed(user, old, key)
+    with psycopg.connect(management_database_url) as conn:
+        repo = PostgresWeeklyDigestRepository(PsycopgDatabaseSession(conn))
+        current = repo.subscription(user)
+        before_resubscribe = digest_unsubscribe_token(
+            key, user, current.recipient, current.version
+        )
+        repo.subscribe(user, now)
+    assert not service.unsubscribe_signed(user, before_resubscribe, key)
+    with psycopg.connect(management_database_url) as conn:
+        current = PostgresWeeklyDigestRepository(
+            PsycopgDatabaseSession(conn)
+        ).subscription(user)
+        valid = digest_unsubscribe_token(key, user, current.recipient, current.version)
+    assert service.unsubscribe_signed(user, valid, key)
+    with psycopg.connect(management_database_url) as conn:
+        assert conn.execute(
+            "SELECT enabled FROM operational.weekly_digest_subscriptions WHERE user_id=%s",
+            (user,),
+        ).fetchone() == (False,)

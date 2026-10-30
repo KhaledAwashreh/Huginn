@@ -60,6 +60,9 @@ class Store:
             uuid4(), "Real source company", "example.test", None, None, None, (obs,)
         )
 
+    def generation_retry_after(self, user, now):
+        return 0
+
     def profile(self, user, strategy):
         if user != self.owner or strategy != self.strategy:
             return None
@@ -288,3 +291,57 @@ def test_weekly_selection_combines_strategies_deduplicates_and_saves_seven():
     saved = svc.get(store.owner, UUID(batch["id"]))
     svc.generate(store.owner, first)
     assert svc.get(store.owner, UUID(batch["id"])) == saved
+
+
+def test_weekly_selection_keeps_each_strategy_support_without_mutating_assessments():
+    from copy import deepcopy
+
+    from huginn.management.application.policies.weekly_match_selection import (
+        select_weekly_matches,
+    )
+
+    assessments = [
+        {
+            "id": str(score),
+            "company": {"id": "shared-company"},
+            "score": score,
+            "confidence": "high",
+            "rationale": rationale,
+            "evidence": [
+                {"quote": quote, "source_url": f"https://example.test/{score}"}
+            ],
+            "strategies": [{"id": strategy}],
+        }
+        for score, strategy, rationale, quote in (
+            (70, "recruitment", "Hiring support", "Hiring a new team"),
+            (90, "expansion", "Expansion support", "Opening a new office"),
+        )
+    ]
+    original = deepcopy(assessments)
+    selected = select_weekly_matches(assessments)
+    assert len(selected) == 1
+    assert selected[0]["score"] == 90
+    support = {item["id"]: item for item in selected[0]["strategies"]}
+    for assessment in assessments:
+        strategy = support[assessment["strategies"][0]["id"]]
+        assert strategy["score"] == assessment["score"]
+        assert strategy["rationale"] == assessment["rationale"]
+        assert strategy["evidence"] == assessment["evidence"]
+    selected[0]["strategies"][0]["evidence"][0]["quote"] = "Edited snapshot"
+    assert assessments == original
+
+
+def test_generation_limit_rejects_before_candidate_retrieval():
+    from huginn.management.application.errors.errors import RateLimitError
+
+    svc, store, _ = service()
+    store.generation_retry_after = lambda user, now: 42
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Rate-limited requests must not scan evidence")
+
+    store.candidates = forbidden
+    with pytest.raises(RateLimitError) as error:
+        svc.generate(store.owner, store.strategy)
+    assert error.value.retry_after_seconds == 42
+    assert store.saved == {}

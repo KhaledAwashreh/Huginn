@@ -14,7 +14,14 @@ def select_weekly_matches(items: list[dict]) -> list[dict]:
         ),
     )
     companies = {}
-    for item in ordered:
+    for original in ordered:
+        item = deepcopy(original)
+        for strategy in item["strategies"]:
+            strategy.update(
+                score=item["score"],
+                rationale=item["rationale"],
+                evidence=deepcopy(item["evidence"]),
+            )
         identifier = item["company"]["id"]
         if identifier not in companies:
             companies[identifier] = deepcopy(item)

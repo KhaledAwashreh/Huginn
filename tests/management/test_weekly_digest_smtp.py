@@ -38,7 +38,7 @@ def test_frozen_digest_body_and_smtp_agree_for_mixed_source_line_endings():
         "https://example.test/unsubscribe",
     )
     assert "\r" not in body
-    assert "First line\n\nSecond line\nThird line" in body
+    assert "Source: First line Second line Third line" in body
     with _smtp_sink() as server:
         sender = SmtpDigestMailSender(
             ManagementConfig(

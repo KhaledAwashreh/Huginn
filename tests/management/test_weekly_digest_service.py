@@ -22,7 +22,9 @@ class Work:
 
 class Store:
     def __init__(self):
-        self.subscription = DigestSubscription(uuid4(), "verified@example.test")
+        self.subscription = DigestSubscription(
+            uuid4(), "verified@example.test", NOW.isoformat()
+        )
         self.company = uuid4()
         self.claimed = False
         self.prepared = []
@@ -55,7 +57,11 @@ class Recommendations:
         self.calls = []
         self.empty = False
 
-    def generate_weekly(self, user, *, exclude_company_ids=frozenset()):
+    def weekly_profiles(self, user):
+        return () if getattr(self, "invalid", False) else ("valid snapshot",)
+
+    def generate_weekly(self, user, *, exclude_company_ids=frozenset(), profiles=None):
+        assert profiles == ("valid snapshot",)
         self.calls.append((user, exclude_company_ids))
         return {
             "id": str(uuid4()),
@@ -148,3 +154,12 @@ def test_no_new_recommendations_sends_no_empty_mail():
     assert service.run()["empty"] == 1
     assert not sender.messages
     assert store.states == ["empty"]
+
+
+def test_invalid_strategies_do_not_consume_weekly_reservation():
+    service, store, sender, recommendations = fixture()
+    recommendations.invalid = True
+    assert service.run()["skipped"] == 1
+    assert not store.claimed and not store.prepared and not sender.messages
+    recommendations.invalid = False
+    assert service.run()["sent"] == 1

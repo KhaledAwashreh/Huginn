@@ -14,7 +14,8 @@ after the existing operational and guarded evidence schemas:
 ```sh
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f db/schema/gold-current-source-evidence.sql \
-  -f db/schema/operational-recommendations.sql
+  -f db/schema/operational-recommendations.sql \
+  -f db/schema/operational-weekly-digest.sql
 ```
 
 Use the deployment's normal schema-owner and runtime-role permissions. Application
@@ -30,6 +31,14 @@ review evidence and save feedback. Returning to the strategy resumes its latest
 saved batch. On-demand generation is explicit. The separate scheduled Weekly Matches
 selection uses this same evaluation across all active strategies; see
 [weekly-digest.md](weekly-digest.md). It does not perform outreach.
+
+On-demand generation allows six successful batches per User in a rolling
+15-minute window. Further requests return HTTP 429 with `Retry-After`; weekly
+batches do not consume this quota. Failed builds and timeouts do not consume it
+either, so this is not an attempt or database-work budget. Candidate SQL has a
+15-second timeout per statement, not a deadline for the whole request. Later
+pages still repeat the eligible-evidence scan; avoiding those scans and bounding
+failed attempts remain performance follow-ups for larger deployments.
 
 ## Retrieval and assessment
 

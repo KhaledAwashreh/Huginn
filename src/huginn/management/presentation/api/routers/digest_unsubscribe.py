@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from huginn.management.presentation.api.dependencies.services import Management
-from huginn.management.security.digest_unsubscribe import valid_digest_unsubscribe
 
 router = APIRouter(prefix="/weekly-digest", include_in_schema=False)
 _HEADERS = {
@@ -86,11 +85,10 @@ def unsubscribe(
     dependencies: Management,
 ):
     user_id, token = capability
-    if not valid_digest_unsubscribe(
-        dependencies.config.lifecycle_proof_key or "", user_id, token
+    if not dependencies.digest_subscriptions_service.unsubscribe_signed(
+        user_id, token, dependencies.config.lifecycle_proof_key or ""
     ):
         raise HTTPException(status_code=404, detail="Digest link unavailable")
-    dependencies.digest_subscriptions_service.unsubscribe(user_id)
     return HTMLResponse(
         '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Weekly digests stopped</title><main><h1>Weekly digests stopped</h1><p>You can still review recommendations and feedback in Huginn.</p></main></html>',
         headers=_HEADERS,

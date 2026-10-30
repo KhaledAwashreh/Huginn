@@ -39,12 +39,26 @@ const labels = {
         </div>
       </div>
       <p>{{ item.rationale }}</p>
-      <p v-for="strategy in item.strategies ?? []" :key="strategy.id">
+      <div v-for="strategy in item.strategies ?? []" :key="strategy.id">
         <RouterLink :to="{ path: '/recommendations', query: { strategy: strategy.id } }">{{
           strategy.name
         }}</RouterLink>
         · {{ strategy.offering }}
-      </p>
+        <p v-if="strategy.rationale">{{ strategy.score }} relevance · {{ strategy.rationale }}</p>
+        <blockquote
+          v-for="(evidence, evidenceIndex) in strategy.evidence ?? []"
+          :key="evidenceIndex"
+        >
+          {{ evidence.quote }}
+          <a
+            v-if="safeSourceUrl(evidence.source_url)"
+            :href="safeSourceUrl(evidence.source_url)!"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Source for this strategy</a
+          >
+        </blockquote>
+      </div>
       <p v-if="Object.values(item.icp_fit ?? {}).includes('unknown')">
         Some ICP information is unverified. Review the assessment details before outreach.
       </p>

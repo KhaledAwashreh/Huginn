@@ -11,6 +11,7 @@ from huginn.management.application.read_models.recommendation_profile import (
 
 
 class RecommendationRepository(Protocol):
+    def generation_retry_after(self, user_id: UUID, now: datetime) -> int: ...
     def active_strategy_ids(self, user_id: UUID) -> tuple[UUID, ...]: ...
     def weekly_batches(
         self, user_id: UUID, limit: int, offset: int
