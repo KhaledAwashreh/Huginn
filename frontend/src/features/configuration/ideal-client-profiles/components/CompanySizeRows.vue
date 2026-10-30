@@ -68,8 +68,7 @@ function update(selected: string[]): void {
       @update:model-value="update"
     />
     <p v-if="values.length === 0" class="note">
-      No size bands selected. You can still save this ICP; matching will be incomplete until
-      criteria are selected.
+      No size bands selected. Recommendations will not filter by company size.
     </p>
     <div v-if="errors?.some(Boolean)" id="size-errors">
       <FieldFeedback v-for="(message, index) in errors" :key="index" :message="message" />

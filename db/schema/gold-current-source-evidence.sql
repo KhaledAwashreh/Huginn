@@ -50,7 +50,9 @@ SELECT
     o.observed_at,
     CASE WHEN o.source = 'hn' OR (o.source = 'yc' AND o.hiring_state = 'true')
          THEN 'hiring' ELSE 'directory_context' END AS evidence_kind,
-    o.hiring_state
+    o.hiring_state,
+    CASE WHEN o.source = 'eu_startups' AND jsonb_typeof(s.source_fields->'category') = 'string'
+         THEN s.source_fields->>'category' END AS source_country
 FROM silver.source_currentness AS current
 JOIN silver.source_lifecycle_observation AS o
   ON o.source = current.source

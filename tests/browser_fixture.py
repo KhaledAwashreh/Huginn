@@ -2,6 +2,7 @@
 
 import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import psycopg
@@ -277,6 +278,7 @@ def main() -> None:
             "browser-visual",
             "browser-admin",
             "browser-matches",
+            "browser-icp-conflicts",
         ):
             identities[username] = provisioning.provision(
                 ProvisionIdentity(
@@ -292,16 +294,30 @@ def main() -> None:
             )
         with psycopg.connect(database_url) as connection:
             connection.execute(
+                Path("db/schema/operational-recommendations.sql").read_text()
+            )
+            connection.execute(
+                Path("db/schema/operational-weekly-digest.sql").read_text()
+            )
+            connection.execute(
                 "UPDATE operational.accounts SET role = 'admin' WHERE id = %s",
                 (identities["browser-admin"].account_id,),
             )
             _seed_admin_history(connection, identities["browser-admin"].account_id)
             _seed_matching_history(connection, identities["browser-admin"].account_id)
             _seed_owner_matches(connection, identities["browser-matches"].user_id)
+            connection.execute(
+                """INSERT INTO operational.ideal_client_profiles(id,user_id,name,industries,geographies,exclusions)
+                VALUES ('00000000-0000-0000-0000-000000000333',%s,'Legacy conflicting ICP',
+                '[{"name":"Analytics"}]','[{"kind":"country","value":"USA"}]',
+                '[{"kind":"industry","name":"Analytics"},{"kind":"geography","geography":{"kind":"country","value":"United States"}}]')""",
+                (identities["browser-icp-conflicts"].user_id,),
+            )
             for label, country, sectors, size in (
                 ("Collected Health", "USA", ["Healthcare", "B2B"], "11-100"),
                 ("Collected Finance", "United States", ["Fintech"], "0-10"),
                 ("Collected Canadian", "Canada", ["B2B"], "101-1000"),
+                ("Collected Analytics", "USA", ["Analytics"], "11-100"),
             ):
                 connection.execute(
                     "INSERT INTO gold.company(domain,name,country,business_sector,company_scale) VALUES(%s,%s,%s,%s,%s)",
@@ -332,8 +348,22 @@ def main() -> None:
         if report["status"] != "complete":
             raise RuntimeError("browser fixture currentness reconcile was incomplete")
         with browser_lifecycle_mail(config) as lifecycle_config:
+            app = create_app(lifecycle_config)
+
+            @app.post("/__fixture__/reset-icp-conflicts", include_in_schema=False)
+            def reset_icp_conflicts():
+                with psycopg.connect(database_url) as connection:
+                    connection.execute(
+                        """UPDATE operational.ideal_client_profiles
+                        SET industries='[{"name":"Analytics"}]',
+                            geographies='[{"kind":"country","value":"USA"}]',
+                            exclusions='[{"kind":"industry","name":"Analytics"},{"kind":"geography","geography":{"kind":"country","value":"United States"}}]'
+                        WHERE id='00000000-0000-0000-0000-000000000333'"""
+                    )
+                return {"reset": True}
+
             uvicorn.run(
-                create_app(lifecycle_config),
+                app,
                 host="127.0.0.1",
                 port=int(os.environ.get("HUGINN_BROWSER_API_PORT", "8000")),
                 log_level="warning",

@@ -1,0 +1,115 @@
+name: huginn
+
+x-app-environment: &app-environment
+  HUGINN_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
+  HUGINN_MANAGEMENT_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
+  HUGINN_MATCHMAKING_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
+  HUGINN_MANAGEMENT_ENVIRONMENT: ${HUGINN_MANAGEMENT_ENVIRONMENT:-local}
+  HUGINN_LIFECYCLE_PROOF_KEY: ${HUGINN_LIFECYCLE_PROOF_KEY:?Run python3 scripts/configure-compose.py first}
+  HUGINN_WEB_ORIGIN: ${HUGINN_WEB_ORIGIN:-http://localhost:8080}
+  HUGINN_SMTP_HOST: ${HUGINN_SMTP_HOST:-mailpit}
+  HUGINN_SMTP_PORT: ${HUGINN_SMTP_PORT:-1025}
+  HUGINN_SMTP_TLS: ${HUGINN_SMTP_TLS:-none}
+  HUGINN_SMTP_USERNAME: ${HUGINN_SMTP_USERNAME:-}
+  HUGINN_SMTP_PASSWORD: ${HUGINN_SMTP_PASSWORD:-}
+  HUGINN_SMTP_SENDER: ${HUGINN_SMTP_SENDER:-no-reply@huginn.local}
+  HUGINN_YC_ALGOLIA_API_KEY: ${HUGINN_YC_ALGOLIA_API_KEY:-}
+  HUGINN_OPENCORPORATES_API_TOKEN: ${HUGINN_OPENCORPORATES_API_TOKEN:-}
+
+x-app: &app
+  image: huginn-app:local
+  build: .
+  environment: *app-environment
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 30s
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  depends_on:
+    db:
+      condition: service_healthy
+    admin-seed:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: huginn
+      POSTGRES_USER: huginn
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/schema:/schema:ro
+      - ./docker/postgres/10-bootstrap.sh:/docker-entrypoint-initdb.d/10-bootstrap.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U huginn -d huginn &&
+          test "$$(psql -U huginn -d huginn -Atc
+          "SELECT to_regclass('operational.weekly_digest_deliveries') IS NOT NULL")" = t
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  admin-seed:
+    <<: *app
+    restart: "no"
+    command: ["python", "/app/docker/seed-admin.py"]
+    environment:
+      HUGINN_MANAGEMENT_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run setup first}@db:5432/huginn
+      HUGINN_BOOTSTRAP_ADMIN_USERNAME: ${HUGINN_BOOTSTRAP_ADMIN_USERNAME:-huginn-admin}
+      HUGINN_BOOTSTRAP_ADMIN_EMAIL: ${HUGINN_BOOTSTRAP_ADMIN_EMAIL:-admin@huginn.local}
+      HUGINN_BOOTSTRAP_ADMIN_PASSWORD: ${HUGINN_BOOTSTRAP_ADMIN_PASSWORD:?Generate private admin credentials first}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    ports:
+      - "${HUGINN_BIND_ADDRESS:-127.0.0.1}:${HUGINN_HOST_PORT:-8080}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mail-worker:
+    <<: *app
+    command: ["python", "-m", "huginn.management.presentation.cli.lifecycle_mail_worker", "--poll-seconds", "2"]
+
+  collection-worker:
+    <<: *app
+    command: ["python", "-m", "huginn.pipeline_control", "worker"]
+
+  matching-worker:
+    <<: *app
+    command: ["python", "-m", "huginn.matchmaking_control", "worker"]
+
+  mailpit:
+    image: axllent/mailpit:v1.27.10
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mail-data:/data
+    ports:
+      - "127.0.0.1:${HUGINN_MAILBOX_PORT:-8026}:8025"
+    restart: unless-stopped
+
+  weekly-digest:
+    <<: *app
+    profiles: ["jobs"]
+    restart: "no"
+    entrypoint: ["python", "-m", "huginn.management.weekly_digest"]
+    command: ["send", "--dry-run"]
+
+volumes:
+  postgres-data:
+  mail-data:

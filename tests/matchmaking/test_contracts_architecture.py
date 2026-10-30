@@ -60,7 +60,7 @@ def test_expected_layered_contract_files_exist():
     assert all((ROOT / path).is_file() for path in expected)
 
 
-def test_domain_has_no_application_persistence_or_presentation_imports():
+def test_domain_has_no_application_persistence_infrastructure_or_presentation_imports():
     for source in (ROOT / "domain").rglob("*.py"):
         tree = ast.parse(source.read_text())
         imports = [
@@ -76,6 +76,7 @@ def test_domain_has_no_application_persistence_or_presentation_imports():
         assert not any(
             name.startswith("huginn.matchmaking.application")
             or name.startswith("huginn.matchmaking.persistence")
+            or name.startswith("huginn.matchmaking.infrastructure")
             or name.startswith("huginn.matchmaking.presentation")
             or name.startswith("huginn.management")
             or name.startswith("huginn.elt")

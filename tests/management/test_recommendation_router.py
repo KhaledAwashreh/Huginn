@@ -1,0 +1,144 @@
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+from huginn.management.app import create_app
+from huginn.management.config import ManagementConfig
+from huginn.management.domain.errors.errors import NotFoundError
+from tests.management.test_matches_read_router import SESSION_TOKEN, FakeAuthentication
+
+
+class Service:
+    calls = []
+
+    def generate(self, user, strategy, limit):
+        self.calls.append((user, strategy, limit))
+        return {
+            "id": str(uuid4()),
+            "strategy_id": str(strategy),
+            "created_at": "2026-10-28T12:00:00Z",
+            "algorithm_version": "research-ranking-v1",
+            "assessment_method": "topic-overlap-v1",
+            "candidate_count": 0,
+            "retrieval_limit": 200,
+            "items": [],
+        }
+
+    def get(self, *args):
+        raise NotFoundError("Recommendation batch not found")
+
+    def latest(self, *args):
+        raise NotFoundError("Recommendation batch not found")
+
+    def feedback(self, *args):
+        raise NotFoundError("Recommendation batch not found")
+
+    def review(self, *args):
+        raise NotFoundError("Recommendation not found")
+
+    def weekly(self, user, limit, offset):
+        self.calls.append((user, limit, offset))
+        return []
+
+
+def test_weekly_history_is_owner_scoped_read_only_and_private():
+    owner = uuid4()
+    service = Service()
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(owner),
+        recommendation_service=service,
+    )
+    with TestClient(app) as client:
+        url = "/api/v1/recommendations/weekly"
+        assert client.get(url).status_code == 401
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        response = client.get(url, params={"limit": 2, "offset": 3})
+        assert response.status_code == 200 and response.json() == []
+        assert response.headers["cache-control"] == "no-store"
+        assert service.calls[-1] == (owner, 2, 3)
+        assert client.get(url, params={"offset": 2**63 - 1}).status_code == 200
+        assert client.get(url, params={"offset": 2**63}).status_code == 422
+        assert client.post(url, headers={"X-CSRF-Token": "csrf"}).status_code == 405
+
+
+def test_recommendation_mutation_requires_session_csrf_and_owner_identity():
+    owner = uuid4()
+    service = Service()
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(owner),
+        recommendation_service=service,
+    )
+    with TestClient(app) as client:
+        strategy = uuid4()
+        url = "/api/v1/recommendations"
+        assert client.post(url, json={"strategy_id": str(strategy)}).status_code == 401
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        assert client.post(url, json={"strategy_id": str(strategy)}).status_code == 403
+        response = client.post(
+            url, json={"strategy_id": str(strategy)}, headers={"X-CSRF-Token": "csrf"}
+        )
+        assert response.status_code == 201
+        assert response.headers["cache-control"] == "no-store"
+        assert service.calls[-1] == (owner, strategy, 10)
+        assert (
+            client.get(
+                url + "/latest", params={"strategy_id": str(strategy)}
+            ).status_code
+            == 404
+        )
+        assert client.get(url + "/" + str(uuid4())).status_code == 404
+        invalid = client.post(
+            url,
+            json={"strategy_id": str(strategy), "limit": True},
+            headers={"X-CSRF-Token": "csrf"},
+        )
+        assert invalid.status_code == 422
+        assert invalid.headers["cache-control"] == "no-store"
+
+
+def test_feedback_body_is_strict_and_private():
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(uuid4()),
+        recommendation_service=Service(),
+    )
+    with TestClient(app) as client:
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        url = f"/api/v1/recommendations/{uuid4()}/feedback"
+        base = {"recommendation_id": "a" * 64, "usefulness": "unsure"}
+        assert client.post(url, json=base).status_code == 403
+        invalid = client.post(
+            url,
+            json={**base, "reasons": ["invented"]},
+            headers={"X-CSRF-Token": "csrf"},
+        )
+        assert invalid.status_code == 422
+        response = client.post(url, json=base, headers={"X-CSRF-Token": "csrf"})
+        assert response.status_code == 404
+        assert response.headers["cache-control"] == "no-store"
+
+
+def test_generation_throttle_returns_private_retry_after_response():
+    from huginn.management.application.errors.errors import RateLimitError
+
+    class LimitedService(Service):
+        def generate(self, user, strategy, limit):
+            raise RateLimitError("Recommendation generation limit reached", 42)
+
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        authentication_service=FakeAuthentication(uuid4()),
+        recommendation_service=LimitedService(),
+    )
+    with TestClient(app) as client:
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        response = client.post(
+            "/api/v1/recommendations",
+            json={"strategy_id": str(uuid4())},
+            headers={"X-CSRF-Token": "csrf"},
+        )
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "42"
+    assert response.headers["cache-control"] == "no-store"

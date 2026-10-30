@@ -14,6 +14,7 @@ import CompanySizeRows from './CompanySizeRows.vue';
 import GeographyRows from './GeographyRows.vue';
 import ExclusionRows from './ExclusionRows.vue';
 import { useConfigurationOptions } from '../composables/useConfigurationOptions';
+import { icpSelectionConflicts } from '../forms/icpSelectionConflicts';
 
 const props = defineProps<{
   initial: IdealClientProfileDraft;
@@ -44,7 +45,18 @@ const optionState = computed(() =>
 const industries = computed(() => configurationOptions.data.value?.industries ?? []);
 const countries = computed(() => configurationOptions.data.value?.countries ?? []);
 const companySizes = computed(() => configurationOptions.data.value?.company_sizes ?? []);
-const canSubmit = computed(() => state.dirty.value && draft.value.name.trim() !== '');
+const conflicts = computed(() => icpSelectionConflicts(draft.value));
+const excludedIndustries = computed(() =>
+  draft.value.exclusions.flatMap((item) => (item.kind === 'industry' ? [item.name] : [])),
+);
+const excludedCountries = computed(() =>
+  draft.value.exclusions.flatMap((item) =>
+    item.kind === 'geography' && item.geography.kind === 'country' ? [item.geography.value] : [],
+  ),
+);
+const canSubmit = computed(
+  () => state.dirty.value && draft.value.name.trim() !== '' && conflicts.value.length === 0,
+);
 onBeforeRouteLeave(() => (busy.value ? false : state.canLeave()));
 onBeforeRouteUpdate(() => (busy.value ? false : state.canLeave()));
 function normalizedPath(path: (string | number)[]): string {
@@ -167,6 +179,9 @@ function cancel(): void {
 <template>
   <form class="editor" novalidate @submit.prevent="submit">
     <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+    <p v-for="conflict in conflicts" :key="conflict" class="form-error" role="alert">
+      {{ conflict }}
+    </p>
     <Button
       v-if="uncertain"
       type="button"
@@ -191,6 +206,7 @@ function cancel(): void {
     </div>
     <IndustryRows
       v-model="draft.industries"
+      :blocked-values="excludedIndustries"
       :disabled="busy"
       :errors="rowErrors('industries')"
       :options="industries"
@@ -205,6 +221,7 @@ function cancel(): void {
     />
     <GeographyRows
       v-model="draft.geographies"
+      :blocked-values="excludedCountries"
       :disabled="busy"
       :errors="rowErrors('geographies')"
       :options="countries"
@@ -212,6 +229,10 @@ function cancel(): void {
     />
     <ExclusionRows
       v-model="draft.exclusions"
+      :blocked-industries="draft.industries.map((item) => item.name)"
+      :blocked-countries="
+        draft.geographies.flatMap((item) => (item.kind === 'country' ? [item.value] : []))
+      "
       :disabled="busy"
       :errors="rowErrors('exclusions')"
       :industries="industries"

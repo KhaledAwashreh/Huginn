@@ -194,3 +194,63 @@ Three need a word of warning, because idempotent does not mean unconditional:
 3. `gold-business-sector-array.sql` is guarded on the column's current type, not merely on its existence, and that guard is not optional. Re-applying `ARRAY[business_sector]` to a column that already holds `TEXT[]` wraps every value one dimension deeper, raising no error and leaving the column type at `text[]`. Its tests therefore assert `array_ndims` and the literal value, not just the type, because the type alone does not detect it.
 
 The matchmaking-control migration runs after Gold, operational, role, and pipeline-control setup. It creates durable fixed-target matching receipts and result journals and adds the fixed `pipeline`/`matchmaking` resource discriminator to the existing guard. It preserves active pipeline owner identities and leaves existing Match status and notes unchanged. Run compatible additive upgrades with `ON_ERROR_STOP`; do not reset the base tables.
+
+## Recommendation history
+
+Reapply `gold-current-source-evidence.sql` after source-currentness setup so the
+view includes `source_country`. Then apply `operational-recommendations.sql` and
+`operational-weekly-digest.sql` after the operational schema before enabling the
+recommendation and Weekly Matches routes. Weekly history reads digest delivery
+storage even before any subscription or scheduler is enabled. The additive
+migration creates immutable owner-scoped recommendation batch snapshots and
+append-only feedback.
+Batch snapshots retain the original strategy identifier and source context after
+configuration changes or strategy deletion. Feedback references an occurrence
+inside its owned saved batch. No existing Match or source records are changed.
+Application startup applies no DDL. The same file supports fresh installs and
+existing databases, and can be reapplied without changing saved history.
+# Weekly digest
+
+After the recommendation migration, explicitly apply
+`operational-weekly-digest.sql` to enable operator-managed subscriptions and
+weekly delivery reservations. See [the digest runbook](../../docs/weekly-digest.md).
+Application startup performs no DDL.
+
+## Default administrator data seed
+
+`operational-bootstrap-admin.sql` is an explicit, repeatable data migration after
+the account-role and lifecycle schema. The trusted deployment runner
+`docker/seed-admin.py` reads `HUGINN_BOOTSTRAP_ADMIN_USERNAME`,
+`HUGINN_BOOTSTRAP_ADMIN_EMAIL` and `HUGINN_BOOTSTRAP_ADMIN_PASSWORD`, validates and
+hashes the password with the existing scrypt implementation, and supplies only the
+hash and identity via transaction-local `huginn.bootstrap_admin` JSON.
+
+Compose applies this seed in a one-shot service before starting application services,
+for fresh and existing compatible volumes. New Account, User, ProfessionalProfile
+and trusted recovery-identity rows are created in one transaction. Reruns preserve
+existing admin credentials, disablement and profile/recovery state; a pre-existing
+ordinary username or email collision fails instead of granting that user admin
+access. No hardcoded password, verified email claim or recurring password reset is
+introduced. See [Compose administration](../../docs/docker-compose.md#administration-and-data).
+
+## Initial EU-Startups collection window
+
+Apply `bronze-eu-startups-initial-watermark.sql` after the KAN-83 discovery schema
+when initializing a new deployment or fixing an existing installation with no
+watermark. Compose includes this migration in its empty-volume bootstrap. For an
+existing Compose database, apply explicitly without restarting services:
+
+```sh
+docker compose exec -T db psql -U huginn -d huginn -v ON_ERROR_STOP=1 \
+  -f /schema/bronze-eu-startups-initial-watermark.sql
+```
+
+The migration seeds only a missing singleton with the current UTC time minus 365
+days, matching the recommendation evidence window. It uses the discovery writer's
+advisory transaction lock. Existing watermarks and timestamps are never advanced
+or reset; Bronze data and durable retry records are unchanged. This starting
+boundary authorizes incremental discovery of listings modified in that window; it
+is not a claim that a prior crawl completed. Older unqueued listings are outside
+this first-run scope. This limits the date window, not the number of HTTP requests.
+The explicit `--allow-initial-backfill` override remains available for a deliberately
+unseeded database when full historical discovery is wanted.

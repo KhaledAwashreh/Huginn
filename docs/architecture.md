@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; scoring, ranking, and digest delivery remain unbuilt. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; an authenticated research recommendation flow now connects broad source retrieval, built-in ranking and stored feedback; a simple opt-in weekly SMTP digest is implemented. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -10,8 +10,8 @@ Architecture at a glance:
 1. Storage: one Postgres database. Three ELT schemas (bronze, silver, gold) feed a separate operational schema.
 2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
-4. Matching: a synchronous operator batch creates missing per-User Matches from current ICPs and recent Gold signals. Scoring and ranking are future work.
-5. Delivery: a weekly email digest is the product direction; digest composition and delivery are not implemented.
+4. Matching: a synchronous operator batch creates missing per-User Matches from current ICPs and recent Gold signals. A separate authenticated recommendation flow ranks broader source candidates and stores feedback (section 7).
+5. Delivery: a weekly email digest is the product direction; opt-in weekly composition and SMTP delivery are implemented by an explicit scheduled command.
 6. Out of scope this phase: everything above the domain layer (chatbot, dashboard, memory).
 
 ---
@@ -96,7 +96,7 @@ database so management bootstrap work does not disturb concurrent ELT work;
 that database receives all six bootstrap files because operational foreign
 keys still reference Gold.
 
-Future scoring belongs in the domain layer: it is batch work, it must stay explainable per feature because a future digest may render its reasoning, and future consumers should read its output rather than each other's.
+Scoring belongs in the domain layer: it is batch work, it must stay explainable per feature because a future digest may render its reasoning, and future consumers should read its output rather than each other's.
 
 ## 4. Data pipeline: bronze, silver, gold
 
@@ -287,17 +287,44 @@ This recipe was researched and adopted without the author's own background in en
 
 ## 7. Digest and scoring
 
-Scoring and delivery remain future work. The matching slice currently returns
-new Matches in deterministic Company UUID order and does not calculate scores,
-compose digest items, or send email. The following design records the intended
-direction; it is not implemented behavior:
+An explicit assessed-input research ranker is implemented separately from the
+creation-only matching batch. Its JSON operator entry point is
+`python -m huginn.matchmaking.presentation.ranking_cli`; see
+[`research-ranking.md`](research-ranking.md) for input, evidence, CLI and replay
+contracts. It does not connect to a database, update Matches, automatically
+assess business context, integrate with the live matcher, persist feedback,
+compose digest items or send email. The matcher still returns new Matches in
+deterministic Company UUID order without scoring them.
 
-1. A future first ranking may order eligible companies by their freshest qualifying signal. No ranking is produced by the current module.
-2. A later weighted score may be considered after real filtered-data volume exists. Its inputs and weights remain open (Jira KAN-8); the current schema and service do not produce a score or qualitative tier.
+The ranker consumes a profile snapshot, supplied assessments, complete source
+descriptions, exact evidence quotes and `as_of`. `research-ranking-v1` sums
+service fit (40), business context (30), company preferences (15) and relevant
+event timing (15), reporting evidence confidence separately. Optional CPU
+semantic reranking replaces only service-fit points with a sigmoid-scaled
+model logit. This is a relevance heuristic, not calibrated probability or
+proof of buying intent. Only a source-linked proposed-engagement conflict
+marked applicable to that hypothesis excludes an assessment. Seeded exploration
+fills up to every fifth displayed slot from the eligible uncertain tail.
 
-Recommendation occurrences, targeting/company-state snapshots and sent-digest snapshots need further lifecycle design. A new Match retains its selected immutable source observations and matching window, while later matching runs preserve its workflow status, notes and original evidence. It has no score snapshot or sent-state freeze.
+Output preserves input/source snapshots, component scores, model references
+and precomputed logits where present, deterministic identities and selection
+types for operator review and reproducible replay without model execution.
+Weights, transform and model choice are research decision candidates pending
+real-data quality evaluation. Actual CPU inference has passed a smoke check;
+recommendation quality has not been validated.
 
-The feedback loop and digest delivery are not wired to the matching service.
+The authenticated `/recommendations` workspace now connects an owned strategy
+to current guarded source evidence, the built-in ranker and immutable
+`operational.recommendation_batches` snapshots. Detailed feedback appends to
+`operational.recommendation_feedback` against an owned batch and recommendation
+identity. See [`research-recommendations.md`](research-recommendations.md) for
+the runtime, migration and conservative topic-overlap assessment contract.
+Weekly Matches share the recommendation evaluator: OR within ICP fields, AND across populated fields, known mismatches excluded, missing values explicitly unverified. A scheduled selection scores candidates across all valid active strategies, deduplicates companies and selects up to seven total. On-demand Recommendations remain scoped to one strategy. Opt-in weekly SMTP delivery saves that frozen selection and email reference, reserves one automatic attempt per User/week, excludes previously sent companies, and supports signed unsubscribe. See [`weekly-digest.md`](weekly-digest.md) for the cron command, existing SMTP settings and deliberate no-automatic-retry semantics. New Matches retain selected
+immutable source observations and matching windows; later matching runs
+preserve workflow status, notes and original evidence. Matches have no score
+snapshot or sent-state freeze. The standalone operator writes local research JSON; the connected workspace
+stores separate recommendation history, without creating a MatchScore or
+sent-digest record.
 
 ## 8. Agentic workflow, retrieval, presentation: deferred
 
