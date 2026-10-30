@@ -13,7 +13,7 @@ from huginn.management.security.passwords import hash_password, validate_new_pas
 logger = logging.getLogger(__name__)
 
 
-def main() -> int:
+def main(*, database_url: str | None = None) -> int:
     try:
         configurations = []
         for prefix in ("HUGINN_BOOTSTRAP_ADMIN", "HUGINN_BOOTSTRAP_SECOND_ADMIN"):
@@ -40,7 +40,9 @@ def main() -> int:
             / "db/schema/operational-bootstrap-admin.sql"
         )
         with psycopg.connect(
-            os.environ["HUGINN_MANAGEMENT_DATABASE_URL"],
+            database_url
+            if database_url is not None
+            else os.environ["HUGINN_MANAGEMENT_DATABASE_URL"],
             options="-c statement_timeout=15000 -c lock_timeout=5000",
         ) as conn:
             statement = migration.read_text()
