@@ -63,9 +63,12 @@ services:
     command: ["python", "/app/docker/seed-admin.py"]
     environment:
       HUGINN_MANAGEMENT_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run setup first}@db:5432/huginn
-      HUGINN_BOOTSTRAP_ADMIN_USERNAME: ${HUGINN_BOOTSTRAP_ADMIN_USERNAME:-huginn-admin}
-      HUGINN_BOOTSTRAP_ADMIN_EMAIL: ${HUGINN_BOOTSTRAP_ADMIN_EMAIL:-admin@huginn.local}
+      HUGINN_BOOTSTRAP_ADMIN_USERNAME: ${HUGINN_BOOTSTRAP_ADMIN_USERNAME:-Khaled}
+      HUGINN_BOOTSTRAP_ADMIN_EMAIL: ${HUGINN_BOOTSTRAP_ADMIN_EMAIL:-khaled@huginn.local}
       HUGINN_BOOTSTRAP_ADMIN_PASSWORD: ${HUGINN_BOOTSTRAP_ADMIN_PASSWORD:?Generate private admin credentials first}
+      HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME: ${HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME:-Craig}
+      HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL: ${HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL:-craig@huginn.local}
+      HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD: ${HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD:?Run python3 scripts/configure-compose.py --add-admin first}
     depends_on:
       db:
         condition: service_healthy

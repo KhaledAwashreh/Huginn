@@ -64,32 +64,48 @@ back when Docker restarts. Run `up` again after `down`.
 
 ## Administration and data
 
-A default administrator is seeded automatically. Its username defaults to
-`huginn-admin`; its randomly generated password is the
-`HUGINN_BOOTSTRAP_ADMIN_PASSWORD` value in your private `.env`. These values
-are never baked into the image or printed in startup logs. Log in directly with
-that credential; no signup or email verification is needed for this owner-provisioned
-account. It has all existing administrator permissions, including collection and
-matchmaking controls. Ordinary ownership rules for personal workspace data remain
-in force.
+Two founder administrators are seeded automatically on a fresh deployment:
 
-For a `.env` created before admin seeding was added, run once:
+| Username | Private password setting | Placeholder email |
+| --- | --- | --- |
+| `Khaled` | `HUGINN_BOOTSTRAP_ADMIN_PASSWORD` | `khaled@huginn.local` |
+| `Craig` | `HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD` | `craig@huginn.local` |
+
+Usernames are case-insensitive: `khaled` and `KHALED` identify the same account.
+Each password is generated independently in your private `.env`, never baked into
+the image or printed in startup logs. Both use the existing `admin` role, with all
+administrator permissions including collection and matchmaking. Founder labels
+are profile information, not a new authorization role. Ordinary ownership rules
+for personal workspace data still apply.
+
+Log in directly with the configured credentials; signup/email verification is not
+required for these owner-provisioned identities. Replace placeholder emails and
+personal details before using account recovery. Initial profiles use the username
+as first name, `Founder` as a placeholder last name and `Huginn co-founder` as the
+headline. The seed does not claim the configured email has been verified.
+
+For an older `.env` with no admins or only a primary admin, run once:
 
 ```sh
 python3 scripts/configure-compose.py --add-admin
 ```
 
-This adds missing admin credentials while preserving the database password and
-lifecycle key. It refuses partially configured admin settings rather than replacing
-them.
+This adds missing complete admin settings while preserving the database password,
+lifecycle key and any existing primary administrator settings. An old
+`huginn-admin` or custom primary username is preserved, not renamed or deleted;
+only fresh configuration defaults to `Khaled`. Set the primary username explicitly
+before its first seed if deploying an older configuration to a new database.
+Partial or empty primary/secondary configuration fails without modifying the file.
+Rerunning after both sets exist leaves their settings unchanged.
+
 The SQL data migration is `db/schema/operational-bootstrap-admin.sql`. The trusted
-runner hashes the configured password using the application's scrypt implementation
-and supplies the identity through a transaction-local PostgreSQL setting. All four
-identity rows are inserted atomically. Existing admins retain passwords, disabled
-state, recovery settings and profile edits. An ordinary account with the same
-case-insensitive username blocks the seed; it is never silently promoted. Choose a
-different bootstrap username or explicitly promote an owned account. A conflicting
-email rolls back the whole seed. No account is enrolled in weekly mail.
+runner validates both configured identities before connecting and hashes both
+passwords with scrypt. It applies the migration for both in one transaction, so a
+collision on the second founder rolls back the first new identity. Existing admins
+retain passwords, disabled state, recovery settings and profile edits. An ordinary
+account with the same case-insensitive username blocks the seed; it is never
+silently promoted. Choose a different bootstrap username or explicitly promote an
+owned account. No account is enrolled in weekly mail.
 
 On an existing compatible database, running the migration requires no direct SQL:
 

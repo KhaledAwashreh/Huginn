@@ -15,8 +15,9 @@ python3 scripts/configure-compose.py
 docker compose up -d --build --wait
 ```
 
-Open <http://localhost:8080>. The seeded `huginn-admin` password is saved privately
-in `.env`; signup verification emails appear at <http://localhost:8026>.
+Open <http://localhost:8080>. Founder administrators `Khaled` and `Craig` have
+separate randomly generated passwords saved privately in `.env`. Usernames are
+case-insensitive. Signup verification emails appear at <http://localhost:8026>.
 This starts a separate persistent database plus the app and workers. See the
 [Compose guide](docs/docker-compose.md) for configuration, admin access, backups,
 existing-data import and weekly scheduling.
