@@ -1,4 +1,6 @@
+import importlib.util
 import json
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -135,3 +137,136 @@ def test_parallel_seed_runs_create_only_one_identity(management_database_url):
             ).fetchone()[0]
             == 1
         )
+
+
+RUNNER = Path("docker/seed-admin.py").resolve()
+
+
+def founder_environment(first, second):
+    return {
+        "HUGINN_BOOTSTRAP_ADMIN_USERNAME": first,
+        "HUGINN_BOOTSTRAP_ADMIN_EMAIL": f"{first}@example.test",
+        "HUGINN_BOOTSTRAP_ADMIN_PASSWORD": "KhaledSeed!123",
+        "HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME": second,
+        "HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL": f"{second}@example.test",
+        "HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD": "CraigSeed!123",
+    }
+
+
+def run_founders(monkeypatch, environment, database_url):
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    spec = importlib.util.spec_from_file_location("founder_admin_runner", RUNNER)
+    assert spec is not None and spec.loader is not None
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    return runner.main(database_url=database_url)
+
+
+def test_runner_seeds_both_founders_and_preserves_existing_records(
+    management_database_url,
+    monkeypatch,
+    caplog,
+    capsys,
+):
+    caplog.set_level(logging.INFO)
+    suffix = uuid4().hex
+    names = (f"Khaled-{suffix}", f"Craig-{suffix}")
+    environment = founder_environment(*names)
+    result = run_founders(monkeypatch, environment, management_database_url)
+    assert result == 0, caplog.text
+    captured = capsys.readouterr()
+    with psycopg.connect(management_database_url) as conn:
+        rows = conn.execute(
+            """SELECT a.id,a.username,a.role,a.password_hash,u.id,u.first_name,u.last_name,
+            p.headline,r.verification_required,r.verified_email
+            FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id
+            JOIN operational.professional_profiles p ON p.user_id=u.id
+            JOIN operational.account_recovery_identity r ON r.account_id=a.id
+            WHERE a.username=ANY(%s) ORDER BY a.username""",
+            (list(names),),
+        ).fetchall()
+        assert len(rows) == 2
+        for row in rows:
+            assert row[2] == "admin"
+            assert row[5:8] == (row[1], "Founder", "Huginn co-founder")
+            assert row[8:] == (False, None)
+            password = "KhaledSeed!123" if row[1] == names[0] else "CraigSeed!123"
+            assert verify_password(Password(password), row[3])
+            assert password not in caplog.text + captured.out + captured.err
+    app = create_app(ManagementConfig(database_url=management_database_url))
+    for name, password in zip(names, ("KhaledSeed!123", "CraigSeed!123"), strict=True):
+        with TestClient(app) as client:
+            assert (
+                client.post(
+                    "/api/v1/sessions",
+                    json={"username": name.swapcase(), "password": password},
+                ).status_code
+                == 200
+            )
+            assert client.get("/api/v1/sessions/current").json()["role"] == "admin"
+    with psycopg.connect(management_database_url) as conn:
+        changed = hash_password(Password("ChangedFounder!123"))
+        conn.execute(
+            "UPDATE operational.accounts SET password_hash=%s,status='disabled' WHERE username=%s",
+            (changed, names[0]),
+        )
+        conn.execute(
+            "UPDATE operational.professional_profiles SET headline='Edited profile' WHERE user_id=%s",
+            (next(row[4] for row in rows if row[1] == names[0]),),
+        )
+        before = conn.execute(
+            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
+            (list(names),),
+        ).fetchall()
+    environment["HUGINN_BOOTSTRAP_ADMIN_USERNAME"] = names[0].lower()
+    assert run_founders(monkeypatch, environment, management_database_url) == 0
+    with psycopg.connect(management_database_url) as conn:
+        after = conn.execute(
+            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
+            (list(names),),
+        ).fetchall()
+        assert after == before
+
+
+def test_second_founder_conflict_rolls_back_first_founder(
+    management_database_url, monkeypatch
+):
+    first, second = f"first-{uuid4().hex}", f"second-{uuid4().hex}"
+    with psycopg.connect(management_database_url) as conn:
+        conn.execute(
+            "INSERT INTO operational.accounts(username,password_hash) VALUES (%s,'keep-hash')",
+            (second,),
+        )
+    result = run_founders(
+        monkeypatch, founder_environment(first, second), management_database_url
+    )
+    assert result == 1
+    with psycopg.connect(management_database_url) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM operational.accounts WHERE username=%s", (first,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert conn.execute(
+            "SELECT role,password_hash FROM operational.accounts WHERE username=%s",
+            (second,),
+        ).fetchone() == ("user", "keep-hash")
+
+
+@pytest.mark.parametrize("duplicate", ("username", "email"))
+def test_runner_rejects_duplicate_founder_identity_before_connecting(
+    duplicate, monkeypatch, caplog
+):
+    environment = founder_environment("Khaled", "Craig")
+    if duplicate == "username":
+        environment["HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME"] = "kHALED"
+    else:
+        environment["HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL"] = "KHALED@example.test"
+    result = run_founders(
+        monkeypatch, environment, "postgresql://invalid.invalid/unused"
+    )
+    assert result == 1
+    assert "ValueError" in caplog.text
+    assert "OperationalError" not in caplog.text

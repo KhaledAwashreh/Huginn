@@ -43,10 +43,14 @@ BEGIN
         RETURNING id INTO v_account_id;
     INSERT INTO operational.users
         (account_id, first_name, last_name, email, phone_number, country_of_residence, timezone)
-        VALUES (v_account_id, 'Huginn', 'Administrator', lower(btrim(seed->>'email')),
+        VALUES (v_account_id,
+                COALESCE(NULLIF(btrim(seed->>'first_name'), ''), 'Huginn'),
+                COALESCE(NULLIF(btrim(seed->>'last_name'), ''), 'Administrator'),
+                lower(btrim(seed->>'email')),
                 '+10000000000', 'US', 'UTC')
         RETURNING id INTO v_user_id;
-    INSERT INTO operational.professional_profiles (user_id) VALUES (v_user_id);
+    INSERT INTO operational.professional_profiles (user_id, headline)
+        VALUES (v_user_id, NULLIF(btrim(seed->>'headline'), ''));
     -- Owner-provisioned local administrator, not an assertion of email ownership.
     INSERT INTO operational.account_recovery_identity (account_id, verification_required)
         VALUES (v_account_id, false);

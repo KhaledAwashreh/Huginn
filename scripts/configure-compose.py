@@ -26,38 +26,49 @@ def main() -> int:
     content = content.replace(
         "HUGINN_LIFECYCLE_PROOF_KEY=\n", f"HUGINN_LIFECYCLE_PROOF_KEY={key}\n"
     )
-    admin_password = secrets.token_urlsafe(9) + "A1!"
-    content = content.replace(
-        "HUGINN_BOOTSTRAP_ADMIN_PASSWORD=\n",
-        f"HUGINN_BOOTSTRAP_ADMIN_PASSWORD={admin_password}\n",
-    )
+    prefixes = ("HUGINN_BOOTSTRAP_ADMIN", "HUGINN_BOOTSTRAP_SECOND_ADMIN")
+    passwords = set()
+    for prefix in prefixes:
+        password = secrets.token_urlsafe(9) + "A1!"
+        while password in passwords:
+            password = secrets.token_urlsafe(9) + "A1!"
+        passwords.add(password)
+        content = content.replace(
+            f"{prefix}_PASSWORD=\n", f"{prefix}_PASSWORD={password}\n"
+        )
     if args.add_admin:
         fd = os.open(args.output, os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW)
         with os.fdopen(fd, "r+") as stream:
             fcntl.flock(stream, fcntl.LOCK_EX)
             existing = stream.read()
-            keys = {
-                line.split("=", 1)[0].strip()
+            values = {
+                line.split("=", 1)[0].strip(): line.split("=", 1)[1].strip()
                 for line in existing.splitlines()
                 if "=" in line and not line.lstrip().startswith("#")
             }
-            required = {
-                "HUGINN_BOOTSTRAP_ADMIN_USERNAME",
-                "HUGINN_BOOTSTRAP_ADMIN_EMAIL",
-                "HUGINN_BOOTSTRAP_ADMIN_PASSWORD",
-            }
-            if required <= keys:
+            missing = []
+            for prefix in prefixes:
+                required = {
+                    f"{prefix}_{field}" for field in ("USERNAME", "EMAIL", "PASSWORD")
+                }
+                present = required & values.keys()
+                if present and (
+                    present != required or any(not values[key] for key in required)
+                ):
+                    parser.exit(
+                        1,
+                        "Partial admin configuration exists; complete it explicitly.\n",
+                    )
+                if not present:
+                    missing.append(prefix)
+            if not missing:
                 print("Admin configuration already exists; preserving it.")
                 return 0
-            if required & keys:
-                parser.exit(
-                    1, "Partial admin configuration exists; complete it explicitly.\n"
-                )
             os.fchmod(stream.fileno(), 0o600)
             admin_lines = [
                 line
                 for line in content.splitlines()
-                if line.startswith("HUGINN_BOOTSTRAP_ADMIN_")
+                if any(line.startswith(prefix + "_") for prefix in missing)
             ]
             stream.write("\n" + "\n".join(admin_lines) + "\n")
         print(f"Added private admin configuration to {args.output}.")

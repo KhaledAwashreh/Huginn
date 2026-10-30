@@ -216,14 +216,23 @@ After the recommendation migration, explicitly apply
 weekly delivery reservations. See [the digest runbook](../../docs/weekly-digest.md).
 Application startup performs no DDL.
 
-## Default administrator data seed
+## Founder administrator data seed
 
 `operational-bootstrap-admin.sql` is an explicit, repeatable data migration after
 the account-role and lifecycle schema. The trusted deployment runner
-`docker/seed-admin.py` reads `HUGINN_BOOTSTRAP_ADMIN_USERNAME`,
-`HUGINN_BOOTSTRAP_ADMIN_EMAIL` and `HUGINN_BOOTSTRAP_ADMIN_PASSWORD`, validates and
-hashes the password with the existing scrypt implementation, and supplies only the
-hash and identity via transaction-local `huginn.bootstrap_admin` JSON.
+`docker/seed-admin.py` reads the `USERNAME`, `EMAIL` and `PASSWORD` fields under
+both `HUGINN_BOOTSTRAP_ADMIN_*` and `HUGINN_BOOTSTRAP_SECOND_ADMIN_*`. Fresh Compose
+configuration defaults to `Khaled` and `Craig`, with independent generated
+passwords and distinct placeholder emails. Both identities are validated before
+connecting, and case-insensitive duplicate usernames or normalized emails are
+rejected. The runner hashes passwords with scrypt and supplies only the hashes
+and identities via transaction-local `huginn.bootstrap_admin` JSON.
+
+Both founders are seeded in one transaction; a collision for the second founder
+rolls back new records for the first. Founder labels are profile metadata, using
+the existing `admin` authorization role. New profiles have the configured username
+as their first name, `Founder` as a placeholder last name, and `Huginn co-founder`
+as their headline. Replace placeholder personal details through the profile UI.
 
 Compose applies this seed in a one-shot service before starting application services,
 for fresh and existing compatible volumes. New Account, User, ProfessionalProfile
