@@ -58,8 +58,9 @@ requests run the checks without publishing. Publishing uses GitHub's built-in
 repository secrets. The image name is lowercase and its tag is the full commit
 SHA, for example `ghcr.io/khaledawashreh/huginn:FULL_COMMIT_SHA`. There is no moving
 `latest` tag. The publish job summary gives the commit, tag and digest reference.
-This builds on GitHub's runner, not on the small EC2 instance. It does not connect
-to or deploy anything on EC2 automatically.
+This builds on GitHub's runner, not on the small EC2 instance. After publication,
+the `deploy-ec2` job deploys that exact image digest to the configured instance.
+Complete the [one-time deployment setup](#automatic-ec2-deployment) first.
 
 GHCR packages are private by default on first publication. For a private package,
 create a GitHub personal access token (classic) with only `read:packages`, from an
@@ -76,8 +77,8 @@ unset GHCR_TOKEN
 ```
 
 If you deliberately make the package public in GitHub package settings, anonymous
-pulls work and this login is unnecessary. GitHub CLI and AWS credentials are not
-needed on EC2. See [GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+pulls work and this login is unnecessary. GitHub CLI and AWS access keys are not
+needed for registry pulls. See [GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 After the publish job succeeds, copy its full commit SHA and image reference.
 For first setup, clone this public repository and check out that same commit:
@@ -119,6 +120,85 @@ files mounted by Compose. Apply any required upgrades explicitly using the
 image does not migrate an existing database. Run `--add-admin` only if upgrading
 an older configuration missing founder settings. Do not rerun secret generation
 or use `down --volumes` as an upgrade step.
+
+## Automatic EC2 deployment
+
+After one-time setup, merging to `master` runs checks, publishes the image, then
+uses AWS Systems Manager Run Command to deploy that exact digest. GitHub obtains
+short-lived AWS credentials through OpenID Connect (OIDC). No server IP, private
+key or long-lived AWS access key is stored in GitHub. Target selection uses an
+EC2 tag, so a changed public IP does not require a pipeline change. Pull requests
+never deploy. Compose briefly interrupts changed services during recreation;
+this is a single-instance deployment, not a zero-downtime rollout.
+
+### One-time AWS and GitHub setup
+
+Follow [the Terraform bootstrap tutorial](../infrastructure/aws-deployment/README.md)
+to configure IAM/OIDC and the deployment tag against the **existing** instance.
+The bootstrap preserves the host and any existing instance profile. If no profile
+exists, it creates an SSM profile and gives you its name for one-time attachment
+through the EC2 console. It does not install software, edit `.env`, change ports
+or deploy the application.
+
+After reviewing and applying the bootstrap, configure the GitHub variables printed
+by `terraform output github_actions_variables` and restrict the `production`
+environment's deployment branches to `master`. Ensure SSM Agent is Online and the
+existing Huginn checkout works. The default deployment owner/path are `ubuntu`
+and `/home/ubuntu/Huginn`; override `EC2_DEPLOY_USER` and `EC2_DEPLOY_PATH` only
+when your existing checkout differs. Authenticate private GHCR pulls once using
+`sudo docker login ghcr.io` as above.
+
+Application settings, SMTP credentials and registry pull credentials stay on EC2.
+The job needs no repository secrets, inbound deployment port or public IP setting.
+Terraform state and operator credentials stay outside Git. Terraform is a one-time
+infrastructure setup, not another step on every application release.
+
+### Release behavior and recovery
+
+The host serializes deployment, fetches `master` and skips an outdated workflow
+whose commit no longer matches `master`.
+Superseded releases finish successfully without deploying; their output says
+`Skipping stale deployment`, followed by successful SSM command completion.
+It rejects tracked checkout edits,
+missing `.env`, mismatched image revision labels and SQL/bootstrap changes.
+Schema changes require the explicit [schema upgrade](../db/schema/README.md)
+first; check out that published commit manually after completing the upgrade,
+then rerun the failed deployment job. This deliberately does not infer or run
+database migrations.
+
+For an eligible release, the script pulls the published digest, checks out its
+matching commit, changes only `HUGINN_IMAGE` in `.env`, runs Compose pull and
+`up -d --no-build --wait`, and checks `/ready` inside the app container. This
+works regardless of whether the host exposes port 8080, port 80 or a reverse
+proxy. Port settings and security group rules are not changed. Existing database
+and mailbox volumes, founder credentials and all other settings are preserved.
+
+The dispatcher prints the SSM command ID immediately and waits for its actual
+exit status; accepting a command is not counted as a successful deployment.
+Commands have a 60-second delivery timeout and 900-second execution limit; the
+runner waits up to 1,020 seconds. Invocation lookup retries only the documented
+initial `InvocationDoesNotExist` visibility delay. It never automatically resends
+an uncertain SendCommand request. If the runner loses its connection, times out,
+or is cancelled, the server command may still run until its execution limit.
+Inspect that command in **Systems Manager → Run Command → Command history**
+before rerunning the workflow to avoid overlapping or duplicate deployments.
+
+A failed command marks the deployment job red. Failures after checkout restore
+the previous checkout and `.env`, but containers may already have been recreated.
+There is no automatic database or container rollback. Inspect service state on
+the instance:
+
+```sh
+sudo docker compose ps -a
+sudo docker compose logs --tail=100 app admin-seed
+```
+
+After fixing the cause and checking the previous SSM command's status, rerun the
+failed deployment job. If choosing to return to the restored previous version,
+review schema compatibility and run
+`sudo docker compose up -d --no-build --wait`. Never use `down --volumes` to
+recover a deployment. Deployment logs omit subprocess output that might contain
+private configuration; inspect detailed service logs directly on the server.
 
 ## Inspect, stop and restart
 
