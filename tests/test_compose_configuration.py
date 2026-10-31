@@ -1,8 +1,12 @@
 import base64
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/configure-compose.py"
 
@@ -115,3 +119,70 @@ def test_complete_but_empty_admin_setting_is_rejected_without_changes(tmp_path):
     )
     assert result.returncode != 0
     assert target.read_text() == original
+
+
+@pytest.mark.parametrize(
+    "image",
+    (
+        None,
+        "ghcr.io/example/huginn:" + "a" * 40,
+        "ghcr.io/example/huginn@sha256:" + "b" * 64,
+    ),
+)
+def test_compose_resolves_shared_image_without_changing_infrastructure(tmp_path, image):
+    if shutil.which("docker") is None:
+        pytest.skip(
+            "Docker Compose is required to resolve the deployment configuration"
+        )
+    target = tmp_path / ".env"
+    subprocess.run(
+        [sys.executable, str(SCRIPT), "--output", str(target)],
+        check=True,
+        capture_output=True,
+    )
+    # Exercise the fallback independently of the generated template default.
+    target.write_text(
+        "\n".join(
+            line
+            for line in target.read_text().splitlines()
+            if not line.startswith("HUGINN_IMAGE=")
+        )
+        + "\n"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("HUGINN_") and key != "POSTGRES_PASSWORD"
+    }
+    if image is not None:
+        environment["HUGINN_IMAGE"] = image
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(target),
+            "--profile",
+            "jobs",
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=SCRIPT.parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    for name in (
+        "app",
+        "admin-seed",
+        "collection-worker",
+        "matching-worker",
+        "mail-worker",
+        "weekly-digest",
+    ):
+        assert services[name]["image"] == (image or "huginn-app:local"), name
+    assert services["db"]["image"] == "postgres:16-alpine"
+    assert services["mailpit"]["image"] == "axllent/mailpit:v1.27.10"
