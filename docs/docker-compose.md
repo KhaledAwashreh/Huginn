@@ -49,6 +49,77 @@ readiness, so dependent processes do not start against an incomplete bootstrap.
 For future upgrades, follow [the schema guide](../db/schema/README.md); rebuilding an
 image does not upgrade an existing database.
 
+## Pull a published image on EC2
+
+On each push to `master`, CI publishes the Linux amd64 application image to GHCR
+only after lint, Python tests, frontend checks and browser tests succeed. Pull
+requests run the checks without publishing. Publishing uses GitHub's built-in
+`GITHUB_TOKEN` with package-write permission; no publishing credential is added to
+repository secrets. The image name is lowercase and its tag is the full commit
+SHA, for example `ghcr.io/khaledawashreh/huginn:FULL_COMMIT_SHA`. There is no moving
+`latest` tag. The publish job summary gives the commit, tag and digest reference.
+This builds on GitHub's runner, not on the small EC2 instance. It does not connect
+to or deploy anything on EC2 automatically.
+
+GHCR packages are private by default on first publication. For a private package,
+create a GitHub personal access token (classic) with only `read:packages`, from an
+account allowed to read that package. On EC2, log in using the same `sudo` Docker
+context used for pulls. Read the token interactively so it does not enter shell
+history:
+
+```sh
+read -s -p "GHCR token: " GHCR_TOKEN
+printf '\n'
+printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io \
+  --username KhaledAwashreh --password-stdin
+unset GHCR_TOKEN
+```
+
+If you deliberately make the package public in GitHub package settings, anonymous
+pulls work and this login is unnecessary. GitHub CLI and AWS credentials are not
+needed on EC2. See [GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+After the publish job succeeds, copy its full commit SHA and image reference.
+For first setup, clone this public repository and check out that same commit:
+
+```sh
+git clone https://github.com/KhaledAwashreh/Huginn.git
+cd Huginn
+git checkout FULL_COMMIT_SHA
+python3 scripts/configure-compose.py
+```
+
+Replace `FULL_COMMIT_SHA` with the published commit. In the generated private
+`.env`, replace the `HUGINN_IMAGE` line with the exact image tag or digest copied
+from the job summary:
+
+```dotenv
+HUGINN_IMAGE=ghcr.io/khaledawashreh/huginn:FULL_COMMIT_SHA
+```
+
+Then pull and start without building:
+
+```sh
+sudo docker compose pull
+sudo docker compose up -d --no-build --wait
+sudo docker compose ps
+curl -f http://127.0.0.1:8080/ready
+```
+
+`HUGINN_IMAGE` selects the same image for the API, admin seed, workers and manual
+weekly job. PostgreSQL and Mailpit keep their separately pinned images. Omitting
+this setting retains `huginn-app:local` for local builds. The application remains
+bound to localhost; configure [hosting](#hosting) for public HTTPS separately.
+
+For later releases, keep `.env` and the named data volumes. Fetch the repository,
+check out the published commit, and change only the image reference and settings
+the release requires. The matching checkout supplies the schema and bootstrap
+files mounted by Compose. Apply any required upgrades explicitly using the
+[schema guide](../db/schema/README.md) before starting the new version; pulling an
+image does not migrate an existing database. Run `--add-admin` only if upgrading
+an older configuration missing founder settings. Do not rerun secret generation
+or use `down --volumes` as an upgrade step.
+
 ## Inspect, stop and restart
 
 ```sh

@@ -17,7 +17,7 @@ x-app-environment: &app-environment
   HUGINN_OPENCORPORATES_API_TOKEN: ${HUGINN_OPENCORPORATES_API_TOKEN:-}
 
 x-app: &app
-  image: huginn-app:local
+  image: ${HUGINN_IMAGE:-huginn-app:local}
   build: .
   environment: *app-environment
   init: true
