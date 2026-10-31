@@ -159,6 +159,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
@@ -166,6 +168,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and publish image
+        id: publish
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -178,8 +181,47 @@ jobs:
             --tag "$image" .
           docker push "$image"
           digest_image="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          printf 'image=%s\n' "$digest_image" >> "$GITHUB_OUTPUT"
           {
             printf 'Published commit: `%s`\n\n' "$GITHUB_SHA"
             printf 'Image tag: `%s`\n\n' "$image"
             printf 'Digest reference: `%s`\n' "$digest_image"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-ec2:
+    needs: publish-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: ec2-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Assume the EC2 deployment role
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-north-1' }}
+          role-session-name: huginn-deploy-${{ github.run_id }}
+
+      - name: Pull and deploy through Systems Manager
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-north-1' }}
+          EC2_DEPLOY_TAG_VALUE: ${{ vars.EC2_DEPLOY_TAG_VALUE || 'huginn-production' }}
+          EC2_DEPLOY_USER: ${{ vars.EC2_DEPLOY_USER || 'ubuntu' }}
+          EC2_DEPLOY_PATH: ${{ vars.EC2_DEPLOY_PATH || '/home/ubuntu/Huginn' }}
+          PUBLISHED_IMAGE: ${{ needs.publish-image.outputs.image }}
+        run: |
+          python3 scripts/dispatch-ec2-deployment.py \
+            --region "$AWS_REGION" --tag-value "$EC2_DEPLOY_TAG_VALUE" \
+            --user "$EC2_DEPLOY_USER" --path "$EC2_DEPLOY_PATH" \
+            --commit "$GITHUB_SHA" --image "$PUBLISHED_IMAGE"

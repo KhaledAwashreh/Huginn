@@ -19,3 +19,12 @@ frontend/test-results/
 
 # Private Docker Compose runtime configuration.
 .env.compose
+
+# Private Terraform state, inputs, provider cache and saved plans.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
