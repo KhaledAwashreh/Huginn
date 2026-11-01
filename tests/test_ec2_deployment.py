@@ -56,6 +56,12 @@ def deployment(tmp_path):
         "    sys.exit(17)\n"
         "if os.environ.get('FAIL_READINESS') and name == 'docker' and args[:6] == ['compose', '--env-file', '.env', '-f', 'compose.yaml', 'exec']:\n"
         "    sys.exit(19)\n"
+        "if name == 'docker' and '--force-recreate' in args and args[-1:] == ['traefik']:\n"
+        "    target = state.exists() and state.read_text() == '" + COMMIT + "'\n"
+        "    if target and os.environ.get('FAIL_PROXY_RECREATE'):\n"
+        "        if os.environ.get('EDIT_CONFIG_ON_PROXY_FAILURE'): pathlib.Path('.env').write_text('HUGINN_IMAGE=operator-image\\nPRIVATE_SETTING=operator-change\\n')\n"
+        "        sys.exit(29)\n"
+        "    if not target and os.environ.get('FAIL_PROXY_RECOVERY'): sys.exit(31)\n"
         "if name == 'curl':\n"
         "    print(os.environ.get('HTTPS_RESPONSE', '{\"status\":\"ready\"}\\n200'))\n"
         "if name == 'docker' and args[-3:] == ['config', '--format', 'json']:\n"
@@ -527,7 +533,7 @@ def test_https_readiness_uses_hostname_verification_and_loopback(monkeypatch):
     monkeypatch.setattr(module, "command", run)
     module.verify_https_readiness("huginn.live", deadline=module.time.monotonic() + 30)
     arguments, _ = calls[0]
-    assert arguments[0] == "curl"
+    assert arguments[:2] == ("curl", "-q")
     assert "huginn.live:443:127.0.0.1" in arguments
     assert "https://huginn.live/ready" in arguments
     assert "--insecure" not in arguments and "-k" not in arguments
@@ -701,3 +707,221 @@ def test_active_https_cannot_be_removed_by_target_release(deployment):
     assert "readiness check passed" not in result.stdout
     assert (checkout / ".env").read_bytes() == original
     assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())
+
+
+def _proxy_recreations(calls):
+    return [
+        call for call in calls if "--force-recreate" in call and call[-1] == "traefik"
+    ]
+
+
+def test_failed_proxy_recreate_recovers_previous_ingress_after_safe_restore(deployment):
+    checkout, original, run, commands = deployment
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG,
+        PROXY_CHANGE="docker/traefik/dynamic.yaml",
+        FAIL_PROXY_RECREATE="1",
+    )
+    assert result.returncode != 0
+    assert (checkout / ".env").read_bytes() == original
+    calls = commands()
+    recreations = _proxy_recreations(calls)
+    assert len(recreations) == 2
+    rollback_index = calls.index(["git", "checkout", "--detach", PREVIOUS])
+    assert calls.index(recreations[0]) < rollback_index
+    assert calls.index(recreations[1], rollback_index) > rollback_index
+    assert any(call[0] == "curl" for call in calls[rollback_index:])
+    assert "Previous HTTPS ingress restored" in result.stderr
+    assert "Rollback incomplete" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "failure, expected",
+    [
+        ({"FAIL_PROXY_RECOVERY": "1"}, "HTTPS ingress recovery"),
+        ({"HTTPS_RESPONSE": "{}\n200"}, "HTTPS ingress recovery"),
+        ({"FAIL_ROLLBACK": "1"}, "checkout recovery"),
+        ({"EDIT_CONFIG_ON_PROXY_FAILURE": "1"}, "preserving operator edits"),
+    ],
+)
+def test_proxy_recovery_reports_or_preserves_unsafe_recovery(
+    deployment, failure, expected
+):
+    checkout, original, run, commands = deployment
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG,
+        PROXY_CHANGE="docker/traefik/dynamic.yaml",
+        FAIL_PROXY_RECREATE="1",
+        **failure,
+    )
+    assert result.returncode != 0
+    assert "Rollback incomplete" in result.stderr
+    assert expected in result.stderr
+    assert "Previous HTTPS ingress restored" not in result.stderr
+    expected_recreations = (
+        1 if {"FAIL_ROLLBACK", "EDIT_CONFIG_ON_PROXY_FAILURE"} & failure.keys() else 2
+    )
+    assert len(_proxy_recreations(commands())) == expected_recreations
+    if "EDIT_CONFIG_ON_PROXY_FAILURE" in failure:
+        assert (checkout / ".env").read_bytes() != original
+        assert b"PRIVATE_SETTING=operator-change" in (checkout / ".env").read_bytes()
+
+
+def test_first_https_cutover_does_not_recreate_previously_absent_proxy(deployment):
+    _, _, run, commands = deployment
+    result = run(
+        PREVIOUS_COMPOSE_CONFIG='{"services":{}}',
+        COMPOSE_CONFIG=HOSTED_CONFIG,
+        PROXY_CHANGE="docker/traefik/dynamic.yaml",
+        FAIL_PROXY_RECREATE="1",
+    )
+    assert result.returncode != 0
+    assert len(_proxy_recreations(commands())) == 1
+
+
+def test_failed_initial_compose_up_recovers_changed_existing_proxy(deployment):
+    _, _, run, commands = deployment
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG,
+        PROXY_CHANGE="docker/traefik/dynamic.yaml",
+        FAIL_COMMAND="docker compose --env-file .env -f compose.yaml up -d --no-build --wait --wait-timeout 180",
+    )
+    assert result.returncode != 0
+    assert len(_proxy_recreations(commands())) == 1
+    assert "Previous HTTPS ingress restored" in result.stderr
+
+
+def test_changed_resolved_proxy_is_recovered_without_dynamic_file_diff(deployment):
+    _, _, run, commands = deployment
+    previous = json.loads(HOSTED_CONFIG)
+    previous["services"]["traefik"]["image"] = "traefik:previous-pinned"
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG,
+        PREVIOUS_COMPOSE_CONFIG=json.dumps(previous),
+        FAIL_COMMAND="docker compose --env-file .env -f compose.yaml up -d --no-build --wait --wait-timeout 180",
+    )
+    assert result.returncode != 0
+    assert len(_proxy_recreations(commands())) == 1
+    assert "Previous HTTPS ingress restored" in result.stderr
+
+
+@pytest.mark.parametrize("uncertain_stage", ["recreate", "verification"])
+def test_uncertain_proxy_recovery_stops_without_further_commands(
+    deployment,
+    monkeypatch,
+    uncertain_stage,
+):
+    checkout, original, _, _ = deployment
+    module = load_deployment_script()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("PATH", f"{checkout.parent / 'bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("COMMAND_LOG", str(checkout.parent / "commands.jsonl"))
+    monkeypatch.setenv("COMPOSE_CONFIG", HOSTED_CONFIG)
+    monkeypatch.setenv("PROXY_CHANGE", "docker/traefik/dynamic.yaml")
+    monkeypatch.setenv("FAIL_PROXY_RECREATE", "1")
+    command = module.command
+    recovering = False
+    uncertain = False
+
+    def guarded_command(*arguments, deadline):
+        nonlocal recovering, uncertain
+        assert not uncertain, "no command may follow uncertain proxy recovery"
+        if arguments == ("git", "checkout", "--detach", PREVIOUS):
+            recovering = True
+        if (
+            recovering
+            and "--force-recreate" in arguments
+            and uncertain_stage == "recreate"
+        ):
+            uncertain = True
+            raise module.CommandTerminationUnconfirmed(
+                "proxy recreation not confirmed stopped"
+            )
+        return command(*arguments, deadline=deadline)
+
+    def guarded_verification(domain, *, deadline):
+        nonlocal uncertain
+        assert recovering
+        assert uncertain_stage == "verification"
+        uncertain = True
+        raise module.CommandTerminationUnconfirmed("verification not confirmed stopped")
+
+    monkeypatch.setattr(module, "command", guarded_command)
+    monkeypatch.setattr(module, "verify_https_readiness", guarded_verification)
+    with pytest.raises(module.CommandTerminationUnconfirmed):
+        module.deploy(checkout, COMMIT, IMAGE)
+    assert uncertain
+    assert (checkout / ".env").read_bytes() == original
+
+
+def test_proxy_recovery_and_verification_share_existing_rollback_deadline(
+    deployment,
+    monkeypatch,
+):
+    checkout, _, _, _ = deployment
+    module = load_deployment_script()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("PATH", f"{checkout.parent / 'bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("COMMAND_LOG", str(checkout.parent / "commands.jsonl"))
+    monkeypatch.setenv("COMPOSE_CONFIG", HOSTED_CONFIG)
+    monkeypatch.setenv("PROXY_CHANGE", "docker/traefik/dynamic.yaml")
+    monkeypatch.setenv("FAIL_PROXY_RECREATE", "1")
+    command = module.command
+    recovering = False
+    deadlines = []
+
+    def capture_command(*arguments, deadline):
+        nonlocal recovering
+        if arguments == ("git", "checkout", "--detach", PREVIOUS):
+            recovering = True
+        if recovering:
+            deadlines.append(deadline)
+        return command(*arguments, deadline=deadline)
+
+    def capture_verification(domain, *, deadline):
+        assert domain == "huginn.live"
+        deadlines.append(deadline)
+
+    monkeypatch.setattr(module, "command", capture_command)
+    monkeypatch.setattr(module, "verify_https_readiness", capture_verification)
+    started = module.time.monotonic()
+    with pytest.raises(RuntimeError):
+        module.deploy(checkout, COMMIT, IMAGE)
+    assert len(deadlines) >= 6
+    assert len(set(deadlines)) == 1
+    assert 0 < deadlines[0] - module.time.monotonic() <= 120
+    assert deadlines[0] <= started + 840
+
+
+def test_operator_edit_during_proxy_recovery_preflight_prevents_recreation(
+    deployment,
+    monkeypatch,
+):
+    checkout, _, _, _ = deployment
+    module = load_deployment_script()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("PATH", f"{checkout.parent / 'bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("COMMAND_LOG", str(checkout.parent / "commands.jsonl"))
+    monkeypatch.setenv("COMPOSE_CONFIG", HOSTED_CONFIG)
+    monkeypatch.setenv("PROXY_CHANGE", "docker/traefik/dynamic.yaml")
+    monkeypatch.setenv("FAIL_PROXY_RECREATE", "1")
+    command = module.command
+    recovering = False
+    restart_attempts = []
+
+    def concurrent_edit(*arguments, deadline):
+        nonlocal recovering
+        if arguments == ("git", "checkout", "--detach", PREVIOUS):
+            recovering = True
+        if recovering and "--force-recreate" in arguments:
+            restart_attempts.append(arguments)
+        answer = command(*arguments, deadline=deadline)
+        if recovering and arguments[-3:] == ("config", "--format", "json"):
+            (checkout / ".env").write_text("HUGINN_IMAGE=operator-edit\n")
+        return answer
+
+    monkeypatch.setattr(module, "command", concurrent_edit)
+    with pytest.raises(RuntimeError):
+        module.deploy(checkout, COMMIT, IMAGE)
+    assert restart_attempts == []
+    assert (checkout / ".env").read_text() == "HUGINN_IMAGE=operator-edit\n"

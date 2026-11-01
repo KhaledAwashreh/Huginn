@@ -29,8 +29,9 @@ def validate_https_configuration(config: dict) -> str | None:
             raise ValueError(f"{key} must be a lowercase DNS hostname")
     if domain == alias:
         raise ValueError("HUGINN_DOMAIN_ALIAS must differ from HUGINN_DOMAIN")
-    if not re.fullmatch(
-        r"[^\s@]+@[^\s@]+\.[^\s@]+", values.get("HUGINN_ACME_EMAIL", "")
+    contact = values.get("HUGINN_ACME_EMAIL", "")
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+", contact) or not hostname.fullmatch(
+        contact.rsplit("@", 1)[-1].lower()
     ):
         raise ValueError("HUGINN_ACME_EMAIL must contain a contact email address")
     if values.get("HUGINN_ACME_ENVIRONMENT") not in {"production", "staging"}:
@@ -83,6 +84,8 @@ def validate_https_configuration(config: dict) -> str | None:
         raise ValueError(
             "HUGINN_PROXY_IP must be the only trusted forwarding address and match the ingress address"
         )
+    if "ingress" not in app.get("networks", {}):
+        raise ValueError("app must attach to the ingress network")
     for name, service in services.items():
         if name not in {"app", "traefik"} and "ingress" in service.get("networks", {}):
             raise ValueError("Only app and traefik may attach to the ingress network")
@@ -121,6 +124,12 @@ def main() -> int:
             ],
             capture_output=True,
             text=True,
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith(("HUGINN_", "COMPOSE_"))
+                and key != "POSTGRES_PASSWORD"
+            },
         )
         if result.returncode:
             parser.exit(

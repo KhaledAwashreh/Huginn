@@ -179,4 +179,4 @@ networks:
   ingress:
     ipam:
       config:
-        - subnet: ${HUGINN_INGRESS_SUBNET:-172.30.255.0/29}
+        - subnet: ${HUGINN_INGRESS_SUBNET:-}

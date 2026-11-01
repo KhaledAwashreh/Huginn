@@ -22,7 +22,7 @@
 - [x] 4.1 Update the hosting guide with exact GoDaddy records, AWS ports, stable-address selection, new `.env` values, staging/production state separation, activation commands and recovery; verify commands against resolved Compose configuration and preserve unrelated MX/TXT records in the instructions.
 - [x] 4.2 Verify actual proxy startup, trusted test TLS, canonical redirects and certificate-store persistence in an isolated local stack; retain logs under ignored `.local-runtime` and leave the persistent development/production databases untouched.
 - [x] 4.3 Run relevant Compose, deployment and authentication checks plus `uv run ruff check .` and `uv run ruff format --check .`; review the complete changed tree and verify no keys, certificate state, raw logs or unrelated feature changes are tracked.
-- [ ] 4.4 Complete the repository pre-MR review and required push checks when publishing is authorized; record exact checks and limitations in the reviewable change description.
+- [x] 4.4 Complete the repository pre-MR review and required push checks when publishing is authorized; record exact checks and limitations in the reviewable change description.
 
 ## 5. Owner prerequisites and production cutover
 

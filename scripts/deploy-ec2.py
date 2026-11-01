@@ -117,6 +117,7 @@ def verify_https_readiness(domain: str, *, deadline: float) -> None:
         try:
             response = command(
                 "curl",
+                "-q",
                 "--fail",
                 "--silent",
                 "--show-error",
@@ -215,6 +216,7 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
     hosted = False
     configuration_resolved = False
     previous_supports_https = True
+    proxy_recovery_required = False
     domain = None
     compose = (
         "sudo",
@@ -271,6 +273,11 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
         replace_private_file(private_config, updated)
         changed_configuration = True
         run(*compose, "pull")
+        proxy_recovery_required = previously_hosted and bool(
+            proxy_changes
+            or previous_configuration["services"]["traefik"]
+            != resolved["services"]["traefik"]
+        )
         run(
             *compose,
             "up",
@@ -346,7 +353,8 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
                 file=sys.stderr,
             )
             raise
-        rollback = partial(command, deadline=min(started + 840, time.monotonic() + 120))
+        recovery_deadline = min(started + 840, time.monotonic() + 120)
+        rollback = partial(command, deadline=recovery_deadline)
         recovery_errors = []
         if changed_checkout:
             try:
@@ -379,6 +387,43 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             recovery_errors.append(
                 "private configuration unavailable; preserving it for manual repair"
             )
+        if proxy_recovery_required and not recovery_errors:
+            try:
+                recovered = json.loads(rollback(*compose, "config", "--format", "json"))
+                recovery_domain = validate_hosted_configuration(checkout, recovered)
+                if recovery_domain is None:
+                    raise RuntimeError("previous configuration does not enable HTTPS")
+                if (
+                    private_config.is_symlink()
+                    or private_config.read_bytes() != original
+                ):
+                    raise RuntimeError(
+                        "private configuration changed before HTTPS recovery"
+                    )
+                rollback(
+                    *compose,
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "--no-deps",
+                    "--force-recreate",
+                    "--wait",
+                    "--wait-timeout",
+                    "60",
+                    "traefik",
+                )
+                verify_https_readiness(recovery_domain, deadline=recovery_deadline)
+            except CommandTerminationUnconfirmed:
+                print(
+                    "Rollback stopped; manual inspection of processes, containers, "
+                    "checkout and .env is required before recovery or retry.",
+                    file=sys.stderr,
+                )
+                raise
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                recovery_errors.append("HTTPS ingress recovery requires manual repair")
+            else:
+                print("Previous HTTPS ingress restored and verified", file=sys.stderr)
         if recovery_errors:
             print("Rollback incomplete: " + "; ".join(recovery_errors), file=sys.stderr)
         else:

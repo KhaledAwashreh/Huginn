@@ -244,12 +244,14 @@ def _hosted_settings():
         "HUGINN_WEB_ORIGIN": "https://huginn.live",
         "HUGINN_MANAGEMENT_ENVIRONMENT": "production",
         "HUGINN_BIND_ADDRESS": "127.0.0.1",
+        "HUGINN_INGRESS_SUBNET": "172.30.255.0/29",
     }
 
 
 def test_local_compose_does_not_activate_ingress(tmp_path):
     target, config = _resolved_compose(tmp_path)
     assert "traefik" not in config["services"]
+    assert not config["networks"]["ingress"]["ipam"]["config"][0].get("subnet")
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
         env=_compose_environment(),
@@ -290,10 +292,15 @@ def test_hosted_compose_uses_private_upstream_and_pinned_ingress(tmp_path):
         ("HUGINN_DOMAIN", ""),
         ("HUGINN_DOMAIN_ALIAS", "bad/host"),
         ("HUGINN_ACME_EMAIL", ""),
+        ("HUGINN_ACME_EMAIL", "owner@example..com"),
+        ("HUGINN_ACME_EMAIL", "owner@-example.com"),
+        ("HUGINN_ACME_EMAIL", "owner@example-.com"),
+        ("HUGINN_ACME_EMAIL", "owner@example_com.test"),
         ("HUGINN_WEB_ORIGIN", "http://huginn.live"),
         ("HUGINN_WEB_ORIGIN", "https://other.live"),
         ("HUGINN_BIND_ADDRESS", "0.0.0.0"),
         ("HUGINN_PROXY_IP", "0.0.0.0/0"),
+        ("HUGINN_INGRESS_SUBNET", ""),
         ("HUGINN_MANAGEMENT_ENVIRONMENT", "local"),
         ("HUGINN_ACME_ENVIRONMENT", "invalid"),
     ],
@@ -348,6 +355,30 @@ def test_preflight_trust_and_network_boundaries(tmp_path):
     modified["services"]["mail-worker"]["networks"]["ingress"] = {}
     with pytest.raises(ValueError, match="Only app and traefik"):
         module.validate_https_configuration(modified)
+    modified = copy.deepcopy(config)
+    del modified["services"]["app"]["networks"]["ingress"]
+    with pytest.raises(ValueError, match="app must attach to the ingress network"):
+        module.validate_https_configuration(modified)
+
+
+def test_preflight_uses_private_file_despite_exported_compose_settings(tmp_path):
+    target, _ = _resolved_compose(tmp_path, **_hosted_settings())
+    original = target.read_bytes()
+    environment = _compose_environment() | {
+        "COMPOSE_PROFILES": "jobs",
+        "HUGINN_WEB_ORIGIN": "http://shell-override.example",
+        "HUGINN_ACME_EMAIL": "",
+        "POSTGRES_PASSWORD": "shell-password",
+    }
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"https": True, "domain": "huginn.live"}
+    assert target.read_bytes() == original
 
 
 @pytest.mark.parametrize(

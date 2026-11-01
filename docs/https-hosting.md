@@ -71,10 +71,14 @@ The app and all workers share the public origin. The weekly job uses it too.
 No frontend rebuild with an IP address is needed. Existing IP cookies do not
 transfer to the domain; users sign in again.
 
-Choose another unused private `/29` subnet if the default overlaps an existing
-Docker network or route. Keep the proxy address within it, away from its network,
+Hosted mode requires an explicit unused private `/29` subnet. Change the example
+above if it overlaps an existing Docker network or route. Local HTTP leaves
+`HUGINN_INGRESS_SUBNET` empty so Docker allocates a nonoverlapping network.
+Keep the proxy address within the hosted subnet, away from its network,
 gateway and broadcast addresses. Only app and proxy join this network. Uvicorn
 trusts that one proxy address; never set `FORWARDED_ALLOW_IPS=*`.
+First activation can briefly stop the app while Compose recreates its ingress
+network with the selected subnet; database and certificate volumes are retained.
 
 Validate before replacing services:
 
@@ -169,7 +173,14 @@ running anything else. Preserve the current checkout, `.env`, certificate volume
 and operator edits. A pre-HTTPS revision is not an automatic rollback target.
 Choose a supporting revision and compatible image explicitly, validate its hosted
 configuration, then recreate services and verify TLS. There is no automatic
-database or container rollback. Do not restore an old public binding as a shortcut.
+database or application-container rollback. When a release changes an existing
+HTTPS proxy and deployment fails, recovery first verifies the previous checkout
+and private configuration were safely restored. It then recreates only the
+previous Traefik service and verifies trusted HTTPS readiness within the existing
+rollback deadline. Unconfirmed command termination, operator edits, an unsupported
+previous revision or failed recovery require manual inspection; the deploy job
+still reports failure even if the previous proxy is recovered. Certificate volumes
+are retained. Do not restore an old public binding as a shortcut.
 
 For failed first issuance, fix DNS, contact settings or connectivity, then retry
 staging with its existing state. Keep users off the domain until production TLS
