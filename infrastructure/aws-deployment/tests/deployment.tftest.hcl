@@ -140,3 +140,39 @@ run "reuses_account_oidc_provider" {
     error_message = "An existing account-wide OIDC provider should be reused."
   }
 }
+
+run "rejects_foreign_account_oidc_provider" {
+  command = plan
+
+  variables {
+    existing_oidc_provider_arn = "arn:aws:iam::999999999999:oidc-provider/token.actions.githubusercontent.com"
+  }
+
+  override_data {
+    target = data.aws_instance.target
+    values = {
+      id                   = "i-0123456789abcdef0"
+      iam_instance_profile = ""
+    }
+  }
+
+  expect_failures = [aws_iam_role.github_deployment]
+}
+
+run "rejects_foreign_partition_oidc_provider" {
+  command = plan
+
+  variables {
+    existing_oidc_provider_arn = "arn:aws-cn:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+  }
+
+  override_data {
+    target = data.aws_instance.target
+    values = {
+      id                   = "i-0123456789abcdef0"
+      iam_instance_profile = ""
+    }
+  }
+
+  expect_failures = [aws_iam_role.github_deployment]
+}

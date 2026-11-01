@@ -52,6 +52,11 @@ resource "aws_iam_role" "github_deployment" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = var.existing_oidc_provider_arn == null ? true : startswith(var.existing_oidc_provider_arn, "arn:${local.partition}:iam::${local.account_id}:oidc-provider/")
+      error_message = "existing_oidc_provider_arn must belong to this AWS account and partition."
+    }
   }
 }
 

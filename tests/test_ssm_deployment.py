@@ -25,7 +25,7 @@ def dispatcher(tmp_path):
     aws = binaries / "aws"
     aws.write_text(
         f"#!{sys.executable}\n"
-        "import json, os, pathlib, sys\n"
+        "import json, os, pathlib, sys, time\n"
         "args = sys.argv[1:]\n"
         "with open(os.environ['COMMAND_LOG'], 'a') as log:\n"
         "    log.write(json.dumps(args) + '\\n')\n"
@@ -43,8 +43,9 @@ def dispatcher(tmp_path):
         "        print('connection lost', file=sys.stderr); sys.exit(1)\n"
         "    print(json.dumps({'Command': {'CommandId': 'example-command-id'}}))\n"
         "elif 'get-command-invocation' in args:\n"
+        "    time.sleep(float(os.environ.get('POLL_SLEEP', '0')))\n"
         "    marker = pathlib.Path(os.environ['PAYLOAD'] + '.polled')\n"
-        "    if os.environ.get('POLL_ERROR') and not marker.exists():\n"
+        "    if os.environ.get('POLL_ERROR') and (os.environ.get('POLL_ALWAYS') or not marker.exists()):\n"
         "        marker.touch()\n"
         "        print('An error occurred (' + os.environ['POLL_ERROR'] + ')', file=sys.stderr); sys.exit(1)\n"
         "    sequence = os.environ.get('STATUS_SEQUENCE', '').split(',')\n"
@@ -151,6 +152,46 @@ def test_other_polling_error_fails_without_retry_or_resend(dispatcher):
     result = run(POLL_ERROR="AccessDeniedException")
     assert result.returncode != 0
     assert sum("get-command-invocation" in call for call in calls()) == 1
+    assert sum("send-command" in call for call in calls()) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "ThrottlingException",
+        "Throttling",
+        "RequestLimitExceeded",
+        "TooManyRequestsException",
+        "InternalServerError",
+        "ServiceUnavailable",
+    ],
+)
+def test_transient_read_error_retries_until_success_without_resending(
+    dispatcher, error
+):
+    run, calls, _ = dispatcher
+    result = run(POLL_ERROR=error)
+    assert result.returncode == 0, result.stderr
+    assert sum("send-command" in call for call in calls()) == 1
+    assert sum("get-command-invocation" in call for call in calls()) == 2
+
+
+def test_persistent_throttling_stops_at_wait_deadline_without_resending(dispatcher):
+    run, calls, _ = dispatcher
+    result = run(POLL_ERROR="ThrottlingException", POLL_ALWAYS="1")
+    assert result.returncode != 0
+    assert "Waiting for SSM command" in result.stderr
+    assert "timed out" in result.stderr
+    assert sum("get-command-invocation" in call for call in calls()) > 1
+    assert sum("send-command" in call for call in calls()) == 1
+
+
+def test_slow_poll_cannot_report_success_after_the_wait_deadline(dispatcher):
+    run, calls, _ = dispatcher
+    result = run(POLL_SLEEP="2")
+    assert result.returncode != 0
+    assert "Waiting for SSM command" in result.stderr
+    assert "timed out" in result.stderr
     assert sum("send-command" in call for call in calls()) == 1
 
 

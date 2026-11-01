@@ -17,10 +17,36 @@ from pathlib import Path
 class AwsCommandError(RuntimeError):
     def __init__(self, operation: str, stderr: str) -> None:
         super().__init__(f"AWS {operation} failed")
-        self.invocation_not_found = "(InvocationDoesNotExist)" in stderr
+        match = re.search(r"^An error occurred \(([A-Za-z0-9]+)\)", stderr.strip())
+        code = match.group(1) if match else None
+        self.retryable_read = code in {
+            "InvocationDoesNotExist",
+            "Throttling",
+            "ThrottlingException",
+            "RequestLimitExceeded",
+            "TooManyRequestsException",
+            "InternalServerError",
+            "InternalServerException",
+            "ServiceUnavailable",
+            "ServiceUnavailableException",
+            "RequestTimeout",
+            "RequestTimeoutException",
+        } or stderr.strip().startswith(
+            (
+                "Read timeout on endpoint URL:",
+                "Connect timeout on endpoint URL:",
+                "Could not connect to the endpoint URL:",
+            )
+        )
 
 
-def aws(region: str, service: str, operation: str, *arguments: str) -> dict:
+def aws(
+    region: str,
+    service: str,
+    operation: str,
+    *arguments: str,
+    timeout: float = 45,
+) -> dict:
     result = subprocess.run(
         [
             "aws",
@@ -35,7 +61,7 @@ def aws(region: str, service: str, operation: str, *arguments: str) -> dict:
         ],
         capture_output=True,
         text=True,
-        timeout=45,
+        timeout=timeout,
         env={**os.environ, "AWS_MAX_ATTEMPTS": "1", "AWS_RETRY_MODE": "standard"},
     )
     if result.returncode:
@@ -128,6 +154,9 @@ def dispatch(arguments: argparse.Namespace) -> None:
     print(f"SSM command {command_id} on {instance_id}", flush=True)
     deadline = time.monotonic() + arguments.wait_seconds
     while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
             result = aws(
                 arguments.region,
@@ -137,11 +166,17 @@ def dispatch(arguments: argparse.Namespace) -> None:
                 command_id,
                 "--instance-id",
                 instance_id,
+                timeout=min(45, remaining),
             )
         except AwsCommandError as exc:
-            if not exc.invocation_not_found:
+            if not exc.retryable_read:
                 raise
+        except subprocess.TimeoutExpired:
+            # Polling is read-only; the deadline bounds retries without resending.
+            pass
         else:
+            if time.monotonic() >= deadline:
+                break
             status = result.get("Status")
             if status == "Success" and result.get("ResponseCode") == 0:
                 print(result.get("StandardOutputContent", ""))

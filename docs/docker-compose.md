@@ -1,6 +1,6 @@
 # Run Huginn with Docker Compose
 
-Docker Engine with the Compose plugin and Python 3 (for one-time secret generation)
+Docker Engine with the Compose plugin and Python 3.10+ (for one-time secret generation)
 are the only host prerequisites. Node, uv and application dependencies build inside
 the image from the committed lockfiles.
 
@@ -167,11 +167,26 @@ then rerun the failed deployment job. This deliberately does not infer or run
 database migrations.
 
 For an eligible release, the script pulls the published digest, checks out its
-matching commit, changes only `HUGINN_IMAGE` in `.env`, runs Compose pull and
-`up -d --no-build --wait`, and checks `/ready` inside the app container. This
+matching commit, verifies the checkout is clean, and changes only `HUGINN_IMAGE`
+in `.env`. Every deployment Compose command explicitly selects `compose.yaml`
+and `.env`, so an untracked override cannot replace the release configuration.
+After `up -d --no-build --wait`, the script compares the running app container
+image ID with the pulled digest and checks `/ready` inside the container. This
 works regardless of whether the host exposes port 8080, port 80 or a reverse
 proxy. Port settings and security group rules are not changed. Existing database
 and mailbox volumes, founder credentials and all other settings are preserved.
+
+The deployment scripts run with the host/runner Python 3.10+ interpreter; the
+application still uses the Python version inside its published image.
+
+The host gives forward deployment commands a combined 720-second budget and
+reserves up to 120 seconds for recovery, capped at 840 seconds from start.
+Individual commands receive only their remaining budget. Timed-out process
+groups are stopped before recovery; the deployment owner needs noninteractive
+`sudo kill` permission to stop Docker commands running as root. Process cleanup
+is bounded separately, leaving a margin before SSM terminates execution.
+If cleanup cannot be confirmed, inspect processes and containers before retrying.
+Stopping a CLI does not reverse operations already accepted by Docker.
 
 The dispatcher prints the SSM command ID immediately and waits for its actual
 exit status; accepting a command is not counted as a successful deployment.
@@ -183,20 +198,31 @@ or is cancelled, the server command may still run until its execution limit.
 Inspect that command in **Systems Manager → Run Command → Command history**
 before rerunning the workflow to avoid overlapping or duplicate deployments.
 
-A failed command marks the deployment job red. Failures after checkout restore
-the previous checkout and `.env`, but containers may already have been recreated.
-There is no automatic database or container rollback. Inspect service state on
-the instance:
+A failed command marks the deployment job red. Failures after checkout attempt
+to restore the previous checkout and `.env`, but containers may already have
+been recreated. Before changing `.env`, the script verifies that it still matches
+the captured configuration. Recovery restores it only when the deployment wrote
+it and its content still matches that deployment; operator edits or deletion
+are preserved and require manual review. These immediate content comparisons
+reduce concurrent-edit races but do not lock arbitrary external editors.
+The script verifies recovery and reports `Rollback incomplete`
+when checkout or configuration restoration needs manual repair. It does not
+force checkout over tracked edits. For a permission/unlink error, inspect
+`git status --short` and file ownership, preserve any operator edits, repair the
+affected permissions, and restore the previous commit before retrying. Do not
+use a force checkout or reset to bypass unexplained edits. There is no automatic
+database or container rollback. Inspect service state on the instance:
 
 ```sh
-sudo docker compose ps -a
-sudo docker compose logs --tail=100 app admin-seed
+sudo docker compose --env-file .env -f compose.yaml ps -a
+sudo docker compose --env-file .env -f compose.yaml logs --tail=100 app admin-seed
 ```
 
 After fixing the cause and checking the previous SSM command's status, rerun the
 failed deployment job. If choosing to return to the restored previous version,
 review schema compatibility and run
-`sudo docker compose up -d --no-build --wait`. Never use `down --volumes` to
+`sudo docker compose --env-file .env -f compose.yaml up -d --no-build --wait`.
+Never use `down --volumes` to
 recover a deployment. Deployment logs omit subprocess output that might contain
 private configuration; inspect detailed service logs directly on the server.
 

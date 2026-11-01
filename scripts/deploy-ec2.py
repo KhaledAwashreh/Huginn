@@ -4,15 +4,73 @@
 import fcntl
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+from functools import partial
 from pathlib import Path
 
 
-def command(*arguments: str) -> str:
+def run_command(
+    arguments: tuple[str, ...], *, timeout: float
+) -> subprocess.CompletedProcess:
+    # Each command owns a process group so a timeout also stops descendants.
+    process = subprocess.Popen(
+        arguments,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        termination_failed = False
+        if arguments[:1] == ("sudo",):
+            # Docker commands run as root and need sudo to stop their group.
+            try:
+                stopped = subprocess.run(
+                    ["sudo", "-n", "kill", "-KILL", "--", f"-{process.pid}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                termination_failed = stopped.returncode != 0
+            except (OSError, subprocess.TimeoutExpired):
+                termination_failed = True
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                termination_failed = True
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            termination_failed = True
+            # Pipes can remain open if a child escaped its process group.
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+        if termination_failed:
+            raise RuntimeError(
+                "Command timed out; descendant termination could not be confirmed. "
+                "Inspect running processes and containers before retrying."
+            ) from None
+        raise
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+
+
+def command(*arguments: str, deadline: float) -> str:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("Deployment deadline expired")
     # Capture output: Compose diagnostics can include private configuration.
-    result = subprocess.run(arguments, capture_output=True, text=True, timeout=600)
+    result = run_command(arguments, timeout=min(600, remaining))
     if result.returncode:
         raise RuntimeError(f"Command failed: {' '.join(arguments[:4])}")
     return result.stdout.strip()
@@ -31,20 +89,22 @@ def replace_private_file(path: Path, content: bytes) -> None:
 
 
 def deploy(checkout: Path, commit: str, image: str) -> None:
+    started = time.monotonic()
+    run = partial(command, deadline=started + 720)
     os.chdir(checkout)
     private_config = checkout / ".env"
     if not private_config.is_file() or private_config.is_symlink():
         raise RuntimeError(
             "An existing private .env file is required; complete first setup"
         )
-    if command("git", "status", "--porcelain", "--untracked-files=no"):
+    if run("git", "status", "--porcelain", "--untracked-files=no"):
         raise RuntimeError("Checkout has tracked changes; deployment stopped")
-    command("git", "fetch", "--no-tags", "origin", "master:refs/remotes/origin/master")
-    if command("git", "rev-parse", "origin/master") != commit:
+    run("git", "fetch", "--no-tags", "origin", "master:refs/remotes/origin/master")
+    if run("git", "rev-parse", "origin/master") != commit:
         print("Skipping stale deployment: this commit is no longer master")
         return
-    previous = command("git", "rev-parse", "HEAD")
-    changes = command(
+    previous = run("git", "rev-parse", "HEAD")
+    changes = run(
         "git",
         "diff",
         "--name-only",
@@ -59,8 +119,8 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "Database schema/bootstrap changed; apply the documented schema upgrade "
             "and check out the published commit manually before retrying deployment"
         )
-    command("sudo", "-n", "docker", "pull", image)
-    revision = command(
+    run("sudo", "-n", "docker", "pull", image)
+    revision = run(
         "sudo",
         "-n",
         "docker",
@@ -74,6 +134,9 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
         raise RuntimeError(
             "Published image revision does not match the requested commit"
         )
+    expected_image_id = run(
+        "sudo", "-n", "docker", "image", "inspect", image, "--format", "{{.Id}}"
+    )
     original = private_config.read_bytes()
     pattern = rb"(?m)^[ \t]*(?:export[ \t]+)?HUGINN_IMAGE[ \t]*=[^\r\n]*(?:\r?\n|$)"
     replacement = f"HUGINN_IMAGE={image}\n".encode()
@@ -82,16 +145,35 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
     else:
         updated = original + (b"" if original.endswith(b"\n") else b"\n") + replacement
     changed_checkout = False
+    changed_configuration = False
+    compose = (
+        "sudo",
+        "-n",
+        "docker",
+        "compose",
+        "--env-file",
+        ".env",
+        "-f",
+        "compose.yaml",
+    )
     try:
-        command("git", "checkout", "--detach", commit)
         changed_checkout = True
+        run("git", "checkout", "--detach", commit)
+        if run("git", "rev-parse", "HEAD") != commit or run(
+            "git", "status", "--porcelain", "--untracked-files=no"
+        ):
+            raise RuntimeError(
+                "Git did not produce a clean checkout of the published commit"
+            )
+        if private_config.is_symlink() or private_config.read_bytes() != original:
+            raise RuntimeError(
+                "Private configuration changed during deployment; preserving operator edits"
+            )
         replace_private_file(private_config, updated)
-        command("sudo", "-n", "docker", "compose", "pull")
-        command(
-            "sudo",
-            "-n",
-            "docker",
-            "compose",
+        changed_configuration = True
+        run(*compose, "pull")
+        run(
+            *compose,
             "up",
             "-d",
             "--no-build",
@@ -99,11 +181,25 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "--wait-timeout",
             "180",
         )
-        command(
+        containers = run(*compose, "ps", "-q", "app").splitlines()
+        if len(containers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", containers[0]):
+            raise RuntimeError("Expected exactly one running app container")
+        actual_image_id = run(
             "sudo",
             "-n",
             "docker",
-            "compose",
+            "container",
+            "inspect",
+            containers[0],
+            "--format",
+            "{{.Image}}",
+        )
+        if not expected_image_id or actual_image_id != expected_image_id:
+            raise RuntimeError(
+                "The running app image does not match the published image"
+            )
+        run(
+            *compose,
             "exec",
             "-T",
             "app",
@@ -118,12 +214,36 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "and recover using the deployment guide.",
             file=sys.stderr,
         )
+        rollback = partial(command, deadline=min(started + 840, time.monotonic() + 120))
+        recovery_errors = []
         try:
-            replace_private_file(private_config, original)
-        finally:
-            if changed_checkout:
-                command("git", "checkout", "--detach", previous)
-        print("Previous checkout and .env restored", file=sys.stderr)
+            expected_configuration = updated if changed_configuration else original
+            if (
+                private_config.is_symlink()
+                or private_config.read_bytes() != expected_configuration
+            ):
+                recovery_errors.append(
+                    "private configuration changed; preserving operator edits"
+                )
+            elif changed_configuration:
+                replace_private_file(private_config, original)
+        except OSError:
+            recovery_errors.append(
+                "private configuration unavailable; preserving it for manual repair"
+            )
+        if changed_checkout:
+            try:
+                rollback("git", "checkout", "--detach", previous)
+                if rollback("git", "rev-parse", "HEAD") != previous or rollback(
+                    "git", "status", "--porcelain", "--untracked-files=no"
+                ):
+                    raise RuntimeError("previous checkout is not clean")
+            except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                recovery_errors.append("checkout recovery requires manual repair")
+        if recovery_errors:
+            print("Rollback incomplete: " + "; ".join(recovery_errors), file=sys.stderr)
+        else:
+            print("Previous checkout and .env restored", file=sys.stderr)
         raise
     print(f"Deployed {commit}; application readiness check passed")
 

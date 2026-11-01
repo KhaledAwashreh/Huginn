@@ -1,7 +1,10 @@
 """Exercise the remote deployment entry point without touching Docker or EC2."""
 
+import ast
+import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +15,9 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts/deploy-ec2.py"
 COMMIT = "a" * 40
 PREVIOUS = "b" * 40
 IMAGE = "ghcr.io/example/huginn@sha256:" + "c" * 64
+IMAGE_ID = "sha256:" + "d" * 64
+CONTAINER_ID = "e" * 64
+COMPOSE = ["docker", "compose", "--env-file", ".env", "-f", "compose.yaml"]
 
 
 @pytest.fixture
@@ -30,27 +36,45 @@ def deployment(tmp_path):
     fake.write_text(
         f"#!{sys.executable}\n"
         "import json, os, pathlib, sys\n"
+        "state = pathlib.Path(os.environ['COMMAND_LOG'] + '.head')\n"
         "name = pathlib.Path(sys.argv[0]).name\n"
         "args = sys.argv[1:]\n"
         "if name == 'sudo':\n"
         "    name, args = args[1], args[2:]\n"
         "with open(os.environ['COMMAND_LOG'], 'a') as log:\n"
         "    log.write(json.dumps([name, *args]) + '\\n')\n"
+        "if os.environ.get('EDIT_CONFIG_ON_FAILURE') and name == 'docker' and args[-1:] == ['pull'] and args[:1] == ['compose']:\n"
+        "    pathlib.Path('.env').write_text('HUGINN_IMAGE=operator-image\\nPRIVATE_SETTING=operator-change\\n')\n"
+        "    sys.exit(17)\n"
         "if os.environ.get('FAIL_COMMAND') == ' '.join([name, *args]):\n"
         "    sys.exit(17)\n"
-        "if os.environ.get('FAIL_READINESS') and name == 'docker' and args[:2] == ['compose', 'exec']:\n"
+        "if os.environ.get('FAIL_READINESS') and name == 'docker' and args[:6] == ['compose', '--env-file', '.env', '-f', 'compose.yaml', 'exec']:\n"
         "    sys.exit(19)\n"
         "if name == 'git':\n"
         "    if args[:1] == ['status']:\n"
-        "        print(os.environ.get('DIRTY', ''), end='')\n"
+        "        print(os.environ.get('DIRTY', '') or (' M compose.yaml\\n' if state.exists() and state.read_text() == '"
+        + COMMIT
+        + "' and os.environ.get('DIRTY_AFTER_CHECKOUT') else ''), end='')\n"
         "    elif args == ['rev-parse', 'HEAD']:\n"
-        f"        print('{PREVIOUS}')\n"
+        f"        print(state.read_text() if state.exists() else '{PREVIOUS}')\n"
         "    elif args == ['rev-parse', 'origin/master']:\n"
         f"        print(os.environ.get('LATEST', '{COMMIT}'))\n"
+        "    elif args[:2] == ['checkout', '--detach']:\n"
+        "        if os.environ.get('FAIL_ROLLBACK') and args[-1] == '"
+        + PREVIOUS
+        + "': sys.exit(23)\n"
+        "        state.write_text(args[-1])\n"
+        "        if os.environ.get('EDIT_CONFIG_ON_CHECKOUT') and args[-1] == '"
+        + COMMIT
+        + "': pathlib.Path('.env').write_text('HUGINN_IMAGE=operator-image\\nPRIVATE_SETTING=operator-change\\n')\n"
         "    elif args[:1] == ['diff']:\n"
         "        print(os.environ.get('SCHEMA_CHANGE', ''), end='')\n"
         "elif name == 'docker' and args[:2] == ['image', 'inspect']:\n"
-        f"    print(os.environ.get('IMAGE_COMMIT', '{COMMIT}'))\n"
+        f"    print('{IMAGE_ID}' if args[-1] == '{{{{.Id}}}}' else os.environ.get('IMAGE_COMMIT', '{COMMIT}'))\n"
+        "elif name == 'docker' and args[:6] == ['compose', '--env-file', '.env', '-f', 'compose.yaml', 'ps']:\n"
+        f"    print('{CONTAINER_ID}')\n"
+        "elif name == 'docker' and args[:2] == ['container', 'inspect']:\n"
+        f"    print(os.environ.get('RUNNING_IMAGE_ID', '{IMAGE_ID}'))\n"
     )
     fake.chmod(0o755)
     for name in ("git", "sudo"):
@@ -85,10 +109,9 @@ def test_deploy_pulls_exact_image_preserves_settings_and_checks_readiness(deploy
     calls = commands()
     assert ["docker", "pull", IMAGE] in calls
     assert ["git", "checkout", "--detach", COMMIT] in calls
-    assert ["docker", "compose", "pull"] in calls
+    assert [*COMPOSE, "pull"] in calls
     assert [
-        "docker",
-        "compose",
+        *COMPOSE,
         "up",
         "-d",
         "--no-build",
@@ -96,10 +119,7 @@ def test_deploy_pulls_exact_image_preserves_settings_and_checks_readiness(deploy
         "--wait-timeout",
         "180",
     ] in calls
-    assert any(
-        call[:6] == ["docker", "compose", "exec", "-T", "app", "python"]
-        for call in calls
-    )
+    assert any(call[:10] == [*COMPOSE, "exec", "-T", "app", "python"] for call in calls)
     assert "private-secret" not in result.stdout + result.stderr
 
 
@@ -119,7 +139,7 @@ def test_preflight_failure_leaves_config_and_containers_untouched(
     assert result.returncode != 0
     assert message in result.stderr
     assert (checkout / ".env").read_bytes() == original
-    assert not any(call[:3] == ["docker", "compose", "up"] for call in commands())
+    assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())
 
 
 def test_stale_workflow_does_not_replace_a_newer_release(deployment):
@@ -144,8 +164,8 @@ def test_missing_private_configuration_stops_before_deployment(deployment):
     "command",
     [
         f"docker pull {IMAGE}",
-        "docker compose pull",
-        "docker compose up -d --no-build --wait --wait-timeout 180",
+        "docker compose --env-file .env -f compose.yaml pull",
+        "docker compose --env-file .env -f compose.yaml up -d --no-build --wait --wait-timeout 180",
     ],
 )
 def test_deployment_failure_is_reported_and_restores_previous_configuration(
@@ -178,3 +198,219 @@ def test_failed_readiness_restores_config_and_warns_containers_may_have_changed(
     assert (checkout / ".env").read_bytes() == original
     assert "Containers may have changed" in result.stderr
     assert ["git", "checkout", "--detach", PREVIOUS] in commands()
+
+
+def test_running_container_must_use_the_published_image(deployment):
+    checkout, original, run, commands = deployment
+    result = run(RUNNING_IMAGE_ID="sha256:" + "f" * 64)
+    assert result.returncode != 0
+    assert "running app image" in result.stderr
+    assert (checkout / ".env").read_bytes() == original
+    assert "readiness check passed" not in result.stdout
+    assert [
+        "docker",
+        "container",
+        "inspect",
+        CONTAINER_ID,
+        "--format",
+        "{{.Image}}",
+    ] in commands()
+
+
+def test_partial_checkout_stops_before_changing_config_or_containers(deployment):
+    checkout, original, run, commands = deployment
+    result = run(DIRTY_AFTER_CHECKOUT="1", FAIL_ROLLBACK="1")
+    assert result.returncode != 0
+    assert "clean checkout" in result.stderr
+    assert "Rollback incomplete" in result.stderr
+    assert "Previous checkout and .env restored" not in result.stderr
+    assert (checkout / ".env").read_bytes() == original
+    assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())
+    assert not any(
+        "--force" in call or "-f" in call[1:] for call in commands() if call[0] == "git"
+    )
+
+
+def load_deployment_script():
+    specification = importlib.util.spec_from_file_location("deployment_script", SCRIPT)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def test_command_uses_remaining_aggregate_budget_and_stops_at_deadline(monkeypatch):
+    module = load_deployment_script()
+    clock = [100.0]
+    observed = []
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+
+    def run(arguments, **options):
+        observed.append(options["timeout"])
+        return subprocess.CompletedProcess(arguments, 0, "ok", "")
+
+    monkeypatch.setattr(module, "run_command", run)
+    assert module.command("git", "status", deadline=112.0) == "ok"
+    assert observed == [12.0]
+    clock[0] = 112.0
+    with pytest.raises(RuntimeError, match="deadline"):
+        module.command("git", "status", deadline=112.0)
+    assert observed == [12.0]
+
+
+def test_forward_deadline_reserves_time_to_restore_configuration(tmp_path, monkeypatch):
+    module = load_deployment_script()
+    original = b"HUGINN_IMAGE=previous\nPRIVATE_SETTING=preserve\n"
+    (tmp_path / ".env").write_bytes(original)
+    monkeypatch.chdir(tmp_path)
+    clock = [0.0]
+    current = [PREVIOUS]
+    calls = []
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+
+    def run(arguments, **options):
+        calls.append((arguments, options["timeout"]))
+        answer = ""
+        if arguments[:2] == ("git", "fetch") or arguments[:4] == (
+            "sudo",
+            "-n",
+            "docker",
+            "pull",
+        ):
+            clock[0] += 300
+        if arguments == ("git", "rev-parse", "HEAD"):
+            answer = current[0]
+        elif arguments == ("git", "rev-parse", "origin/master"):
+            answer = COMMIT
+        elif arguments[:2] == ("git", "checkout"):
+            current[0] = arguments[-1]
+        elif arguments[:5] == ("sudo", "-n", "docker", "image", "inspect"):
+            answer = IMAGE_ID if arguments[-1] == "{{.Id}}" else COMMIT
+        elif "up" in arguments:
+            clock[0] += options["timeout"]
+            raise subprocess.TimeoutExpired(arguments, options["timeout"])
+        return subprocess.CompletedProcess(arguments, 0, answer, "")
+
+    monkeypatch.setattr(module, "run_command", run)
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.deploy(tmp_path, COMMIT, IMAGE)
+    assert (tmp_path / ".env").read_bytes() == original
+    assert current[0] == PREVIOUS
+    assert clock[0] < 900
+    rollback = [
+        timeout
+        for args, timeout in calls
+        if args == ("git", "checkout", "--detach", PREVIOUS)
+    ]
+    assert rollback and 0 < rollback[0] <= 120
+    assert all(timeout <= 600 for _, timeout in calls)
+
+
+def test_pinned_compose_file_ignores_an_untracked_override(tmp_path):
+    if shutil.which("docker") is None:
+        pytest.skip("Docker Compose is required to resolve deployment configuration")
+    (tmp_path / "compose.yaml").write_text(
+        "services:\n  app:\n    image: ${HUGINN_IMAGE}\n"
+    )
+    (tmp_path / "compose.override.yaml").write_text(
+        "services:\n  app:\n    image: unexpected-override\n"
+    )
+    (tmp_path / ".env").write_text(f"HUGINN_IMAGE={IMAGE}\n")
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"HUGINN_IMAGE", "COMPOSE_FILE", "COMPOSE_ENV_FILES"}
+    }
+    result = subprocess.run(
+        [*COMPOSE, "config", "--format", "json"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["services"]["app"]["image"] == IMAGE
+
+
+def test_timed_out_command_stops_its_owned_descendants(tmp_path):
+    import time
+
+    module = load_deployment_script()
+    started = tmp_path / "child-started"
+    marker = tmp_path / "child-completed"
+    child = (
+        "import pathlib,time;pathlib.Path(" + repr(str(started)) + ").touch();"
+        "time.sleep(1);pathlib.Path("
+        + repr(str(marker))
+        + ").write_text('still running')"
+    )
+    parent = (
+        "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c',"
+        + repr(child)
+        + "]);time.sleep(30)"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.command(sys.executable, "-c", parent, deadline=time.monotonic() + 0.5)
+    assert started.exists(), "the descendant must start before testing group cleanup"
+    time.sleep(1.1)
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("kill_status", [0, 1])
+def test_root_command_timeout_uses_bounded_privileged_group_cleanup(
+    monkeypatch, kill_status
+):
+    module = load_deployment_script()
+    cleanup = []
+
+    class Process:
+        pid = 98765
+        calls = 0
+        returncode = -9
+
+        def communicate(self, *, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("sudo docker", timeout)
+            assert timeout <= 5
+            return "", ""
+
+    def popen(arguments, **options):
+        assert options["start_new_session"] is True
+        return Process()
+
+    def stop(arguments, **options):
+        cleanup.append(arguments)
+        assert options["timeout"] <= 5
+        return subprocess.CompletedProcess(arguments, kill_status, "", "")
+
+    monkeypatch.setattr(module.subprocess, "Popen", popen)
+    monkeypatch.setattr(module.subprocess, "run", stop)
+    expected = subprocess.TimeoutExpired if kill_status == 0 else RuntimeError
+    with pytest.raises(expected):
+        module.run_command(("sudo", "-n", "docker", "compose"), timeout=1)
+    assert cleanup == [["sudo", "-n", "kill", "-KILL", "--", "-98765"]]
+
+
+@pytest.mark.parametrize(
+    "change", ["EDIT_CONFIG_ON_CHECKOUT", "EDIT_CONFIG_ON_FAILURE"]
+)
+def test_operator_configuration_edits_are_preserved_when_deployment_fails(
+    deployment, change
+):
+    checkout, _, run, commands = deployment
+    result = run(**{change: "1"})
+    assert result.returncode != 0
+    assert (
+        checkout / ".env"
+    ).read_bytes() == b"HUGINN_IMAGE=operator-image\nPRIVATE_SETTING=operator-change\n"
+    assert "preserv" in result.stderr.lower()
+    assert "Previous checkout and .env restored" not in result.stderr
+    if change == "EDIT_CONFIG_ON_CHECKOUT":
+        assert not any(call[:7] == [*COMPOSE, "pull"] for call in commands())
+
+
+@pytest.mark.parametrize(
+    "path", [SCRIPT, SCRIPT.with_name("dispatch-ec2-deployment.py")]
+)
+def test_operator_scripts_parse_on_python_310(path):
+    ast.parse(path.read_text(), filename=str(path), feature_version=(3, 10))

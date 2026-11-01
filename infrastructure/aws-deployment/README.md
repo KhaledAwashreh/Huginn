@@ -74,6 +74,50 @@ instance → Actions → Security → Modify IAM role**, select the name printed
 do not create or import an `aws_instance` resource to perform it. The next plan
 retains the created profile after attachment rather than deleting it.
 
+### Recover from an instance profile switch
+
+If this bootstrap created the SSM profile and someone later attaches a different
+existing profile, `prevent_destroy` deliberately blocks the next plan. Changing
+profiles makes the bootstrap stop managing its old role/profile; destruction
+protection prevents Terraform from deleting them implicitly. The blocked plan
+also means SSM permissions have not been applied to the new role.
+
+For an accidental switch, reattach the original profile in the EC2 console and
+run `terraform plan` again. Keep the original state and IAM namespace.
+
+For an intentional switch to another existing profile, transfer ownership
+explicitly. First verify that the instance is using the intended new profile
+and identify the old resources with `terraform state show`. Preserve the old
+AWS resources and their SSM policy attachment during the transfer:
+
+```sh
+umask 077
+terraform state pull > "profile-switch-$(date -u +%Y%m%dT%H%M%SZ).tfstate"
+terraform state show 'aws_iam_role.ssm[0]'
+terraform state show 'aws_iam_instance_profile.ssm[0]'
+terraform state show aws_iam_role_policy_attachment.ssm
+```
+
+After saving and checking the private backup and old resource identities,
+remove only these three bindings from this Terraform state:
+
+```sh
+terraform state rm 'aws_iam_instance_profile.ssm[0]' \
+  'aws_iam_role.ssm[0]' aws_iam_role_policy_attachment.ssm
+terraform plan -out=profile-switch.tfplan
+```
+
+`state rm` changes Terraform ownership; it does not delete the AWS profile,
+role or existing policy attachment. The new plan should add the SSM policy to
+the new profile's role and must not destroy the old IAM resources. Review it
+before `terraform apply profile-switch.tfplan`, then confirm the instance is
+Online in Systems Manager. Keep the old resources under separate ownership
+until their use is checked and any cleanup is explicitly planned. Re-adopting
+them later requires importing them into state, not silently recreating them.
+Do not disable `prevent_destroy` to bypass this recovery process.
+
+### Confirm Systems Manager readiness
+
 Ensure SSM Agent is installed, running and the instance is **Online** under
 Systems Manager managed nodes. The agent needs outbound HTTPS to AWS Systems
 Manager endpoints; the app also needs GitHub/GHCR access. See the
