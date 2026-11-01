@@ -305,6 +305,67 @@ def test_forward_deadline_reserves_time_to_restore_configuration(tmp_path, monke
     assert all(timeout <= 600 for _, timeout in calls)
 
 
+@pytest.mark.parametrize(
+    "failure_stage", ["deployment", "checkout", "revision", "status"]
+)
+def test_unconfirmed_termination_stops_all_recovery(
+    tmp_path, monkeypatch, capsys, failure_stage
+):
+    module = load_deployment_script()
+    original = b"HUGINN_IMAGE=previous\nPRIVATE_SETTING=preserve\n"
+    config = tmp_path / ".env"
+    config.write_bytes(original)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), str(tmp_path), COMMIT, IMAGE])
+    calls = []
+    current = [PREVIOUS]
+    failed = [False]
+    uncertain_calls = []
+    termination_error = module.CommandTerminationUnconfirmed
+
+    def run(*arguments, deadline):
+        assert not uncertain_calls, "no command may follow unconfirmed termination"
+        calls.append(arguments)
+        if "up" in arguments:
+            failed[0] = True
+            if failure_stage == "deployment":
+                uncertain_calls.append(arguments)
+                raise termination_error("termination could not be confirmed")
+            raise RuntimeError("deployment failed")
+        if failed[0] and (
+            (failure_stage == "checkout" and arguments[:2] == ("git", "checkout"))
+            or (failure_stage == "revision" and arguments[:2] == ("git", "rev-parse"))
+            or (failure_stage == "status" and arguments[:2] == ("git", "status"))
+        ):
+            uncertain_calls.append(arguments)
+            raise termination_error("termination could not be confirmed")
+        if arguments == ("git", "rev-parse", "HEAD"):
+            return current[0]
+        if arguments == ("git", "rev-parse", "origin/master"):
+            return COMMIT
+        if arguments[:2] == ("git", "checkout"):
+            current[0] = arguments[-1]
+        if arguments[:5] == ("sudo", "-n", "docker", "image", "inspect"):
+            return IMAGE_ID if arguments[-1] == "{{.Id}}" else COMMIT
+        return ""
+
+    monkeypatch.setattr(module, "command", run)
+    assert module.main() == 1
+    assert uncertain_calls
+    assert config.read_bytes() == original.replace(
+        b"HUGINN_IMAGE=previous", f"HUGINN_IMAGE={IMAGE}".encode()
+    )
+    assert current[0] == (
+        PREVIOUS if failure_stage in {"revision", "status"} else COMMIT
+    )
+    if failure_stage == "deployment":
+        assert ("git", "checkout", "--detach", PREVIOUS) not in calls
+    output = capsys.readouterr()
+    assert "manual inspection" in output.err.lower()
+    assert "Previous checkout and .env restored" not in output.err
+    assert "readiness check passed" not in output.out
+
+
 def test_pinned_compose_file_ignores_an_untracked_override(tmp_path):
     if shutil.which("docker") is None:
         pytest.skip("Docker Compose is required to resolve deployment configuration")
@@ -385,7 +446,11 @@ def test_root_command_timeout_uses_bounded_privileged_group_cleanup(
 
     monkeypatch.setattr(module.subprocess, "Popen", popen)
     monkeypatch.setattr(module.subprocess, "run", stop)
-    expected = subprocess.TimeoutExpired if kill_status == 0 else RuntimeError
+    expected = (
+        subprocess.TimeoutExpired
+        if kill_status == 0
+        else module.CommandTerminationUnconfirmed
+    )
     with pytest.raises(expected):
         module.run_command(("sudo", "-n", "docker", "compose"), timeout=1)
     assert cleanup == [["sudo", "-n", "kill", "-KILL", "--", "-98765"]]

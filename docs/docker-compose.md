@@ -185,7 +185,11 @@ Individual commands receive only their remaining budget. Timed-out process
 groups are stopped before recovery; the deployment owner needs noninteractive
 `sudo kill` permission to stop Docker commands running as root. Process cleanup
 is bounded separately, leaving a margin before SSM terminates execution.
-If cleanup cannot be confirmed, inspect processes and containers before retrying.
+If cleanup cannot be confirmed, automatic rollback is skipped. If this happens
+during recovery, recovery stops immediately without further commands or `.env`
+restoration. The checkout and `.env` remain at their state when recovery stops;
+manual inspection of processes, containers, checkout and configuration is required
+before recovery or retry.
 Stopping a CLI does not reverse operations already accepted by Docker.
 
 The dispatcher prints the SSM command ID immediately and waits for its actual
@@ -198,8 +202,9 @@ or is cancelled, the server command may still run until its execution limit.
 Inspect that command in **Systems Manager → Run Command → Command history**
 before rerunning the workflow to avoid overlapping or duplicate deployments.
 
-A failed command marks the deployment job red. Failures after checkout attempt
-to restore the previous checkout and `.env`, but containers may already have
+A failed command marks the deployment job red. Unless process termination is
+unconfirmed, failures after checkout attempt to restore the previous checkout
+and `.env`, but containers may already have
 been recreated. Before changing `.env`, the script verifies that it still matches
 the captured configuration. Recovery restores it only when the deployment wrote
 it and its content still matches that deployment; operator edits or deletion

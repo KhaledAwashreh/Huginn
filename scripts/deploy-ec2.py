@@ -13,6 +13,10 @@ from functools import partial
 from pathlib import Path
 
 
+class CommandTerminationUnconfirmed(RuntimeError):
+    """A timed-out command may still be mutating deployment state."""
+
+
 def run_command(
     arguments: tuple[str, ...], *, timeout: float
 ) -> subprocess.CompletedProcess:
@@ -57,7 +61,7 @@ def run_command(
             if process.stderr is not None:
                 process.stderr.close()
         if termination_failed:
-            raise RuntimeError(
+            raise CommandTerminationUnconfirmed(
                 "Command timed out; descendant termination could not be confirmed. "
                 "Inspect running processes and containers before retrying."
             ) from None
@@ -208,6 +212,13 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "import urllib.request; "
             "urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)",
         )
+    except CommandTerminationUnconfirmed:
+        print(
+            "Automatic rollback skipped; manual inspection of processes, containers, "
+            "checkout and .env is required before recovery or retry.",
+            file=sys.stderr,
+        )
+        raise
     except Exception:
         print(
             "Deployment failed. Containers may have changed: inspect service state "
@@ -216,6 +227,22 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
         )
         rollback = partial(command, deadline=min(started + 840, time.monotonic() + 120))
         recovery_errors = []
+        if changed_checkout:
+            try:
+                rollback("git", "checkout", "--detach", previous)
+                if rollback("git", "rev-parse", "HEAD") != previous or rollback(
+                    "git", "status", "--porcelain", "--untracked-files=no"
+                ):
+                    raise RuntimeError("previous checkout is not clean")
+            except CommandTerminationUnconfirmed:
+                print(
+                    "Rollback stopped; manual inspection of processes, containers, "
+                    "checkout and .env is required before recovery or retry.",
+                    file=sys.stderr,
+                )
+                raise
+            except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                recovery_errors.append("checkout recovery requires manual repair")
         try:
             expected_configuration = updated if changed_configuration else original
             if (
@@ -231,15 +258,6 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             recovery_errors.append(
                 "private configuration unavailable; preserving it for manual repair"
             )
-        if changed_checkout:
-            try:
-                rollback("git", "checkout", "--detach", previous)
-                if rollback("git", "rev-parse", "HEAD") != previous or rollback(
-                    "git", "status", "--porcelain", "--untracked-files=no"
-                ):
-                    raise RuntimeError("previous checkout is not clean")
-            except (OSError, RuntimeError, subprocess.TimeoutExpired):
-                recovery_errors.append("checkout recovery requires manual repair")
         if recovery_errors:
             print("Rollback incomplete: " + "; ".join(recovery_errors), file=sys.stderr)
         else:
