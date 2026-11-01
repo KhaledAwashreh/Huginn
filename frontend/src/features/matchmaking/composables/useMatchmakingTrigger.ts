@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { useMutation } from '@tanstack/vue-query';
 import { ApiError } from '../../../api/apiError';
+import { createRequestId } from '../../../shared/requests/createRequestId';
 import { triggerMatchmakingRun } from '../api/triggerMatchmakingRun';
 import type { MatchmakingTriggerDraft } from '../forms/matchmakingTriggerDraft';
 import { serializeMatchmakingTrigger } from '../forms/serializeMatchmakingTrigger';
@@ -41,7 +42,7 @@ export function useMatchmakingTrigger() {
 
   async function submit(draft: MatchmakingTriggerDraft) {
     if (mutation.isPending.value || hasUnresolvedOutcome.value) return undefined;
-    const nextRequestId = crypto.randomUUID();
+    const nextRequestId = createRequestId();
     const body = serializeMatchmakingTrigger(draft, nextRequestId);
     requestId.value = nextRequestId;
     pendingBody.value = body;

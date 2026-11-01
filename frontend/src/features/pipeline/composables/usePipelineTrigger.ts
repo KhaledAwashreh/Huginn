@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { useMutation } from '@tanstack/vue-query';
 import { ApiError } from '../../../api/apiError';
 import { triggerInvocation } from '../api/triggerInvocation';
+import { createRequestId } from '../../../shared/requests/createRequestId';
 
 export function usePipelineTrigger() {
   const requestId = ref<string>();
@@ -33,13 +34,9 @@ export function usePipelineTrigger() {
     () => trigger.error.value instanceof ApiError && trigger.error.value.status === 409,
   );
 
-  function newRequestId(): string {
-    return crypto.randomUUID();
-  }
-
   async function start(): Promise<void> {
     if (trigger.isPending.value || uncertain.value || conflict.value) return;
-    requestId.value = newRequestId();
+    requestId.value = createRequestId();
     uncertain.value = false;
     conflictId.value = undefined;
     await trigger.mutateAsync(requestId.value);

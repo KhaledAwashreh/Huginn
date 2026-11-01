@@ -31,14 +31,22 @@ build-backend = "hatchling.build"
 dev = [
     "httpx>=0.28,<1",
     "pytest>=9.1.1",
+    "pytest-xdist>=3.8,<4",
     "ruff>=0.16.6",
     "testcontainers[postgres]>=4.15.0",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-n 2 --dist loadscope"
 
 [tool.ruff]
 line-length = 88
 target-version = "py314"
 extend-exclude = ["docs/"]
+
+[tool.ruff.per-file-target-version]
+"scripts/deploy-ec2.py" = "py310"
+"scripts/dispatch-ec2-deployment.py" = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "C4"]

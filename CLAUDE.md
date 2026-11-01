@@ -143,6 +143,13 @@ Git's configured hooks path and linked worktrees.
 
 ## Before pushing
 
+`uv run pytest` uses two worker processes, including for CI and the pre-push
+hook. Scheduling with `--dist loadscope` keeps each test module together.
+Database fixtures provision disposable PostgreSQL containers independently in
+each worker; Docker must support the concurrent containers. Use
+`uv run pytest -n 0` for a serial run, or `-n <count>` to override the worker
+count for a particular invocation.
+
 Enforced by `scripts/pre-push-review.sh`, installed as this clone's
 `.git/hooks/pre-push`. Runs automatically on every `git push` in this repo:
 
