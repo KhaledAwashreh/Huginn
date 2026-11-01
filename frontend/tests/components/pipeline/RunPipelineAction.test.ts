@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/api/apiError';
 import RunPipelineAction from '@/features/pipeline/components/RunPipelineAction.vue';
 import type { components } from '@/api/generated/schema';
@@ -36,9 +36,31 @@ async function mountAction() {
 }
 
 describe('Pull data outcome handling', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
     triggerInvocationMock.mockReset();
     vi.spyOn(window.crypto, 'randomUUID').mockReturnValue(requestId);
+  });
+
+  it('triggers collection and opens its receipt when native UUIDs are unavailable on HTTP', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => bytes.fill(1),
+    });
+    triggerInvocationMock.mockResolvedValueOnce({
+      id: invocationId,
+      requested_at: '2026-10-09T09:00:00Z',
+      status: 'queued',
+    } satisfies Receipt);
+    const { wrapper, router } = await mountAction();
+
+    await wrapper.get('button').trigger('click');
+    await flushPromises();
+
+    expect(triggerInvocationMock).toHaveBeenCalledExactlyOnceWith(
+      '01010101-0101-4101-8101-010101010101',
+    );
+    expect(router.currentRoute.value.fullPath).toBe(`/admin/pipeline/invocations/${invocationId}`);
   });
 
   it('navigates to the queued invocation from an accepted trigger receipt', async () => {

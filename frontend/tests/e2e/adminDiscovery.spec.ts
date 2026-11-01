@@ -7,6 +7,9 @@ const password = 'browser-only-correct-horse-battery';
 test('collection console renders saved results, pages, keyboard tabs and private queue receipts', async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window.crypto, 'randomUUID', { configurable: true, value: undefined });
+  });
   await page.goto('/admin/pipeline');
   await page.getByLabel('Username').fill('browser-admin');
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -97,6 +100,9 @@ test('ordinary users cannot load admin projections or see admin navigation', asy
 test('matchmaking shows honest mixed outcomes and preserves a lost all-user receipt', async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window.crypto, 'randomUUID', { configurable: true, value: undefined });
+  });
   await page.goto('/admin/matchmaking');
   await page.getByLabel('Username').fill('browser-admin');
   await page.getByLabel('Password', { exact: true }).fill(password);

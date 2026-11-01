@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mount } from '@vue/test-utils';
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
+import { useMatchmakingTrigger } from '@/features/matchmaking/composables/useMatchmakingTrigger';
 import { createMatchmakingTriggerDraft } from '@/features/matchmaking/forms/matchmakingTriggerDraft';
 import { serializeMatchmakingTrigger } from '@/features/matchmaking/forms/serializeMatchmakingTrigger';
 import { validateMatchmakingRunId } from '@/features/matchmaking/navigation/validateMatchmakingQuery';
+
+const triggerMatchmakingRunMock = vi.hoisted(() => vi.fn());
+vi.mock('@/features/matchmaking/api/triggerMatchmakingRun', () => ({
+  triggerMatchmakingRun: triggerMatchmakingRunMock,
+}));
 
 const user = {
   id: '1f891e25-047d-4c76-bf6d-701c28e47b31',
@@ -50,5 +58,39 @@ describe('matchmaking trigger scope and window', () => {
   it('accepts UUID-shaped run IDs without imposing a version/variant policy', () => {
     expect(validateMatchmakingRunId('00000000-0000-0000-0000-00000000238d')).toBe(true);
     expect(validateMatchmakingRunId('not-a-run-id')).toBe(false);
+  });
+});
+
+describe('matchmaking submission on HTTP', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('submits a secure request ID and preserves its payload for an uncertain retry', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => bytes.fill(2),
+    });
+    const receipt = { id: '2f891e25-047d-4c76-bf6d-701c28e47b31', state: 'queued' };
+    triggerMatchmakingRunMock.mockRejectedValueOnce(new Error('Response lost'));
+    triggerMatchmakingRunMock.mockResolvedValueOnce(receipt);
+    let trigger!: ReturnType<typeof useMatchmakingTrigger>;
+    mount(
+      {
+        setup() {
+          trigger = useMatchmakingTrigger();
+          return () => null;
+        },
+      },
+      { global: { plugins: [[VueQueryPlugin, { queryClient: new QueryClient() }]] } },
+    );
+    const draft = {
+      ...createMatchmakingTriggerDraft(new Date('2026-10-09T12:00:00.000Z')),
+      selectedUser: user,
+    };
+
+    await expect(trigger.submit(draft)).rejects.toThrow('Response lost');
+    const body = serializeMatchmakingTrigger(draft, '02020202-0202-4202-8202-020202020202');
+    expect(triggerMatchmakingRunMock).toHaveBeenNthCalledWith(1, body);
+    expect(await trigger.retrySameRequest()).toEqual(receipt);
+    expect(triggerMatchmakingRunMock).toHaveBeenNthCalledWith(2, body);
+    expect(triggerMatchmakingRunMock).toHaveBeenCalledTimes(2);
   });
 });
