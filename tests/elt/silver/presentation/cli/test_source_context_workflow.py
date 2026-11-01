@@ -3,16 +3,26 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
+import pytest
 from psycopg import sql
 
 from huginn.elt.silver.presentation.cli.source_context import main
 from huginn.elt.silver.repositories.source_context_repository import (
     SourceContextRepository,
 )
+from tests.postgres_harness import provisioned_postgres
+
+
+@pytest.fixture(scope="module")
+def integration_database_url() -> Iterator[str]:
+    """Whole-source CLI counts require a corpus owned by this module."""
+    with provisioned_postgres("huginn_source_context_workflow") as database_url:
+        yield database_url
 
 
 def _payload_hash(payload: dict[str, object]) -> str:
