@@ -13,6 +13,7 @@ from huginn.management.presentation.api.dependencies.authentication import (
 )
 from huginn.management.presentation.api.dependencies.browser_origin import (
     require_same_origin_browser_mutation,
+    require_same_origin_csrf_mutation,
 )
 from huginn.management.presentation.api.dependencies.services import (
     Management,
@@ -84,6 +85,7 @@ def create_session(
     "/sessions/current",
     status_code=status.HTTP_204_NO_CONTENT,
     responses=error_responses(401, 403, 422),
+    dependencies=[Depends(require_same_origin_csrf_mutation)],
 )
 def delete_current_session(
     authenticated: CsrfProtected,

@@ -24,6 +24,12 @@ COMPOSE = ["docker", "compose", "--env-file", ".env", "-f", "compose.yaml"]
 def deployment(tmp_path):
     checkout = tmp_path / "checkout"
     checkout.mkdir()
+    (checkout / "scripts").mkdir()
+    (checkout / "scripts/configure-compose.py").write_text(
+        "def validate_https_configuration(config):\n"
+        "    if config.get('error'): raise ValueError(config['error'])\n"
+        "    return 'huginn.live' if 'traefik' in config['services'] else None\n"
+    )
     original = (
         b"# keep operator settings\nPOSTGRES_PASSWORD=private-secret\n"
         b"HUGINN_IMAGE=old-image\nHUGINN_HOST_PORT=80\n"
@@ -50,7 +56,14 @@ def deployment(tmp_path):
         "    sys.exit(17)\n"
         "if os.environ.get('FAIL_READINESS') and name == 'docker' and args[:6] == ['compose', '--env-file', '.env', '-f', 'compose.yaml', 'exec']:\n"
         "    sys.exit(19)\n"
+        "if name == 'curl':\n"
+        "    print(os.environ.get('HTTPS_RESPONSE', '{\"status\":\"ready\"}\\n200'))\n"
+        "if name == 'docker' and args[-3:] == ['config', '--format', 'json']:\n"
+        "    prior = not state.exists() or state.read_text() != '" + COMMIT + "'\n"
+        "    if not prior and os.environ.get('FAIL_TARGET_CONFIG'): sys.exit(17)\n"
+        "    print(os.environ.get('PREVIOUS_COMPOSE_CONFIG', os.environ.get('COMPOSE_CONFIG', '{\"services\":{}}')) if prior else os.environ.get('COMPOSE_CONFIG', '{\"services\":{}}'))\n"
         "if name == 'git':\n"
+        "    if args[:2] == ['cat-file', '-e'] and os.environ.get('PREVIOUS_NO_HTTPS'): sys.exit(1)\n"
         "    if args[:1] == ['status']:\n"
         "        print(os.environ.get('DIRTY', '') or (' M compose.yaml\\n' if state.exists() and state.read_text() == '"
         + COMMIT
@@ -68,7 +81,7 @@ def deployment(tmp_path):
         + COMMIT
         + "': pathlib.Path('.env').write_text('HUGINN_IMAGE=operator-image\\nPRIVATE_SETTING=operator-change\\n')\n"
         "    elif args[:1] == ['diff']:\n"
-        "        print(os.environ.get('SCHEMA_CHANGE', ''), end='')\n"
+        "        print(os.environ.get('PROXY_CHANGE', '') if args[-1:] == ['docker/traefik'] else os.environ.get('SCHEMA_CHANGE', ''), end='')\n"
         "elif name == 'docker' and args[:2] == ['image', 'inspect']:\n"
         f"    print('{IMAGE_ID}' if args[-1] == '{{{{.Id}}}}' else os.environ.get('IMAGE_COMMIT', '{COMMIT}'))\n"
         "elif name == 'docker' and args[:6] == ['compose', '--env-file', '.env', '-f', 'compose.yaml', 'ps']:\n"
@@ -77,7 +90,7 @@ def deployment(tmp_path):
         f"    print(os.environ.get('RUNNING_IMAGE_ID', '{IMAGE_ID}'))\n"
     )
     fake.chmod(0o755)
-    for name in ("git", "sudo"):
+    for name in ("git", "sudo", "curl"):
         (binaries / name).symlink_to(fake)
     log = tmp_path / "commands.jsonl"
     environment = {**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"}
@@ -291,6 +304,15 @@ def test_forward_deadline_reserves_time_to_restore_configuration(tmp_path, monke
         return subprocess.CompletedProcess(arguments, 0, answer, "")
 
     monkeypatch.setattr(module, "run_command", run)
+    monkeypatch.setattr(module, "validate_hosted_configuration", lambda *args: None)
+    original_run = run
+
+    def run_with_config(arguments, **options):
+        if arguments[-3:] == ("config", "--format", "json"):
+            return subprocess.CompletedProcess(arguments, 0, '{"services":{}}', "")
+        return original_run(arguments, **options)
+
+    monkeypatch.setattr(module, "run_command", run_with_config)
     with pytest.raises(subprocess.TimeoutExpired):
         module.deploy(tmp_path, COMMIT, IMAGE)
     assert (tmp_path / ".env").read_bytes() == original
@@ -349,7 +371,15 @@ def test_unconfirmed_termination_stops_all_recovery(
             return IMAGE_ID if arguments[-1] == "{{.Id}}" else COMMIT
         return ""
 
-    monkeypatch.setattr(module, "command", run)
+    monkeypatch.setattr(module, "validate_hosted_configuration", lambda *args: None)
+    original_run = run
+
+    def run_with_config(*arguments, deadline):
+        if arguments[-3:] == ("config", "--format", "json"):
+            return '{"services":{}}'
+        return original_run(*arguments, deadline=deadline)
+
+    monkeypatch.setattr(module, "command", run_with_config)
     assert module.main() == 1
     assert uncertain_calls
     assert config.read_bytes() == original.replace(
@@ -475,7 +505,199 @@ def test_operator_configuration_edits_are_preserved_when_deployment_fails(
 
 
 @pytest.mark.parametrize(
-    "path", [SCRIPT, SCRIPT.with_name("dispatch-ec2-deployment.py")]
+    "path",
+    [
+        SCRIPT,
+        SCRIPT.with_name("dispatch-ec2-deployment.py"),
+        SCRIPT.with_name("configure-compose.py"),
+    ],
 )
 def test_operator_scripts_parse_on_python_310(path):
     ast.parse(path.read_text(), filename=str(path), feature_version=(3, 10))
+
+
+def test_https_readiness_uses_hostname_verification_and_loopback(monkeypatch):
+    module = load_deployment_script()
+    calls = []
+
+    def run(*arguments, deadline):
+        calls.append((arguments, deadline))
+        return '{"status":"ready"}\n200'
+
+    monkeypatch.setattr(module, "command", run)
+    module.verify_https_readiness("huginn.live", deadline=module.time.monotonic() + 30)
+    arguments, _ = calls[0]
+    assert arguments[0] == "curl"
+    assert "huginn.live:443:127.0.0.1" in arguments
+    assert "https://huginn.live/ready" in arguments
+    assert "--insecure" not in arguments and "-k" not in arguments
+    assert "--location" not in arguments
+    assert "--noproxy" in arguments
+
+
+@pytest.mark.parametrize(
+    "response", ['{"status":"ready"}\n302', '{"status":"wrong"}\n200', "not-json\n200"]
+)
+def test_https_readiness_rejects_wrong_response(monkeypatch, response):
+    module = load_deployment_script()
+    monkeypatch.setattr(module, "command", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="HTTPS readiness"):
+        module.verify_https_readiness(
+            "huginn.live", deadline=module.time.monotonic() + 30
+        )
+
+
+def test_https_readiness_certificate_failure_exhausts_bounded_budget(monkeypatch):
+    module = load_deployment_script()
+    clock = [0.0]
+    calls = []
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+
+    def run(*arguments, deadline):
+        calls.append(deadline)
+        clock[0] += 1
+        raise RuntimeError("curl certificate validation failed")
+
+    monkeypatch.setattr(module, "command", run)
+    with pytest.raises(RuntimeError, match="HTTPS readiness"):
+        module.verify_https_readiness("huginn.live", deadline=7)
+    assert calls and clock[0] <= 7
+    assert all(deadline <= 7 for deadline in calls)
+
+
+def test_https_readiness_never_retries_uncertain_termination(monkeypatch):
+    module = load_deployment_script()
+    calls = []
+
+    def run(*arguments, deadline):
+        calls.append(arguments)
+        raise module.CommandTerminationUnconfirmed("not stopped")
+
+    monkeypatch.setattr(module, "command", run)
+    with pytest.raises(module.CommandTerminationUnconfirmed):
+        module.verify_https_readiness(
+            "huginn.live", deadline=module.time.monotonic() + 30
+        )
+    assert len(calls) == 1
+
+
+HOSTED_CONFIG = json.dumps(
+    {
+        "services": {
+            "traefik": {"environment": {"HUGINN_ACME_ENVIRONMENT": "production"}}
+        }
+    }
+)
+
+
+def test_hosted_release_preserves_profile_and_requires_verified_https(deployment):
+    checkout, original, run, commands = deployment
+    original += b"COMPOSE_PROFILES=https\nHUGINN_WEB_ORIGIN=https://huginn.live\n"
+    (checkout / ".env").write_bytes(original)
+    result = run(COMPOSE_CONFIG=HOSTED_CONFIG)
+    assert result.returncode == 0, result.stderr
+    assert (checkout / ".env").read_bytes() == original.replace(
+        b"HUGINN_IMAGE=old-image", f"HUGINN_IMAGE={IMAGE}".encode()
+    )
+    assert any(call[0] == "curl" for call in commands())
+    assert "verified HTTPS readiness passed" in result.stdout
+
+
+def test_invalid_hosted_preflight_does_not_replace_services_or_secrets(deployment):
+    checkout, original, run, commands = deployment
+    invalid = json.loads(HOSTED_CONFIG)
+    invalid["error"] = "HUGINN_WEB_ORIGIN must match HTTPS hostname"
+    result = run(COMPOSE_CONFIG=json.dumps(invalid))
+    assert result.returncode != 0
+    assert "HUGINN_WEB_ORIGIN" in result.stderr
+    assert (checkout / ".env").read_bytes() == original
+    assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())
+
+
+def test_private_ready_cannot_hide_failed_https(deployment):
+    checkout, original, run, commands = deployment
+    result = run(COMPOSE_CONFIG=HOSTED_CONFIG, HTTPS_RESPONSE='{"status":"ready"}\n302')
+    assert result.returncode != 0
+    assert "HTTPS readiness" in result.stderr
+    assert "readiness check passed" not in result.stdout
+    assert (checkout / ".env").read_bytes() == original
+    assert ["git", "checkout", "--detach", PREVIOUS] in commands()
+
+
+def test_cutover_failure_preserves_https_checkout_instead_of_legacy_rollback(
+    deployment,
+):
+    checkout, original, run, commands = deployment
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG, PREVIOUS_NO_HTTPS="1", HTTPS_RESPONSE="{}\n200"
+    )
+    assert result.returncode != 0
+    assert "previous revision cannot support active HTTPS" in result.stderr
+    assert "Manual recovery" in result.stderr
+    assert ["git", "checkout", "--detach", PREVIOUS] not in commands()
+    assert (checkout / ".env").read_bytes() == original.replace(
+        b"HUGINN_IMAGE=old-image", f"HUGINN_IMAGE={IMAGE}".encode()
+    )
+    assert not any("down" in call or "volume" in call for call in commands())
+
+
+def test_staging_is_explicitly_rejected_by_automated_deployment(deployment):
+    _, _, run, commands = deployment
+    result = run(COMPOSE_CONFIG=HOSTED_CONFIG.replace("production", "staging"))
+    assert result.returncode != 0
+    assert "HUGINN_ACME_ENVIRONMENT" in result.stderr
+    assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())
+
+
+def test_proxy_file_change_recreates_ingress_and_verifies_live_route(deployment):
+    _, _, run, commands = deployment
+    result = run(
+        COMPOSE_CONFIG=HOSTED_CONFIG, PROXY_CHANGE="docker/traefik/dynamic.yaml"
+    )
+    assert result.returncode == 0, result.stderr
+    recreate = [
+        *COMPOSE,
+        "up",
+        "-d",
+        "--no-build",
+        "--no-deps",
+        "--force-recreate",
+        "--wait",
+        "--wait-timeout",
+        "60",
+        "traefik",
+    ]
+    calls = commands()
+    assert recreate in calls
+    assert calls.index(recreate) < next(
+        i for i, call in enumerate(calls) if call[0] == "curl"
+    )
+
+
+def test_unresolvable_configuration_does_not_restore_legacy_revision(deployment):
+    checkout, original, run, commands = deployment
+    result = run(
+        PREVIOUS_NO_HTTPS="1",
+        FAIL_TARGET_CONFIG="1",
+    )
+    assert result.returncode != 0
+    assert ["git", "checkout", "--detach", PREVIOUS] not in commands()
+    assert "Manual recovery" in result.stderr
+    assert (checkout / ".env").read_bytes() == original
+
+
+def test_active_https_cannot_be_removed_by_target_release(deployment):
+    checkout, original, run, commands = deployment
+    original += b"COMPOSE_PROFILES=https\nHUGINN_WEB_ORIGIN=https://huginn.live\n"
+    (checkout / ".env").write_bytes(original)
+    result = run(
+        PREVIOUS_COMPOSE_CONFIG=HOSTED_CONFIG, COMPOSE_CONFIG='{"services":{}}'
+    )
+    assert result.returncode != 0
+    assert "active HTTPS" in result.stderr
+    assert "readiness check passed" not in result.stdout
+    assert (checkout / ".env").read_bytes() == original
+    assert not any(call[:7] == [*COMPOSE, "up"] for call in commands())

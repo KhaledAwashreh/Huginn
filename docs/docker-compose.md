@@ -352,9 +352,12 @@ data first. All job containers reuse the same image, environment and database.
 
 ## Hosting
 
-This default is local development. For a hosted pilot, put an HTTPS reverse proxy
-in front of the loopback app port and set `HUGINN_WEB_ORIGIN` to the public HTTPS
-origin, `HUGINN_MANAGEMENT_ENVIRONMENT=production`, and TLS-enabled external SMTP.
+This default is local development. For a hosted pilot, follow the
+[Traefik and Let's Encrypt setup](https-hosting.md) to activate the optional
+`https` profile after the supporting release deploys. It serves the frontend and
+API at one canonical domain and renews certificates automatically. Set
+`HUGINN_WEB_ORIGIN` to that HTTPS origin, `HUGINN_MANAGEMENT_ENVIRONMENT=production`,
+and TLS-enabled external SMTP.
 Production cookies are secure automatically. Keep PostgreSQL and the mailbox
 private; use normal schema-owner/runtime-role permissions for a production database.
 The bundled database user owns its database for local setup. Configure backups and

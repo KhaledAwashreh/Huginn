@@ -481,7 +481,7 @@ alter or run the ELT pipeline.
 |---|---|
 | Secrets | Behind an abstracted provider. Local key vault now, remote later. |
 | Configuration | YAML. Framework not yet chosen. |
-| Deployment | Local for now, containerized later. |
+| Deployment | Docker Compose on EC2; digest-pinned images published by GitHub Actions and deployed through AWS Systems Manager. Optional Traefik HTTPS ingress; see [hosting](https-hosting.md). |
 | Vector storage | `pgvector` on Postgres, no separate infrastructure, if retrieval ships. |
 | Model cost | Small models for background work, the larger model reserved for user-facing chat, if it ships. |
 

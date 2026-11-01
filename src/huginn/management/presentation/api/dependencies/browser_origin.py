@@ -36,11 +36,16 @@ def require_same_origin_browser_mutation(request: Request) -> None:
     content_type = (
         request.headers.get("content-type", "").partition(";")[0].strip().lower()
     )
+    if content_type != "application/json":
+        raise AuthorizationError("same-origin JSON request is required")
+    require_same_origin_csrf_mutation(request)
+
+
+def require_same_origin_csrf_mutation(request: Request) -> None:
+    """Check browser provenance for bodyless mutations already protected by CSRF."""
     fetch_site = request.headers.get("sec-fetch-site")
     origin = request.headers.get("origin")
-    if content_type != "application/json" or (
-        fetch_site is not None and fetch_site.lower() not in {"same-origin", "none"}
-    ):
+    if fetch_site is not None and fetch_site.lower() not in {"same-origin", "none"}:
         raise AuthorizationError("same-origin JSON request is required")
     if origin is not None:
         supplied = _origin(origin)

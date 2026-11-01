@@ -75,6 +75,12 @@ services:
 
   app:
     <<: *app
+    environment:
+      <<: *app-environment
+      FORWARDED_ALLOW_IPS: ${HUGINN_PROXY_IP:-172.30.255.2}
+    networks:
+      default:
+      ingress:
     ports:
       - "${HUGINN_BIND_ADDRESS:-127.0.0.1}:${HUGINN_HOST_PORT:-8080}:8000"
     healthcheck:
@@ -83,6 +89,56 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  traefik:
+    image: traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+    profiles: ["https"]
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --entrypoints.web.address=:8080
+      - --entrypoints.websecure.address=:8443
+      - --entrypoints.web.forwardedheaders.insecure=false
+      - --entrypoints.websecure.forwardedheaders.insecure=false
+      - --entrypoints.health.address=127.0.0.1:8888
+      - --ping=true
+      - --ping.entrypoint=health
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --certificatesresolvers.production.acme.email=${HUGINN_ACME_EMAIL:-}
+      - --certificatesresolvers.production.acme.storage=/certificates/production/acme.json
+      - --certificatesresolvers.production.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.staging.acme.email=${HUGINN_ACME_EMAIL:-}
+      - --certificatesresolvers.staging.acme.storage=/certificates/staging/acme.json
+      - --certificatesresolvers.staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.staging.acme.httpchallenge.entrypoint=web
+    environment:
+      HUGINN_DOMAIN: ${HUGINN_DOMAIN:-}
+      HUGINN_DOMAIN_ALIAS: ${HUGINN_DOMAIN_ALIAS:-}
+      HUGINN_ACME_EMAIL: ${HUGINN_ACME_EMAIL:-}
+      HUGINN_ACME_ENVIRONMENT: ${HUGINN_ACME_ENVIRONMENT:-production}
+      HUGINN_PROXY_IP: ${HUGINN_PROXY_IP:-172.30.255.2}
+    ports:
+      - "80:8080"
+      - "443:8443"
+    networks:
+      ingress:
+        ipv4_address: ${HUGINN_PROXY_IP:-172.30.255.2}
+    volumes:
+      - ./docker/traefik:/etc/traefik/dynamic:ro
+      - certificates-production:/certificates/production
+      - certificates-staging:/certificates/staging
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=health", "--entrypoints.health.address=127.0.0.1:8888"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   mail-worker:
     <<: *app
@@ -116,3 +172,11 @@ services:
 volumes:
   postgres-data:
   mail-data:
+  certificates-production:
+  certificates-staging:
+
+networks:
+  ingress:
+    ipam:
+      config:
+        - subnet: ${HUGINN_INGRESS_SUBNET:-172.30.255.0/29}

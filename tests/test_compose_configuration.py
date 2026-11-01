@@ -1,4 +1,6 @@
 import base64
+import copy
+import importlib.util
 import json
 import os
 import shutil
@@ -186,3 +188,185 @@ def test_compose_resolves_shared_image_without_changing_infrastructure(tmp_path,
         assert services[name]["image"] == (image or "huginn-app:local"), name
     assert services["db"]["image"] == "postgres:16-alpine"
     assert services["mailpit"]["image"] == "axllent/mailpit:v1.27.10"
+
+
+def _compose_environment():
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("HUGINN_")
+        and key not in {"POSTGRES_PASSWORD", "COMPOSE_PROFILES"}
+    }
+
+
+def _resolved_compose(tmp_path, **values):
+    target = tmp_path / ".env"
+    subprocess.run(
+        [sys.executable, str(SCRIPT), "--output", str(target)],
+        check=True,
+        capture_output=True,
+    )
+    with target.open("a") as stream:
+        for key, value in values.items():
+            stream.write(f"{key}={value}\n")
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("HUGINN_")
+        and key not in {"POSTGRES_PASSWORD", "COMPOSE_PROFILES"}
+    }
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(target),
+            "-f",
+            str(SCRIPT.parents[1] / "compose.yaml"),
+            "config",
+            "--format",
+            "json",
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return target, json.loads(result.stdout)
+
+
+def _hosted_settings():
+    return {
+        "COMPOSE_PROFILES": "https",
+        "HUGINN_DOMAIN": "huginn.live",
+        "HUGINN_DOMAIN_ALIAS": "www.huginn.live",
+        "HUGINN_ACME_EMAIL": "owner@example.com",
+        "HUGINN_WEB_ORIGIN": "https://huginn.live",
+        "HUGINN_MANAGEMENT_ENVIRONMENT": "production",
+        "HUGINN_BIND_ADDRESS": "127.0.0.1",
+    }
+
+
+def test_local_compose_does_not_activate_ingress(tmp_path):
+    target, config = _resolved_compose(tmp_path)
+    assert "traefik" not in config["services"]
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
+        env=_compose_environment(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"https": False, "domain": None}
+
+
+def test_hosted_compose_uses_private_upstream_and_pinned_ingress(tmp_path):
+    _, config = _resolved_compose(tmp_path, **_hosted_settings())
+    services = config["services"]
+    proxy = services["traefik"]
+    assert proxy["image"].startswith("traefik:v3.7.17@sha256:")
+    assert {port["published"] for port in proxy["ports"]} == {"80", "443"}
+    assert services["app"]["ports"][0]["host_ip"] == "127.0.0.1"
+    assert services["app"]["environment"]["FORWARDED_ALLOW_IPS"] == "172.30.255.2"
+    assert proxy["networks"]["ingress"]["ipv4_address"] == "172.30.255.2"
+    assert set(proxy["networks"]) == {"ingress"}
+    assert all("docker.sock" not in mount["target"] for mount in proxy["volumes"])
+    for name, service in services.items():
+        if name not in {"app", "traefik"}:
+            assert "ingress" not in service.get("networks", {})
+    for name in ("app", "mail-worker", "matching-worker", "collection-worker"):
+        assert (
+            services[name]["environment"]["HUGINN_WEB_ORIGIN"] == "https://huginn.live"
+        )
+        assert (
+            services[name]["environment"]["HUGINN_MANAGEMENT_ENVIRONMENT"]
+            == "production"
+        )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("HUGINN_DOMAIN", ""),
+        ("HUGINN_DOMAIN_ALIAS", "bad/host"),
+        ("HUGINN_ACME_EMAIL", ""),
+        ("HUGINN_WEB_ORIGIN", "http://huginn.live"),
+        ("HUGINN_WEB_ORIGIN", "https://other.live"),
+        ("HUGINN_BIND_ADDRESS", "0.0.0.0"),
+        ("HUGINN_PROXY_IP", "0.0.0.0/0"),
+        ("HUGINN_MANAGEMENT_ENVIRONMENT", "local"),
+        ("HUGINN_ACME_ENVIRONMENT", "invalid"),
+    ],
+)
+def test_hosted_preflight_rejects_invalid_settings_without_rewriting(
+    tmp_path, key, value
+):
+    settings = _hosted_settings()
+    settings[key] = value
+    target, _ = _resolved_compose(tmp_path, **settings)
+    original = target.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
+        env=_compose_environment(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert key in result.stderr
+    assert target.read_bytes() == original
+
+
+def test_hosted_preflight_accepts_consistent_settings_without_rewriting(tmp_path):
+    target, _ = _resolved_compose(tmp_path, **_hosted_settings())
+    original = target.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
+        env=_compose_environment(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"https": True, "domain": "huginn.live"}
+    assert target.read_bytes() == original
+
+
+def test_preflight_trust_and_network_boundaries(tmp_path):
+    spec = importlib.util.spec_from_file_location("configure_compose", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _, config = _resolved_compose(tmp_path, **_hosted_settings())
+    assert module.validate_https_configuration(config) == "huginn.live"
+    modified = copy.deepcopy(config)
+    modified["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"] = "*"
+    with pytest.raises(ValueError, match="HUGINN_PROXY_IP"):
+        module.validate_https_configuration(modified)
+    modified = copy.deepcopy(config)
+    modified["networks"]["ingress"]["ipam"]["config"][0]["subnet"] = "172.30.0.0/16"
+    with pytest.raises(ValueError, match="HUGINN_INGRESS_SUBNET"):
+        module.validate_https_configuration(modified)
+    modified = copy.deepcopy(config)
+    modified["services"]["mail-worker"]["networks"]["ingress"] = {}
+    with pytest.raises(ValueError, match="Only app and traefik"):
+        module.validate_https_configuration(modified)
+
+
+@pytest.mark.parametrize(
+    "subnet,address",
+    [
+        ("172.30.255.0/30", "172.30.255.2"),
+        ("172.30.255.0/29", "172.30.255.1"),
+        ("127.0.0.0/29", "127.0.0.2"),
+        ("169.254.0.0/29", "169.254.0.2"),
+    ],
+)
+def test_preflight_rejects_unusable_proxy_networks(tmp_path, subnet, address):
+    spec = importlib.util.spec_from_file_location("configure_compose", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _, config = _resolved_compose(tmp_path, **_hosted_settings())
+    config["networks"]["ingress"]["ipam"]["config"][0]["subnet"] = subnet
+    config["services"]["traefik"]["environment"]["HUGINN_PROXY_IP"] = address
+    config["services"]["traefik"]["networks"]["ingress"]["ipv4_address"] = address
+    config["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"] = address
+    with pytest.raises(ValueError, match="HUGINN_INGRESS_SUBNET"):
+        module.validate_https_configuration(config)
