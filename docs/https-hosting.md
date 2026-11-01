@@ -64,6 +64,7 @@ HUGINN_MANAGEMENT_ENVIRONMENT=production
 HUGINN_BIND_ADDRESS=127.0.0.1
 HUGINN_PROXY_IP=172.30.255.2
 HUGINN_INGRESS_SUBNET=172.30.255.0/29
+HUGINN_INGRESS_DYNAMIC_RANGE=172.30.255.4/30
 ```
 
 Preserve `HUGINN_IMAGE`, passwords, lifecycle key, source keys and SMTP settings.
@@ -74,6 +75,9 @@ transfer to the domain; users sign in again.
 Hosted mode requires an explicit unused private `/29` subnet. Change the example
 above if it overlaps an existing Docker network or route. Local HTTP leaves
 `HUGINN_INGRESS_SUBNET` empty so Docker allocates a nonoverlapping network.
+Leave `HUGINN_INGRESS_DYNAMIC_RANGE` empty locally too. For hosted mode, set it
+to the upper `/30` inside the chosen `/29`, excluding the fixed proxy and gateway
+addresses. This reserves the proxy address even if the app starts first.
 Keep the proxy address within the hosted subnet, away from its network,
 gateway and broadcast addresses. Only app and proxy join this network. Uvicorn
 trusts that one proxy address; never set `FORWARDED_ALLOW_IPS=*`.
@@ -87,6 +91,7 @@ sudo python3 scripts/configure-compose.py --check
 ```
 
 This resolves the repository's explicit `compose.yaml` without printing secrets.
+Resolution is limited to 30 seconds; missing Docker or a timeout fails cleanly.
 Hosted mode rejects inconsistent domain/origin, missing contact email, nonproduction
 cookies, public app binding and broad proxy trust. Local mode needs none of these
 domain settings. Always run the preflight before a manual hosted `up`.
@@ -124,6 +129,9 @@ Production checks must validate TLS normally. An untrusted/default certificate,
 redirected `/ready` or unavailable route is incomplete activation. Inspect proxy
 logs and DNS/port prerequisites instead of disabling certificate verification.
 Both names must validate: HTTPS aliases need certificates before redirecting.
+Only the selected ACME resolver runs. The inactive environment's volume remains
+stored but is not loaded into Traefik, so staging certificates cannot satisfy
+production certificate lookup.
 Unknown hostnames receive no application route. Redirects preserve path/query;
 unsafe request methods use method-preserving permanent redirects.
 

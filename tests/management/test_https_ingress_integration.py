@@ -127,7 +127,7 @@ def test_actual_https_ingress_authentication_and_forwarded_identity(
         alias = proxy.request("/path?query=value", host="alias.localhost")
         assert alias[0] in {301, 308}
         assert alias[1]["location"] == "https://localhost/path?query=value"
-        storage = proxy.directory / "state/acme.json"
+        storage = proxy.directory / "state/production/acme.json"
         stored_certificate = storage.read_bytes()
         assert storage.stat().st_mode & 0o777 == 0o600
         proxy.recreate()

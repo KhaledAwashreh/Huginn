@@ -1,14 +1,18 @@
 import base64
 import copy
 import importlib.util
+import ipaddress
 import json
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+
+import docker
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/configure-compose.py"
 
@@ -245,6 +249,7 @@ def _hosted_settings():
         "HUGINN_MANAGEMENT_ENVIRONMENT": "production",
         "HUGINN_BIND_ADDRESS": "127.0.0.1",
         "HUGINN_INGRESS_SUBNET": "172.30.255.0/29",
+        "HUGINN_INGRESS_DYNAMIC_RANGE": "172.30.255.4/30",
     }
 
 
@@ -252,6 +257,7 @@ def test_local_compose_does_not_activate_ingress(tmp_path):
     target, config = _resolved_compose(tmp_path)
     assert "traefik" not in config["services"]
     assert not config["networks"]["ingress"]["ipam"]["config"][0].get("subnet")
+    assert not config["networks"]["ingress"]["ipam"]["config"][0].get("ip_range")
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--check", "--output", str(target)],
         env=_compose_environment(),
@@ -271,6 +277,10 @@ def test_hosted_compose_uses_private_upstream_and_pinned_ingress(tmp_path):
     assert services["app"]["ports"][0]["host_ip"] == "127.0.0.1"
     assert services["app"]["environment"]["FORWARDED_ALLOW_IPS"] == "172.30.255.2"
     assert proxy["networks"]["ingress"]["ipv4_address"] == "172.30.255.2"
+    assert (
+        config["networks"]["ingress"]["ipam"]["config"][0]["ip_range"]
+        == "172.30.255.4/30"
+    )
     assert set(proxy["networks"]) == {"ingress"}
     assert all("docker.sock" not in mount["target"] for mount in proxy["volumes"])
     for name, service in services.items():
@@ -301,6 +311,10 @@ def test_hosted_compose_uses_private_upstream_and_pinned_ingress(tmp_path):
         ("HUGINN_BIND_ADDRESS", "0.0.0.0"),
         ("HUGINN_PROXY_IP", "0.0.0.0/0"),
         ("HUGINN_INGRESS_SUBNET", ""),
+        ("HUGINN_INGRESS_DYNAMIC_RANGE", ""),
+        ("HUGINN_INGRESS_DYNAMIC_RANGE", "172.30.255.0/30"),
+        ("HUGINN_INGRESS_DYNAMIC_RANGE", "172.30.254.4/30"),
+        ("HUGINN_INGRESS_DYNAMIC_RANGE", "172.30.255.0/29"),
         ("HUGINN_MANAGEMENT_ENVIRONMENT", "local"),
         ("HUGINN_ACME_ENVIRONMENT", "invalid"),
     ],
@@ -379,6 +393,103 @@ def test_preflight_uses_private_file_despite_exported_compose_settings(tmp_path)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"https": True, "domain": "huginn.live"}
     assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError("private-spawn-detail"),
+        subprocess.TimeoutExpired("docker", 30, output="private-output"),
+    ],
+)
+def test_preflight_handles_bounded_compose_failures(monkeypatch, capsys, failure):
+    specification = importlib.util.spec_from_file_location("configure_compose", SCRIPT)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--check"])
+
+    def fail(*args, **kwargs):
+        assert kwargs.get("timeout") == 30
+        raise failure
+
+    monkeypatch.setattr(module.subprocess, "run", fail)
+    with pytest.raises(SystemExit) as error:
+        module.main()
+    assert error.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "Compose configuration could not be resolved" in stderr
+    assert "private-spawn-detail" not in stderr
+    assert "private-output" not in stderr
+
+
+def test_hosted_network_preserves_proxy_address_when_app_starts_first(tmp_path):
+    client = docker.from_env()
+    network = None
+    containers = []
+    try:
+        allocated = [
+            ipaddress.ip_network(pool["Subnet"])
+            for item in client.networks.list()
+            for pool in item.attrs.get("IPAM", {}).get("Config") or []
+            if pool.get("Subnet")
+        ]
+        subnet = next(
+            candidate
+            for candidate in (
+                ipaddress.ip_network(f"10.253.{index}.0/29") for index in range(256)
+            )
+            if not any(
+                candidate.overlaps(pool) for pool in allocated if pool.version == 4
+            )
+        )
+        proxy_address = str(subnet.network_address + 2)
+        dynamic_range = str(ipaddress.ip_network(f"{subnet.network_address + 4}/30"))
+        settings = _hosted_settings() | {
+            "HUGINN_INGRESS_SUBNET": str(subnet),
+            "HUGINN_PROXY_IP": proxy_address,
+            "HUGINN_INGRESS_DYNAMIC_RANGE": dynamic_range,
+        }
+        _, config = _resolved_compose(tmp_path, **settings)
+        pool = config["networks"]["ingress"]["ipam"]["config"][0]
+        network = client.networks.create(
+            f"huginn-ingress-allocation-test-{uuid4().hex}",
+            ipam=docker.types.IPAMConfig(
+                pool_configs=[
+                    docker.types.IPAMPool(
+                        subnet=pool["subnet"], iprange=pool["ip_range"]
+                    )
+                ]
+            ),
+        )
+        image = config["services"]["traefik"]["image"]
+        # The proxy image only runs sleep: no DB, ports or volumes are created.
+        app = client.containers.run(
+            image,
+            entrypoint=["sleep", "60"],
+            detach=True,
+            network=network.name,
+        )
+        containers.append(app)
+        app.reload()
+        app_address = app.attrs["NetworkSettings"]["Networks"][network.name][
+            "IPAddress"
+        ]
+        assert ipaddress.ip_address(app_address) in ipaddress.ip_network(dynamic_range)
+        assert app_address != proxy_address
+        proxy = client.containers.run(image, entrypoint=["sleep", "60"], detach=True)
+        containers.append(proxy)
+        network.connect(proxy, ipv4_address=proxy_address)
+        proxy.reload()
+        assert (
+            proxy.attrs["NetworkSettings"]["Networks"][network.name]["IPAddress"]
+            == proxy_address
+        )
+    finally:
+        for container in reversed(containers):
+            container.remove(force=True, v=True)
+        if network is not None:
+            network.remove()
+        client.close()
 
 
 @pytest.mark.parametrize(

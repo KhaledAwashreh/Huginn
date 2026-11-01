@@ -4,8 +4,11 @@ import base64
 import contextlib
 import ipaddress
 import json
+import os
 import re
+import shutil
 import socket
+import ssl
 import subprocess
 import threading
 import time
@@ -21,6 +24,52 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolved_proxy_configuration(directory, selected):
+    settings = directory / "compose-test.env"
+    settings.write_text(
+        "\n".join(
+            (
+                "POSTGRES_PASSWORD=disposable-only",
+                "HUGINN_LIFECYCLE_PROOF_KEY=disposable-only",
+                "HUGINN_BOOTSTRAP_ADMIN_PASSWORD=disposable-only",
+                "HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD=disposable-only",
+                "COMPOSE_PROFILES=https",
+                "HUGINN_DOMAIN=localhost",
+                "HUGINN_DOMAIN_ALIAS=alias.localhost",
+                "HUGINN_ACME_EMAIL=test@example.test",
+                f"HUGINN_ACME_ENVIRONMENT={selected}",
+                "HUGINN_INGRESS_SUBNET=172.30.255.0/29",
+                "HUGINN_INGRESS_DYNAMIC_RANGE=172.30.255.4/30",
+            )
+        )
+        + "\n"
+    )
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(settings),
+            "-f",
+            str(ROOT / "compose.yaml"),
+            "config",
+            "--format",
+            "json",
+        ],
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("HUGINN_", "COMPOSE_"))
+            and key != "POSTGRES_PASSWORD"
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=15,
+    )
+    return json.loads(result.stdout)["services"]["traefik"]
 
 
 def _free_port():
@@ -94,6 +143,22 @@ class HttpsProxy:
     def origin(self):
         return f"https://localhost:{self.https_port}"
 
+    def certificate_fingerprint(self):
+        # Inspection only: normal readiness separately validates chain and hostname.
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with (
+            socket.create_connection(
+                ("127.0.0.1", self.https_port), timeout=5
+            ) as connection,
+            context.wrap_socket(connection, server_hostname="localhost") as secure,
+        ):
+            certificate = x509.load_der_x509_certificate(
+                secure.getpeercert(binary_form=True)
+            )
+        return certificate.fingerprint(hashes.SHA256())
+
     def recreate(self):
         subprocess.run(
             ["docker", "rm", "--force", self.container],
@@ -126,6 +191,7 @@ class HttpsProxy:
         port = self.https_port if https else self.http_port
         command = [
             "curl",
+            "-q",
             "--silent",
             "--show-error",
             "--noproxy",
@@ -172,10 +238,27 @@ class HttpsProxy:
 
 
 @contextlib.contextmanager
-def real_https_proxy(app, directory):
-    """Use production file-provider routes, with only local TLS/upstream substitutions."""
+def real_https_proxy(
+    app,
+    directory,
+    *,
+    selected="production",
+    seeded=("production",),
+    authority="https://127.0.0.1:1/directory",
+    authority_ca=None,
+    require_trusted=True,
+):
+    """Use resolved production proxy selection, replacing only test network/TLS inputs."""
     directory.mkdir(parents=True, exist_ok=True)
-    _test_certificate(directory)
+    for environment in seeded:
+        certificate_directory = directory / environment
+        certificate_directory.mkdir()
+        _test_certificate(certificate_directory)
+    certificate_directory = directory / (selected if selected in seeded else seeded[0])
+    for filename in ("ca.pem", "cert.pem", "key.pem"):
+        shutil.copyfile(certificate_directory / filename, directory / filename)
+    if authority_ca is not None:
+        shutil.copyfile(authority_ca, directory / "authority-ca.pem")
     upstream_port, http_port, https_port = (_free_port() for _ in range(3))
     server = uvicorn.Server(
         uvicorn.Config(
@@ -204,11 +287,14 @@ def real_https_proxy(app, directory):
         # Issuance/renewal remains separate; a loopback-only CA URL prevents live requests.
         state = directory / "state"
         state.mkdir(mode=0o700)
-        storage = state / "acme.json"
-        storage.write_text(
-            json.dumps(
+        for environment in ("production", "staging"):
+            storage_directory = state / environment
+            storage_directory.mkdir(mode=0o700)
+            storage = storage_directory / "acme.json"
+            certificate_directory = directory / environment
+            value = (
                 {
-                    "production": {
+                    environment: {
                         "Certificates": [
                             {
                                 "domain": {
@@ -216,23 +302,64 @@ def real_https_proxy(app, directory):
                                     "sans": ["alias.localhost"],
                                 },
                                 "certificate": base64.b64encode(
-                                    (directory / "cert.pem").read_bytes()
+                                    (certificate_directory / "cert.pem").read_bytes()
                                 ).decode(),
                                 "key": base64.b64encode(
-                                    (directory / "key.pem").read_bytes()
+                                    (certificate_directory / "key.pem").read_bytes()
                                 ).decode(),
                                 "Store": "default",
                             }
                         ]
                     }
                 }
+                if environment in seeded
+                else {}
             )
-        )
-        storage.chmod(0o600)
+            storage.write_text(json.dumps(value))
+            storage.chmod(0o600)
         (directory / "dynamic.yaml").write_text(routes)
-        image = re.search(
-            r"image: (traefik:[^\s]+)", (ROOT / "compose.yaml").read_text()
-        ).group(1)
+        configuration = _resolved_proxy_configuration(directory, selected)
+        command = []
+        for flag in configuration["command"]:
+            if flag.startswith("--entrypoints.web.address="):
+                flag = f"--entrypoints.web.address=127.0.0.1:{http_port}"
+            elif flag.startswith("--entrypoints.websecure.address="):
+                flag = f"--entrypoints.websecure.address=127.0.0.1:{https_port}"
+            elif flag.startswith("--entrypoints.health.address="):
+                flag = f"--entrypoints.health.address=127.0.0.1:{_free_port()}"
+            elif flag.startswith("--providers.file.directory="):
+                flag = "--providers.file.directory=/config"
+            if ".acme.caserver=" in flag:
+                flag = flag.split("=", 1)[0] + "=" + authority
+            command.append(flag.replace("/certificates/", "/state/"))
+        # Older configurations omit the production CA flag, relying on its default.
+        names = {
+            match.group(1)
+            for flag in command
+            if (match := re.match(r"--certificatesresolvers\.([^.]+)\.", flag))
+        }
+        for resolver_name in names:
+            command.append(
+                f"--certificatesresolvers.{resolver_name}.acme.caserver={authority}"
+            )
+        entrypoint = []
+        if configuration.get("entrypoint"):
+            configured_entrypoint = configuration["entrypoint"]
+            script_path = Path(configured_entrypoint[1]).relative_to(
+                "/etc/traefik/dynamic"
+            )
+            script = (ROOT / "docker/traefik" / script_path).read_text()
+            script = script.replace(
+                "https://acme-v02.api.letsencrypt.org/directory", authority
+            )
+            script = script.replace(
+                "https://acme-staging-v02.api.letsencrypt.org/directory", authority
+            )
+            (directory / script_path).write_text(
+                script.replace("/certificates/", "/state/")
+            )
+            entrypoint = ["--entrypoint", configured_entrypoint[0]]
+            command = [f"/config/{script_path}", *configured_entrypoint[2:], *command]
         run_command = [
             "docker",
             "run",
@@ -250,15 +377,17 @@ def real_https_proxy(app, directory):
             "--env",
             "HUGINN_DOMAIN_ALIAS=alias.localhost",
             "--env",
-            "HUGINN_ACME_ENVIRONMENT=production",
-            image,
-            f"--entrypoints.web.address=127.0.0.1:{http_port}",
-            f"--entrypoints.websecure.address=127.0.0.1:{https_port}",
-            "--providers.file.directory=/config",
-            "--certificatesresolvers.production.acme.email=test@example.test",
-            "--certificatesresolvers.production.acme.storage=/state/acme.json",
-            "--certificatesresolvers.production.acme.caserver=https://127.0.0.1:1/directory",
-            "--certificatesresolvers.production.acme.httpchallenge.entrypoint=web",
+            f"HUGINN_ACME_ENVIRONMENT={selected}",
+            "--env",
+            "HUGINN_ACME_EMAIL=test@example.test",
+            *(
+                ["--env", "SSL_CERT_FILE=/config/authority-ca.pem"]
+                if authority_ca
+                else []
+            ),
+            *entrypoint,
+            configuration["image"],
+            *command,
             "--log.level=ERROR",
         ]
         subprocess.run(
@@ -272,7 +401,10 @@ def real_https_proxy(app, directory):
         deadline = time.monotonic() + 15
         while True:
             try:
-                if proxy.request("/health")[0] == 200:
+                if (require_trusted and proxy.request("/health")[0] == 200) or (
+                    not require_trusted
+                    and proxy.request("/health", https=False)[0] in {301, 308}
+                ):
                     break
             except subprocess.CalledProcessError, subprocess.TimeoutExpired:
                 pass

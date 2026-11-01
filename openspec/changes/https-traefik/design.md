@@ -40,7 +40,7 @@ See `proposal.md` for motivation and `specs/https-ingress/spec.md` for the behav
 1. Use Let's Encrypt HTTP-01 on port 80, with a separate ACME certificate resolver and persistent account/certificate storage. GoDaddy API access and wildcard certificates are unnecessary.
 2. The TLS router covers canonical and alias hostnames so HTTPS alias redirects have a valid certificate before the redirect occurs.
 3. Explicit hostname-matched HTTP and alias redirect rules produce permanent 301 responses for GET and method-preserving 308 responses for other methods, preserving path and query. ACME's challenge route remains functional. Unknown HTTP hostnames receive no application route.
-4. Use Let's Encrypt staging for end-to-end issuance tests and production only after DNS/network prerequisites pass. Keep staging and production certificate stores separate so staging state cannot be mistaken for a trusted production certificate.
+4. Use Let's Encrypt staging for end-to-end issuance tests and production only after DNS/network prerequisites pass. Keep staging and production certificate stores separate and activate only the selected resolver, so inactive staging state cannot enter the shared TLS store or suppress production issuance.
 5. Store account/certificate material in a dedicated named volume with restrictive permissions. Container replacement and application rollback never remove this volume. Document backup and restore without printing private keys.
 6. Avoid HTTP Strict Transport Security preload and broad subdomain policies in this first activation, so certificate/debugging mistakes do not create a persistent browser lockout.
 

@@ -78,6 +78,22 @@ def validate_https_configuration(config: dict) -> str | None:
         raise ValueError(
             "HUGINN_PROXY_IP and HUGINN_INGRESS_SUBNET must specify a private address in a narrow IPv4 ingress network"
         ) from None
+    try:
+        dynamic_range = ipaddress.ip_network(
+            config["networks"]["ingress"]["ipam"]["config"][0]["ip_range"]
+        )
+        if (
+            dynamic_range.version != 4
+            or dynamic_range.prefixlen != 30
+            or not dynamic_range.subnet_of(network)
+            or address in dynamic_range
+            or gateway in dynamic_range
+        ):
+            raise ValueError
+    except (ValueError, KeyError, IndexError):
+        raise ValueError(
+            "HUGINN_INGRESS_DYNAMIC_RANGE must be a /30 within HUGINN_INGRESS_SUBNET, excluding the proxy and gateway addresses"
+        ) from None
     if environment.get("FORWARDED_ALLOW_IPS") != str(address) or proxy.get(
         "networks", {}
     ).get("ingress", {}).get("ipv4_address") != str(address):
@@ -110,27 +126,34 @@ def main() -> int:
     if args.check:
         if args.add_admin:
             parser.error("--check cannot be combined with --add-admin")
-        result = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "--env-file",
-                str(args.output),
-                "-f",
-                str(root / "compose.yaml"),
-                "config",
-                "--format",
-                "json",
-            ],
-            capture_output=True,
-            text=True,
-            env={
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith(("HUGINN_", "COMPOSE_"))
-                and key != "POSTGRES_PASSWORD"
-            },
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    str(args.output),
+                    "-f",
+                    str(root / "compose.yaml"),
+                    "config",
+                    "--format",
+                    "json",
+                ],
+                timeout=30,
+                capture_output=True,
+                text=True,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith(("HUGINN_", "COMPOSE_"))
+                    and key != "POSTGRES_PASSWORD"
+                },
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            parser.exit(
+                1,
+                "Compose configuration could not be resolved within 30 seconds; check Docker and the private settings.\n",
+            )
         if result.returncode:
             parser.exit(
                 1,

@@ -93,6 +93,7 @@ services:
   traefik:
     image: traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
     profiles: ["https"]
+    entrypoint: ["/bin/sh", "/etc/traefik/dynamic/start.sh"]
     command:
       - --global.checknewversion=false
       - --global.sendanonymoususage=false
@@ -105,13 +106,6 @@ services:
       - --ping.entrypoint=health
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
-      - --certificatesresolvers.production.acme.email=${HUGINN_ACME_EMAIL:-}
-      - --certificatesresolvers.production.acme.storage=/certificates/production/acme.json
-      - --certificatesresolvers.production.acme.httpchallenge.entrypoint=web
-      - --certificatesresolvers.staging.acme.email=${HUGINN_ACME_EMAIL:-}
-      - --certificatesresolvers.staging.acme.storage=/certificates/staging/acme.json
-      - --certificatesresolvers.staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
-      - --certificatesresolvers.staging.acme.httpchallenge.entrypoint=web
     environment:
       HUGINN_DOMAIN: ${HUGINN_DOMAIN:-}
       HUGINN_DOMAIN_ALIAS: ${HUGINN_DOMAIN_ALIAS:-}
@@ -180,3 +174,4 @@ networks:
     ipam:
       config:
         - subnet: ${HUGINN_INGRESS_SUBNET:-}
+          ip_range: ${HUGINN_INGRESS_DYNAMIC_RANGE:-}
