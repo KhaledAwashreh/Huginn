@@ -2,6 +2,8 @@
 """Deploy an already published image to an existing EC2 Compose checkout."""
 
 import fcntl
+import importlib.util
+import json
 import os
 import re
 import signal
@@ -92,6 +94,67 @@ def replace_private_file(path: Path, content: bytes) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def validate_hosted_configuration(checkout: Path, config: dict) -> str | None:
+    specification = importlib.util.spec_from_file_location(
+        "compose_configuration", checkout / "scripts/configure-compose.py"
+    )
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    domain = module.validate_https_configuration(config)
+    if (
+        domain is not None
+        and config["services"]["traefik"]["environment"].get("HUGINN_ACME_ENVIRONMENT")
+        != "production"
+    ):
+        raise ValueError(
+            "HUGINN_ACME_ENVIRONMENT must be production for automated deployment"
+        )
+    return domain
+
+
+def verify_https_readiness(domain: str, *, deadline: float) -> None:
+    while time.monotonic() < deadline:
+        try:
+            response = command(
+                "curl",
+                "-q",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--noproxy",
+                "*",
+                "--resolve",
+                f"{domain}:443:127.0.0.1",
+                "--max-time",
+                "5",
+                "--proto",
+                "=https",
+                "--write-out",
+                "\\n%{http_code}",
+                f"https://{domain}/ready",
+                deadline=min(deadline, time.monotonic() + 6),
+            )
+        except CommandTerminationUnconfirmed:
+            raise
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(2, remaining))
+            continue
+        try:
+            body, status = response.rsplit("\n", 1)
+            if status != "200" or json.loads(body) != {"status": "ready"}:
+                raise ValueError("unexpected readiness response")
+        except (ValueError, TypeError):
+            raise RuntimeError(
+                "HTTPS readiness returned an unexpected response"
+            ) from None
+        return
+    raise RuntimeError(
+        "HTTPS readiness failed: verify the proxy, certificate trust, hostname and routing"
+    )
+
+
 def deploy(checkout: Path, commit: str, image: str) -> None:
     started = time.monotonic()
     run = partial(command, deadline=started + 720)
@@ -150,6 +213,11 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
         updated = original + (b"" if original.endswith(b"\n") else b"\n") + replacement
     changed_checkout = False
     changed_configuration = False
+    hosted = False
+    configuration_resolved = False
+    previous_supports_https = True
+    proxy_recovery_required = False
+    domain = None
     compose = (
         "sudo",
         "-n",
@@ -160,6 +228,9 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
         "-f",
         "compose.yaml",
     )
+    previous_configuration = json.loads(run(*compose, "config", "--format", "json"))
+    previously_hosted = "traefik" in previous_configuration.get("services", {})
+    hosted = previously_hosted
     try:
         changed_checkout = True
         run("git", "checkout", "--detach", commit)
@@ -173,9 +244,40 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             raise RuntimeError(
                 "Private configuration changed during deployment; preserving operator edits"
             )
+        try:
+            run("git", "cat-file", "-e", f"{previous}:docker/traefik/dynamic.yaml")
+        except CommandTerminationUnconfirmed:
+            raise
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            previous_supports_https = False
+        resolved = json.loads(run(*compose, "config", "--format", "json"))
+        configuration_resolved = True
+        target_hosted = "traefik" in resolved.get("services", {})
+        hosted = previously_hosted or target_hosted
+        if previously_hosted and not target_hosted:
+            raise RuntimeError("Target release cannot preserve active HTTPS ingress")
+        domain = validate_hosted_configuration(checkout, resolved)
+        if previously_hosted and domain is None:
+            raise RuntimeError(
+                "Target configuration cannot preserve active HTTPS ingress"
+            )
+        proxy_changes = (
+            run("git", "diff", "--name-only", previous, commit, "--", "docker/traefik")
+            if hosted
+            else ""
+        )
+        if private_config.is_symlink() or private_config.read_bytes() != original:
+            raise RuntimeError(
+                "Private configuration changed during preflight; preserving operator edits"
+            )
         replace_private_file(private_config, updated)
         changed_configuration = True
         run(*compose, "pull")
+        proxy_recovery_required = previously_hosted and bool(
+            proxy_changes
+            or previous_configuration["services"]["traefik"]
+            != resolved["services"]["traefik"]
+        )
         run(
             *compose,
             "up",
@@ -185,6 +287,19 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "--wait-timeout",
             "180",
         )
+        if hosted and proxy_changes:
+            run(
+                *compose,
+                "up",
+                "-d",
+                "--no-build",
+                "--no-deps",
+                "--force-recreate",
+                "--wait",
+                "--wait-timeout",
+                "60",
+                "traefik",
+            )
         containers = run(*compose, "ps", "-q", "app").splitlines()
         if len(containers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", containers[0]):
             raise RuntimeError("Expected exactly one running app container")
@@ -212,6 +327,10 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "import urllib.request; "
             "urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)",
         )
+        if domain is not None:
+            verify_https_readiness(
+                domain, deadline=min(started + 720, time.monotonic() + 90)
+            )
     except CommandTerminationUnconfirmed:
         print(
             "Automatic rollback skipped; manual inspection of processes, containers, "
@@ -225,7 +344,17 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             "and recover using the deployment guide.",
             file=sys.stderr,
         )
-        rollback = partial(command, deadline=min(started + 840, time.monotonic() + 120))
+        if not previous_supports_https and (hosted or not configuration_resolved):
+            print(
+                "Automatic rollback skipped: the previous revision cannot support active HTTPS "
+                "or HTTPS mode could not be safely resolved. "
+                "Manual recovery is required; current checkout, private configuration and "
+                "certificate state were preserved.",
+                file=sys.stderr,
+            )
+            raise
+        recovery_deadline = min(started + 840, time.monotonic() + 120)
+        rollback = partial(command, deadline=recovery_deadline)
         recovery_errors = []
         if changed_checkout:
             try:
@@ -258,12 +387,52 @@ def deploy(checkout: Path, commit: str, image: str) -> None:
             recovery_errors.append(
                 "private configuration unavailable; preserving it for manual repair"
             )
+        if proxy_recovery_required and not recovery_errors:
+            try:
+                recovered = json.loads(rollback(*compose, "config", "--format", "json"))
+                recovery_domain = validate_hosted_configuration(checkout, recovered)
+                if recovery_domain is None:
+                    raise RuntimeError("previous configuration does not enable HTTPS")
+                if (
+                    private_config.is_symlink()
+                    or private_config.read_bytes() != original
+                ):
+                    raise RuntimeError(
+                        "private configuration changed before HTTPS recovery"
+                    )
+                rollback(
+                    *compose,
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "--no-deps",
+                    "--force-recreate",
+                    "--wait",
+                    "--wait-timeout",
+                    "60",
+                    "traefik",
+                )
+                verify_https_readiness(recovery_domain, deadline=recovery_deadline)
+            except CommandTerminationUnconfirmed:
+                print(
+                    "Rollback stopped; manual inspection of processes, containers, "
+                    "checkout and .env is required before recovery or retry.",
+                    file=sys.stderr,
+                )
+                raise
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                recovery_errors.append("HTTPS ingress recovery requires manual repair")
+            else:
+                print("Previous HTTPS ingress restored and verified", file=sys.stderr)
         if recovery_errors:
             print("Rollback incomplete: " + "; ".join(recovery_errors), file=sys.stderr)
         else:
             print("Previous checkout and .env restored", file=sys.stderr)
         raise
-    print(f"Deployed {commit}; application readiness check passed")
+    print(
+        f"Deployed {commit}; application readiness check passed"
+        + ("; verified HTTPS readiness passed" if domain is not None else "")
+    )
 
 
 def main() -> int:

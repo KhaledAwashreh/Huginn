@@ -215,8 +215,11 @@ when checkout or configuration restoration needs manual repair. It does not
 force checkout over tracked edits. For a permission/unlink error, inspect
 `git status --short` and file ownership, preserve any operator edits, repair the
 affected permissions, and restore the previous commit before retrying. Do not
-use a force checkout or reset to bypass unexplained edits. There is no automatic
-database or container rollback. Inspect service state on the instance:
+use a force checkout or reset to bypass unexplained edits. When an affected
+Traefik replacement fails on an already HTTPS-enabled release, safe recovery
+also recreates the previous proxy and verifies its trusted HTTPS readiness within
+the shared recovery deadline. Other application containers and the database are
+not rolled back automatically. Inspect service state on the instance:
 
 ```sh
 sudo docker compose --env-file .env -f compose.yaml ps -a
@@ -352,9 +355,12 @@ data first. All job containers reuse the same image, environment and database.
 
 ## Hosting
 
-This default is local development. For a hosted pilot, put an HTTPS reverse proxy
-in front of the loopback app port and set `HUGINN_WEB_ORIGIN` to the public HTTPS
-origin, `HUGINN_MANAGEMENT_ENVIRONMENT=production`, and TLS-enabled external SMTP.
+This default is local development. For a hosted pilot, follow the
+[Traefik and Let's Encrypt setup](https-hosting.md) to activate the optional
+`https` profile after the supporting release deploys. It serves the frontend and
+API at one canonical domain and renews certificates automatically. Set
+`HUGINN_WEB_ORIGIN` to that HTTPS origin, `HUGINN_MANAGEMENT_ENVIRONMENT=production`,
+and TLS-enabled external SMTP.
 Production cookies are secure automatically. Keep PostgreSQL and the mailbox
 private; use normal schema-owner/runtime-role permissions for a production database.
 The bundled database user owns its database for local setup. Configure backups and

@@ -45,6 +45,7 @@ target-version = "py314"
 extend-exclude = ["docs/"]
 
 [tool.ruff.per-file-target-version]
+"scripts/configure-compose.py" = "py310"
 "scripts/deploy-ec2.py" = "py310"
 "scripts/dispatch-ec2-deployment.py" = "py310"
 

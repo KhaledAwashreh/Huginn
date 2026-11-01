@@ -1,0 +1,37 @@
+http:
+  routers:
+    canonical:
+      rule: 'Host(`{{ env "HUGINN_DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: app
+      tls:
+        certResolver: '{{ env "HUGINN_ACME_ENVIRONMENT" }}'
+        domains:
+          - main: '{{ env "HUGINN_DOMAIN" }}'
+            sans: ['{{ env "HUGINN_DOMAIN_ALIAS" }}']
+    alias:
+      rule: 'Host(`{{ env "HUGINN_DOMAIN_ALIAS" }}`)'
+      entryPoints: [websecure]
+      service: noop@internal
+      middlewares: [canonical-redirect]
+      tls:
+        certResolver: '{{ env "HUGINN_ACME_ENVIRONMENT" }}'
+        domains:
+          - main: '{{ env "HUGINN_DOMAIN" }}'
+            sans: ['{{ env "HUGINN_DOMAIN_ALIAS" }}']
+    http:
+      rule: 'Host(`{{ env "HUGINN_DOMAIN" }}`) || Host(`{{ env "HUGINN_DOMAIN_ALIAS" }}`)'
+      entryPoints: [web]
+      service: noop@internal
+      middlewares: [canonical-redirect]
+  middlewares:
+    canonical-redirect:
+      redirectRegex:
+        regex: '^https?://[^/]+/(.*)'
+        replacement: 'https://{{ env "HUGINN_DOMAIN" }}/${1}'
+        permanent: true
+  services:
+    app:
+      loadBalancer:
+        servers:
+          - url: http://app:8000
