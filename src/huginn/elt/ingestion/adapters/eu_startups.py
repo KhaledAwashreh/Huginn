@@ -22,8 +22,9 @@ from datetime import datetime, timedelta
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
-import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests
+from curl_cffi.requests.exceptions import HTTPError, RequestException
 
 from huginn.elt.ingestion.models import (
     DiscoveryBatch,
@@ -42,15 +43,6 @@ _LISTING_SITEMAP_MARKER = "wpbdp_listing-sitemap"
 _SITEMAP_INDEX_URL = "https://www.eu-startups.com/sitemap_index.xml"
 _EXPECTED_SCHEME = "https"
 _EXPECTED_HOST = "www.eu-startups.com"
-
-# Confirmed live (docs/sources/eu-startups.md): a plain browser User-Agent
-# clears the Cloudflare check for this source. Independent of, and not
-# imported from, huginn.elt.silver.resolution.REACHABILITY_USER_AGENT,
-# which is scoped to domain-reachability checks (Global Constraint 5).
-_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-)
 
 _REQUEST_TIMEOUT_SECONDS = 10.0
 _MAX_CONCURRENT_FETCHES = 5
@@ -217,10 +209,10 @@ class EuStartupsDiscoveryAdapter:
         self._max_workers = max_workers
 
     def fetch_page(self, url: str) -> str:
-        """GET `url` with the confirmed browser User-Agent, raising a
+        """GET `url` with the browser transport documented in docs/sources/eu-startups.md, raising a
         sanitized `EuStartupsFetchError` on a non-2xx response or a request
         failure (Global Constraint 5, mirrors `opencorporates.py`'s
-        `try`/`except requests.RequestException` pattern with its own
+        sanitized request-error pattern with its own
         exception type, scoped to this adapter). Redirect following is
         disabled and every 3xx response is rejected so a trusted sitemap
         URL cannot redirect the request to another origin.
@@ -228,7 +220,8 @@ class EuStartupsDiscoveryAdapter:
         try:
             response = requests.get(
                 url,
-                headers={"User-Agent": _USER_AGENT},
+                impersonate="chrome",
+                verify=True,
                 timeout=self._timeout,
                 allow_redirects=False,
             )
@@ -238,12 +231,12 @@ class EuStartupsDiscoveryAdapter:
                 )
             response.raise_for_status()
             return response.text
-        except requests.HTTPError as exc:
+        except HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
             raise EuStartupsFetchError(
                 f"EU-Startups page fetch failed: {type(exc).__name__}", status_code
             ) from None
-        except requests.RequestException as exc:
+        except RequestException as exc:
             raise EuStartupsFetchError(
                 f"EU-Startups page fetch failed: {type(exc).__name__}"
             ) from None

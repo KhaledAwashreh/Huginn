@@ -1,5 +1,28 @@
 # EU-Startups (eu-startups.com)
 
+## Current transport: EC2 verification, 2026-11-02
+
+1. The historical User-Agent-only conclusion below no longer holds for the
+   hosted EC2 environment: the existing `requests` call returned HTTP 403.
+2. Discovery and enrichment now use pinned `curl_cffi` 0.17.0 with its Chrome
+   browser profile, including aligned default headers and TLS behavior. Both
+   retain certificate verification, the configured 10-second timeout, redirect
+   rejection, sanitized failures and existing URL filters. HN, YC and other
+   adapters retain their existing transports.
+3. The exact updated adapters were exercised in a disposable container using
+   the deployed image on EC2. The index exposed 167 listing sitemaps, the newest
+   contained 112 valid entries, three concurrent detail requests returned real
+   company fields, and an enrichment search returned nine results. No database
+   connection or pipeline run was made by that probe. These counts are dated
+   observations, not pagination limits or expected production totals.
+4. The adapter still returns raw HTML for Bronze. This change does not alter
+   watermark persistence, durable retry disposition or pipeline dependency
+   policy. Browser impersonation is not a guarantee of future access: upstream
+   challenge rules can change, and unresolved failures remain explicit.
+
+The earlier access research below is historical evidence from another date and
+environment; it does not override the current transport verification above.
+
 Source of truth for Bronze-layer ingestion design. Verified live against the
 site on 2026-09-16, via both the Chrome browser and plain `curl`.
 

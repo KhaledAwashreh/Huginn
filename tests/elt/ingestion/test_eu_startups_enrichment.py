@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-import requests
+from curl_cffi.requests.exceptions import ConnectionError
 
 from huginn.elt.ingestion.adapters import eu_startups_enrichment
 from huginn.elt.ingestion.adapters.eu_startups_enrichment import (
@@ -243,8 +243,8 @@ def test_eu_startups_enrichment_adapter_rejects_negative_max_calls():
 
 
 def test_fetch_page_raises_sanitized_error_on_request_failure(monkeypatch):
-    def fake_get(url, headers, timeout, allow_redirects):
-        raise requests.ConnectionError("boom")
+    def fake_get(url, impersonate, verify, timeout, allow_redirects):
+        raise ConnectionError("boom")
 
     monkeypatch.setattr(eu_startups_enrichment.requests, "get", fake_get)
     adapter = EuStartupsEnrichmentAdapter(company_loader=lambda: [], max_calls=1)
@@ -513,11 +513,8 @@ def test_build_search_url_sends_the_documented_query_params():
     }
 
 
-def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
-    """The other half of the live request contract: the confirmed browser
-    User-Agent and the configured timeout, on the actual `requests.get`
-    call `fetch_page` makes (for both the search request and the detail-
-    page fetch, since both route through this one method)."""
+def test_fetch_page_requests_browser_profile_and_timeout(monkeypatch):
+    """See the current transport contract in docs/sources/eu-startups.md."""
     captured = {}
 
     class FakeResponse:
@@ -527,9 +524,10 @@ def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def fake_get(url, headers, timeout, allow_redirects):
+    def fake_get(url, impersonate, verify, timeout, allow_redirects):
         captured["url"] = url
-        captured["headers"] = headers
+        captured["impersonate"] = impersonate
+        captured["verify"] = verify
         captured["timeout"] = timeout
         captured["allow_redirects"] = allow_redirects
         return FakeResponse()
@@ -542,7 +540,8 @@ def test_fetch_page_requests_expected_user_agent_and_timeout(monkeypatch):
     result = adapter.fetch_page("https://www.eu-startups.com/directory/brightroom/")
 
     assert captured["url"] == "https://www.eu-startups.com/directory/brightroom/"
-    assert captured["headers"] == {"User-Agent": eu_startups_enrichment._USER_AGENT}
+    assert captured["impersonate"] == "chrome"
+    assert captured["verify"] is True
     assert captured["timeout"] == 7.5
     assert captured["allow_redirects"] is False
     assert result == "<html>ok</html>"
@@ -560,7 +559,7 @@ def test_fetch_page_raises_sanitized_error_on_redirect(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def fake_get(url, headers, timeout, allow_redirects):
+    def fake_get(url, impersonate, verify, timeout, allow_redirects):
         return FakeRedirectResponse()
 
     monkeypatch.setattr(eu_startups_enrichment.requests, "get", fake_get)

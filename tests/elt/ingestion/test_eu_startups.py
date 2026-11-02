@@ -211,7 +211,7 @@ def test_fetch_page_rejects_redirects(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def fake_get(url, headers, timeout, allow_redirects):
+    def fake_get(url, impersonate, verify, timeout, allow_redirects):
         captured["allow_redirects"] = allow_redirects
         return FakeRedirectResponse()
 
@@ -232,7 +232,7 @@ def test_fetch_page_preserves_confirmed_http_status_for_retry_policy(monkeypatch
             return False
 
         def raise_for_status(self):
-            raise eu_startups.requests.HTTPError(response=self)
+            raise eu_startups.HTTPError("not found", response=self)
 
     monkeypatch.setattr(
         eu_startups.requests,
