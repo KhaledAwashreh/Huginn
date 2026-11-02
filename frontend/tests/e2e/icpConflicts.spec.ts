@@ -14,8 +14,15 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   await page.getByLabel('Username').fill('browser-icp-conflicts');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
-  await page.goto('/icps/00000000-0000-0000-0000-000000000333');
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
+  const browserPrompts: string[] = [];
+  page.on('dialog', (prompt) => {
+    browserPrompts.push(prompt.message());
+    void prompt.dismiss();
+  });
+  await page.goto('/profile');
+  await page.locator('.icp-tile').click();
+  await expect(page.getByRole('dialog', { name: 'ICP definition', exact: true })).toBeVisible();
   await expect(
     page.getByText('Analytics is both selected and excluded.', { exact: false }),
   ).toBeVisible();
@@ -64,7 +71,13 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
     'true',
   );
   await countries.press('Escape');
+  // The button is also disabled while saving, so wait for the save itself before reading it back.
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' && response.url().includes('/ideal-client-profiles/'),
+  );
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  expect((await saveResponse).status()).toBe(200);
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
   const saved = await page.request.get(
     '/api/v1/ideal-client-profiles/00000000-0000-0000-0000-000000000333',
@@ -74,4 +87,7 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   expect(value.industries).toEqual([]);
   expect(value.geographies).toEqual([]);
   expect(value.exclusions).toHaveLength(2);
+  // Closing a dropdown with Escape must not try to close the modal around it.
+  expect(browserPrompts).toEqual([]);
+  await expect(page.getByRole('dialog', { name: 'ICP definition', exact: true })).toBeVisible();
 });

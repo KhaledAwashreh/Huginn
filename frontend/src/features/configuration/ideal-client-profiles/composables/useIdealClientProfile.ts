@@ -2,7 +2,6 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { useSession } from '../../../session/composables/useSession';
 import { createIdealClientProfile } from '../api/createIdealClientProfile';
-import { deleteIdealClientProfile } from '../api/deleteIdealClientProfile';
 import { getIdealClientProfile } from '../api/getIdealClientProfile';
 import { listIdealClientProfiles } from '../api/listIdealClientProfiles';
 import { updateIdealClientProfile } from '../api/updateIdealClientProfile';
@@ -54,10 +53,5 @@ export function useIdealClientProfile(
       return invalidateAll();
     },
   });
-  const remove = useMutation({
-    mutationFn: deleteIdealClientProfile,
-    retry: false,
-    onSuccess: invalidateAll,
-  });
-  return { list, detail, create, update, remove };
+  return { list, detail, create, update };
 }

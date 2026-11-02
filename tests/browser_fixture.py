@@ -199,7 +199,7 @@ def _seed_matching_history(connection, account_id: UUID) -> None:
 def _seed_owner_matches(connection, user_id: UUID) -> None:
     """Disposable owner pages and source rows for guarded current context."""
     now = datetime.now(UTC)
-    for index in range(105):
+    for index in range(int(os.environ.get("HUGINN_BROWSER_MATCH_COUNT", "105"))):
         company_id = connection.execute(
             "INSERT INTO gold.company(domain,name,country,business_sector,company_scale) "
             "VALUES (%s,%s,'USA',ARRAY['B2B'],'11-100') RETURNING id",

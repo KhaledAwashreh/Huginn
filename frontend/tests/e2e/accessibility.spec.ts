@@ -51,7 +51,7 @@ test('authenticated shell supports keyboard navigation and reduced motion', asyn
   await page.getByLabel('Username').fill('browser-ada');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Skip to main content' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#main-content')).toBeFocused();

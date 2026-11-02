@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { components } from '@/api/generated/schema';
@@ -34,7 +34,6 @@ const overviewWithoutMatches: Overview = {
 };
 
 const state = vi.hoisted(() => ({
-  status: undefined as string | undefined,
   offset: 0,
   page: { items: [] as Match[], limit: 50, offset: 0, has_more: false },
   overview: {
@@ -42,7 +41,6 @@ const state = vi.hoisted(() => ({
     has_active_strategies: true,
     latest_evaluation: null,
   } as Overview,
-  setStatus: vi.fn(),
   setOffset: vi.fn(),
   previousPage: vi.fn(),
   nextPage: vi.fn(),
@@ -79,10 +77,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@/features/matches/composables/useMatches', () => ({
   useMatches: () => ({
-    status: { value: state.status },
     offset: { value: state.offset },
     pageSize: 50,
-    setStatus: state.setStatus,
     setOffset: state.setOffset,
     previousPage: state.previousPage,
     nextPage: state.nextPage,
@@ -143,15 +139,17 @@ vi.mock('vue-router', async (importOriginal) => ({
 
 const global = {
   plugins: [PrimeVue],
-  stubs: { RouterLink: { template: '<a><slot /></a>' }, Select: { template: '<div />' } },
+  stubs: {
+    RouterLink: { template: '<a><slot /></a>' },
+    RouterView: { template: '<div />' },
+    Select: { template: '<div />' },
+  },
 };
 
 beforeEach(() => {
-  state.status = undefined;
   state.offset = 0;
   state.page = { items: [], limit: 50, offset: 0, has_more: false };
   state.overview = { has_matches: false, has_active_strategies: true, latest_evaluation: null };
-  state.setStatus.mockReset();
   state.setOffset.mockReset();
   state.previousPage.mockReset();
   state.nextPage.mockReset();
@@ -189,15 +187,7 @@ beforeEach(() => {
 });
 
 describe('matches workspace', () => {
-  it('keeps overall empty context separate from status-filter and out-of-range empty pages', async () => {
-    state.status = 'contacted';
-    const filtered = mount(MatchesPage, { global });
-    expect(filtered.text()).toContain('No matches are on this page');
-    expect(filtered.text()).not.toContain('No managed evaluation is recorded');
-    await filtered.get('button[aria-label="Clear filter"]').trigger('click');
-    expect(state.setStatus).toHaveBeenCalledWith(undefined);
-
-    state.status = undefined;
+  it('keeps overall empty context separate from out-of-range empty pages', async () => {
     state.offset = 50;
     state.overview = { ...overviewWithoutMatches, has_matches: true };
     const outOfRange = mount(MatchesPage, { global });
@@ -205,6 +195,32 @@ describe('matches workspace', () => {
     expect(outOfRange.text()).not.toContain('You have no matches yet');
     await outOfRange.get('button[aria-label="First page"]').trigger('click');
     expect(state.setOffset).toHaveBeenCalledWith(0);
+  });
+
+  it('keeps pagination when a search finds nothing on this page and scopes the message to it', async () => {
+    state.page = { items: [companyMatch], limit: 50, offset: 0, has_more: true };
+    const wrapper = mount(MatchesPage, { global });
+    await wrapper.get('input[type="search"]').setValue('no such company');
+    expect(wrapper.find('[data-testid="match-row"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Search covers only the current page.');
+    await wrapper.get('button[aria-label="Next page"]').trigger('click');
+    expect(state.nextPage).toHaveBeenCalledOnce();
+  });
+
+  it('shows match reactions as disabled, on tiles and the detail page, with no rejection dialog', async () => {
+    state.page = { items: [companyMatch], limit: 50, offset: 0, has_more: false };
+    for (const page of [MatchesPage, MatchDetailPage]) {
+      const wrapper = mount(page, { global, attachTo: document.body });
+      for (const name of ['Good match', 'Not a fit']) {
+        const button = wrapper.get(`button[aria-label="${name}: Example Company"]`);
+        expect(button.attributes('disabled')).toBeDefined();
+        expect(button.attributes('title')).toBe('Coming soon');
+        (button.element as HTMLButtonElement).click();
+      }
+      await flushPromises();
+      expect(document.body.textContent).not.toContain("Why isn't");
+      wrapper.unmount();
+    }
   });
 
   it('maps an overall empty account from overview evidence without claiming a legacy run never happened', () => {

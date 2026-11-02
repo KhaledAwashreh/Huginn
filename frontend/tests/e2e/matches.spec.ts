@@ -6,33 +6,49 @@ async function login(page: Page, username: string): Promise<void> {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
 }
 
-test('owned matches, status and >100 pagination, current signals, safe links and isolation', async ({
+test('owned matches, search and >100 pagination, current signals, safe links and isolation', async ({
   page,
   browser,
   baseURL,
 }) => {
   await login(page, 'browser-matches');
-  await page.goto('/matches');
+  await page.getByRole('link', { name: 'Matches', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   await expect(page.getByTestId('match-row')).toHaveCount(50);
   await expect(page.getByTestId('match-row').first()).toContainText('Current match company 000');
+  await page.getByRole('searchbox', { name: 'Search matches' }).fill('company 007');
+  await expect(page.getByTestId('match-row')).toHaveCount(1);
+  await page.getByRole('searchbox', { name: 'Search matches' }).fill('nothing like this');
+  await expect(page.getByText('No matches on this page fit your search.')).toBeVisible();
+  await expect(page.getByText('Search covers only the current page.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeEnabled();
+  await page.getByRole('searchbox', { name: 'Search matches' }).fill('');
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.getByTestId('match-row').first()).toContainText('Current match company 050');
-  await page.getByRole('button', { name: 'Next page', exact: true }).click();
-  await expect(page.getByTestId('match-row')).toHaveCount(5);
-  await page.getByRole('combobox', { name: 'Filter by status' }).click();
-  await page.getByRole('option', { name: 'Contacted', exact: true }).click();
-  await expect(page.getByTestId('match-row')).toHaveCount(1);
-  await expect(page.getByTestId('match-row')).toContainText('Current match company 001');
-  await page.getByRole('combobox', { name: 'Filter by status' }).click();
-  await page.getByRole('option', { name: 'Converted', exact: true }).click();
-  await expect(page.getByTestId('match-row')).toHaveCount(0);
-  await expect(page.getByText(/no matches.*filter|no matches.*status/i)).toBeVisible();
-  await page.getByRole('button', { name: 'Clear filter', exact: true }).click();
-  await expect(page.getByTestId('match-row')).toHaveCount(50);
+  await page.getByRole('button', { name: 'First page', exact: true }).click();
+  await expect(page.getByTestId('match-row').first()).toContainText('Current match company 000');
+  const firstTile = page.getByTestId('match-row').first();
+  for (const name of [/^Good match/, /^Not a fit/]) {
+    const reaction = firstTile.getByRole('button', { name });
+    await expect(reaction).toBeDisabled();
+    await expect(reaction).toHaveAttribute('title', 'Coming soon');
+  }
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Add your ICP', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'ICP definition', exact: true });
+  await expect(settings.getByRole('heading', { name: 'From your feedback' })).toHaveCount(0);
+  await expect(settings.getByRole('heading', { name: 'From your client list' })).toHaveCount(0);
+  await settings.getByRole('button', { name: 'Close settings' }).click();
+  await expect(settings).toHaveCount(0);
+  await page.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page.getByTestId('match-row').first()).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== 'running'),
+  );
   await page.screenshot({ path: 'test-results/matches-list-wide.png', fullPage: true });
   expect(
     (
@@ -46,15 +62,15 @@ test('owned matches, status and >100 pagination, current signals, safe links and
     true,
   );
   await page.screenshot({ path: 'test-results/matches-list-narrow.png', fullPage: true });
-  await page
-    .getByTestId('match-row')
-    .first()
-    .getByRole('link', { name: 'View match', exact: true })
-    .click();
+  await page.getByTestId('match-row').first().getByRole('link').click();
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Matches');
   await expect(
     page.getByRole('heading', { name: 'Current match company 000', exact: true }),
   ).toBeVisible();
   const matchId = new URL(page.url()).pathname.split('/').at(-1) ?? '';
+  for (const name of [/^Good match/, /^Not a fit/]) {
+    await expect(page.getByRole('button', { name })).toBeDisabled();
+  }
   await expect(
     page.getByRole('heading', { name: 'Current company context', exact: true }),
   ).toBeVisible();

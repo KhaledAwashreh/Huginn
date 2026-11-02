@@ -1,11 +1,10 @@
-import { defineComponent, h } from 'vue';
 import { configurationRoutes } from '../features/configuration/routes';
 import { matchmakingRoutes } from '../features/matchmaking/routes';
 import { pipelineRoutes } from '../features/pipeline/routes';
 import { accountLifecycleRoutes } from '../features/account-lifecycle/routes';
 import { recommendationRoutes } from '../features/recommendations/routes';
 import { matchesRoutes } from '../features/matches/routes';
-import RecoveryEmailEnrollment from '../features/account-lifecycle/components/RecoveryEmailEnrollment.vue';
+import { profileRoutes } from '../features/profile/routes';
 import { createRouter, createWebHistory } from 'vue-router';
 import { useSession } from '../features/session/composables/useSession';
 import LoginPage from '../features/session/pages/LoginPage.vue';
@@ -17,22 +16,13 @@ import { validateReturnPath } from '../shared/navigation/validateReturnPath';
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    {
-      path: '/',
-      name: 'workspace',
-      component: defineComponent({
-        setup: () => () =>
-          h('div', [
-            h(PageHeader, { title: 'Your workspace', description: 'A place for your work.' }),
-            h(RecoveryEmailEnrollment),
-          ]),
-      }),
-      meta: { requiresAuth: true, navigationLabel: 'Workspace' },
-    },
+    // Matches is home; recovery email enrollment now lives in the Security settings.
+    { path: '/', name: 'workspace', redirect: '/matches' },
     { path: '/login', name: 'login', component: LoginPage },
     ...accountLifecycleRoutes,
     ...matchesRoutes,
     ...recommendationRoutes,
+    ...profileRoutes,
     ...configurationRoutes,
     {
       path: '/admin',
