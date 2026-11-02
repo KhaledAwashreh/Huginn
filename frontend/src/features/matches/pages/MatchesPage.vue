@@ -1,18 +1,32 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
+import { Search } from '@lucide/vue';
 import Button from 'primevue/button';
 import { ApiError } from '../../../api/apiError';
 import PageHeader from '../../../shared/ui/PageHeader.vue';
 import LoadingState from '../../../shared/ui/LoadingState.vue';
 import ErrorState from '../../../shared/ui/ErrorState.vue';
 import EmptyState from '../../../shared/ui/EmptyState.vue';
-import MatchList from '../components/MatchList.vue';
+import MatchGrid from '../components/MatchGrid.vue';
+import MatchPagination from '../components/MatchPagination.vue';
 import MatchOverviewEmptyState from '../components/MatchOverviewEmptyState.vue';
-import MatchStatusFilter from '../components/MatchStatusFilter.vue';
 import { useMatches } from '../composables/useMatches';
 import { useMatchesOverview } from '../composables/useMatchesOverview';
 
 const list = useMatches();
 const { overview } = useMatchesOverview();
+const search = ref('');
+const visibleMatches = computed(() => {
+  const items = list.matches.data.value?.items ?? [];
+  const query = search.value.trim().toLocaleLowerCase();
+  if (!query) return items;
+  return items.filter(({ company }) =>
+    [company.name, company.domain, company.country, ...(company.business_sector ?? [])]
+      .join(' ')
+      .toLocaleLowerCase()
+      .includes(query),
+  );
+});
 
 function canRetry(error: unknown): boolean {
   return (
@@ -23,9 +37,6 @@ function canRetry(error: unknown): boolean {
   );
 }
 
-function clearFilter(): void {
-  list.setStatus(undefined);
-}
 function firstPage(): void {
   list.setOffset(0);
 }
@@ -33,11 +44,16 @@ function firstPage(): void {
 
 <template>
   <div class="matches-page">
-    <PageHeader title="Matches" description="Browse your recorded company matches." />
-    <section class="matches-workspace" aria-labelledby="matches-heading">
-      <div class="matches-toolbar">
-        <h2 id="matches-heading">Your matches</h2>
-        <MatchStatusFilter :model-value="list.status.value" @update:model-value="list.setStatus" />
+    <PageHeader title="Matches" />
+    <section class="matches-workspace" aria-label="Matched companies">
+      <div v-if="list.matches.data.value?.items.length" class="match-search">
+        <Search :size="18" aria-hidden="true" />
+        <input
+          v-model="search"
+          type="search"
+          aria-label="Search matches"
+          placeholder="Search matches"
+        />
       </div>
       <ErrorState
         v-if="overview.isError.value"
@@ -81,33 +97,18 @@ function firstPage(): void {
             @click="list.matches.refetch()"
           />
         </ErrorState>
-        <MatchList
-          v-if="list.matches.data.value.items.length"
-          :page="list.matches.data.value"
-          :offset="list.offset.value"
-          :page-size="list.pageSize"
-          :fetching="list.matches.isFetching.value"
-          @previous="list.previousPage"
-          @next="list.nextPage"
-          @first-page="firstPage"
+        <EmptyState
+          v-if="list.matches.data.value.items.length && !visibleMatches.length"
+          message="No matches on this page fit your search. Search covers only the current page."
         />
-        <template
-          v-else-if="list.status.value || list.offset.value > 0 || overview.data.value?.has_matches"
-        >
-          <EmptyState
-            :message="
-              list.status.value
-                ? 'No matches are on this page for the selected status.'
-                : 'This page has no matches. Return to the first page or refresh.'
-            "
-          />
+        <MatchGrid
+          v-else-if="list.matches.data.value.items.length"
+          :items="visibleMatches"
+          :fetching="list.matches.isFetching.value"
+        />
+        <template v-else-if="list.offset.value > 0 || overview.data.value?.has_matches">
+          <EmptyState message="This page has no matches. Return to the first page or refresh." />
           <div class="empty-actions">
-            <Button
-              v-if="list.status.value"
-              label="Clear filter"
-              severity="secondary"
-              @click="clearFilter"
-            />
             <Button
               v-if="list.offset.value > 0"
               label="First page"
@@ -115,7 +116,7 @@ function firstPage(): void {
               @click="firstPage"
             />
             <Button
-              v-if="!list.status.value && list.offset.value === 0"
+              v-if="list.offset.value === 0"
               label="Refresh matches"
               severity="secondary"
               :disabled="list.matches.isFetching.value"
@@ -134,32 +135,52 @@ function firstPage(): void {
             :loading="overview.isPending.value"
           />
         </template>
+        <MatchPagination
+          v-if="list.matches.data.value.items.length"
+          :has-more="list.matches.data.value.has_more"
+          :offset="list.offset.value"
+          :page-size="list.pageSize"
+          :fetching="list.matches.isFetching.value"
+          @previous="list.previousPage"
+          @next="list.nextPage"
+          @first-page="firstPage"
+        />
       </template>
     </section>
   </div>
 </template>
 
 <style scoped>
-.matches-page {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
+.matches-page,
 .matches-workspace {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
 }
-.matches-toolbar {
+.match-search {
+  max-width: 24rem;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
 }
-h2 {
-  margin: 0;
-  font-size: 1.2rem;
+.match-search:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.match-search input {
+  min-width: 0;
+  min-height: 42px;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--color-text);
 }
 .empty-actions {
   display: flex;

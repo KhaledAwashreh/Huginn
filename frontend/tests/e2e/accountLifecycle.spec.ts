@@ -115,7 +115,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   const bootstrap = await page.request.get('/api/v1/sessions/current');
   expect(bootstrap.status()).toBe(200);
   const session = (await bootstrap.json()) as { csrf_token: string };
@@ -188,7 +188,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
     await expect(recovery.getByRole('alert')).toBeVisible();
     await recovery.getByLabel('Password', { exact: true }).fill(NEW_PASSWORD);
     await recovery.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await expect(recovery.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+    await expect(recovery.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   } finally {
     await recoveryContext.close();
   }

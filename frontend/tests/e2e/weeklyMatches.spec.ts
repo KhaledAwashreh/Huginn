@@ -58,8 +58,8 @@ test('weekly selection has seven saved entries, strategy associations and no gen
   await page.getByLabel('Username').fill('browser-matches');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
-  await page.getByRole('link', { name: 'Weekly Matches', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
+  await page.goto('/weekly-matches');
   await expect(page.getByRole('heading', { name: 'Weekly Matches', exact: true })).toBeVisible();
   await expect(page.locator('.recommendation-row')).toHaveCount(7);
   await expect(page.getByRole('button', { name: /Generate/ })).toHaveCount(0);

@@ -1,37 +1,25 @@
-import { computed, ref, type Ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { useSession } from '../../session/composables/useSession';
-import { listMatches, type MatchStatusFilter } from '../api/listMatches';
+import { listMatches } from '../api/listMatches';
 
 export const MATCH_PAGE_SIZE = 50;
 
 export function matchesQueryKey(
   accountId: string | undefined,
   userId: string | undefined,
-  status: MatchStatusFilter | undefined,
   offset: number,
 ) {
-  return ['matches', accountId, userId, 'list', status ?? null, offset] as const;
-}
-
-export function applyMatchStatus(
-  currentStatus: Ref<MatchStatusFilter | undefined>,
-  currentOffset: Ref<number>,
-  nextStatus: MatchStatusFilter | undefined,
-): void {
-  currentStatus.value = nextStatus;
-  currentOffset.value = 0;
+  return ['matches', accountId, userId, 'list', offset] as const;
 }
 
 export function useMatches() {
   const session = useSession();
-  const status = ref<MatchStatusFilter | undefined>();
   const offset = ref(0);
   const queryKey = computed(() =>
     matchesQueryKey(
       session.context.value?.account_id,
       session.context.value?.user_id,
-      status.value,
       offset.value,
     ),
   );
@@ -42,7 +30,6 @@ export function useMatches() {
       listMatches({
         limit: MATCH_PAGE_SIZE,
         offset: offset.value,
-        ...(status.value ? { status: status.value } : {}),
         signal,
       }),
     placeholderData: (previousData, previousQuery) => {
@@ -54,10 +41,6 @@ export function useMatches() {
         : undefined;
     },
   });
-
-  function setStatus(next: MatchStatusFilter | undefined): void {
-    applyMatchStatus(status, offset, next);
-  }
 
   function setOffset(next: number): void {
     offset.value = Math.max(0, next);
@@ -73,10 +56,8 @@ export function useMatches() {
 
   return {
     matches,
-    status,
     offset,
     pageSize: MATCH_PAGE_SIZE,
-    setStatus,
     setOffset,
     nextPage,
     previousPage,

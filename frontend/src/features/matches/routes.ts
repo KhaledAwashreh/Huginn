@@ -7,12 +7,12 @@ export const matchesRoutes: RouteRecordRaw[] = [
     path: '/matches',
     name: 'matches',
     component: MatchesPage,
-    meta: { requiresAuth: true, navigationLabel: 'Matches' },
+    meta: { requiresAuth: true, navigationLabel: 'Matches', hideTitle: true },
   },
   {
     path: '/matches/:id',
     name: 'match-detail',
     component: MatchDetailPage,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, breadcrumbs: [{ label: 'Matches', to: '/matches' }] },
   },
 ];

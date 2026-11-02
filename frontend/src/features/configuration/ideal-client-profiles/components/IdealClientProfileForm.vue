@@ -59,6 +59,8 @@ const canSubmit = computed(
 );
 onBeforeRouteLeave(() => (busy.value ? false : state.canLeave()));
 onBeforeRouteUpdate(() => (busy.value ? false : state.canLeave()));
+// Closing the settings modal is not a navigation, so it asks the form directly.
+defineExpose({ canClose: () => (busy.value ? false : state.canLeave()) });
 function normalizedPath(path: (string | number)[]): string {
   const result: (string | number)[] = [];
   for (const part of path) {

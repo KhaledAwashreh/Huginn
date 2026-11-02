@@ -1,8 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const savedInvocation = '00000000-0000-0000-0000-000000002329';
 const password = 'browser-only-correct-horse-battery';
+
+// Axe reads colours mid-transition as low contrast, so scans wait for the page to settle.
+async function waitForTransitions(page: Page): Promise<void> {
+  await page.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== 'running'),
+  );
+}
 
 test('collection console renders saved results, pages, keyboard tabs and private queue receipts', async ({
   page,
@@ -86,9 +93,13 @@ test('ordinary users cannot load admin projections or see admin navigation', asy
   await page.getByLabel('Username').fill('browser-bob');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Data collection', exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Administration', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Bob Browser' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Security', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Admin', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.goto(`/admin/pipeline/invocations/${savedInvocation}`);
   await expect(page.getByRole('heading', { name: 'Administrator access required' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pull data', exact: true })).toHaveCount(0);
@@ -196,23 +207,30 @@ test('matchmaking shows honest mixed outcomes and preserves a lost all-user rece
   await expect(page.getByRole('heading', { name: 'Administrator access required' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Matchmaking', exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Data collection', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Bob Browser' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Admin', exact: true })).toHaveCount(0);
 });
 
-test('grouped navigation opens a dedicated admin workspace and works in the mobile drawer', async ({
+test('the user menu opens admin tools and the top nav keeps navigation and drafts', async ({
   page,
 }) => {
   await page.goto('/login');
   await page.getByLabel('Username').fill('browser-admin');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
   const workspace = page.getByRole('navigation', { name: 'Workspace navigation', exact: true });
-  await expect(workspace.getByText('Business setup', { exact: true })).toBeVisible();
+  await expect(workspace.locator('.p-megamenu-root-list a')).toHaveText(['Matches', 'Profile']);
   await expect(workspace.getByText('Data collection', { exact: true })).toHaveCount(0);
-  await expect(workspace.getByText('Matchmaking', { exact: true })).toHaveCount(0);
-  await workspace.getByText('Administration', { exact: true }).last().click();
-  await expect(page).toHaveURL(/\/admin$/);
+  await page.getByRole('button', { name: 'Bob Browser' }).click();
+  await page.getByRole('menuitem', { name: 'Admin', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Admin', exact: true });
+  await expect(settings.getByRole('heading', { name: 'Matchmaking', exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: 'Open data collection', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/pipeline$/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.goto('/admin');
   await expect(
     page.getByRole('heading', { name: 'Administration', exact: true, level: 1 }),
   ).toBeVisible();
@@ -244,6 +262,8 @@ test('grouped navigation opens a dedicated admin workspace and works in the mobi
     'true',
   );
   await page.goto('/admin');
+  await expect(page.getByRole('link', { name: 'Open data collection', exact: true })).toBeVisible();
+  await waitForTransitions(page);
   expect(
     (
       await new AxeBuilder({ page })
@@ -251,41 +271,20 @@ test('grouped navigation opens a dedicated admin workspace and works in the mobi
         .analyze()
     ).violations,
   ).toEqual([]);
-  await page.screenshot({ path: 'test-results/administration-sidebar-wide.png', fullPage: false });
+  await page.screenshot({ path: 'test-results/administration-page-wide.png', fullPage: false });
   await page.setViewportSize({ width: 320, height: 800 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  const drawer = page.getByRole('dialog');
-  await expect(drawer).toBeVisible();
-  expect(
-    (
-      await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-        .analyze()
-    ).violations,
-  ).toEqual([]);
-  await page.screenshot({ path: 'test-results/administration-drawer-narrow.png', fullPage: false });
-  await drawer.getByText('Back to workspace', { exact: true }).click();
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await page.getByRole('dialog').getByText('Account & security', { exact: true }).click();
-  await expect(page).toHaveURL(/\/account$/);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel('First name', { exact: true }).fill('Unsaved mobile draft');
-  await page.getByRole('button', { name: 'Open navigation menu' }).click();
+  await page.screenshot({ path: 'test-results/administration-nav-narrow.png', fullPage: false });
+  await workspace.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page).toHaveURL(/\/matches$/);
+  await workspace.getByRole('link', { name: 'Profile', exact: true }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await page.goto('/professional-profile');
+  await page.getByLabel('Headline', { exact: true }).fill('Unsaved mobile draft');
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('dialog').getByRole('link', { name: 'Workspace', exact: true }).click();
-  await expect(page).toHaveURL(/\/account$/);
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect
-    .poll(() =>
-      page.getByRole('dialog').evaluate((element) => element.contains(document.activeElement)),
-    )
-    .toBe(true);
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByLabel('First name', { exact: true })).toHaveValue('Unsaved mobile draft');
+  await workspace.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page).toHaveURL(/\/professional-profile$/);
+  await expect(page.getByLabel('Headline', { exact: true })).toHaveValue('Unsaved mobile draft');
 });

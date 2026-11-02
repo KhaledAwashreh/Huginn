@@ -6,7 +6,7 @@ async function login(page: Page, username: string): Promise<void> {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
 }
 async function csrf(page: Page): Promise<string> {
   const response = await page.request.get('/api/v1/sessions/current');
@@ -96,7 +96,7 @@ test('live owner CRUD, explicit clears, nested shape, bounded references, delete
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   expect((await patch).postDataJSON()).toEqual({ timezone: null });
   await expect(page.getByLabel('First name', { exact: true })).toBeEnabled();
-  await page.getByRole('link', { name: 'Professional profile', exact: true }).click();
+  await page.goto('/professional-profile');
   await page.getByLabel('Headline', { exact: true }).fill('Independent consultant');
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
   await page.getByLabel('Skill 1').fill('Research');
@@ -112,7 +112,7 @@ test('live owner CRUD, explicit clears, nested shape, bounded references, delete
   expect((await profilePatch).postDataJSON()).toEqual({ headline: null, skills: [] });
   await page.getByLabel('Headline', { exact: true }).fill('Dirty local draft');
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('link', { name: 'Account & security', exact: true }).click();
+  await page.getByRole('link', { name: 'Matches', exact: true }).click();
   await expect(page.getByLabel('Headline', { exact: true })).toHaveValue('Dirty local draft');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const other = await browser.newContext(baseURL ? { baseURL } : {});
@@ -163,11 +163,12 @@ test('configuration wide/narrow layouts expose labels, keyboard focus and safe l
     '/account',
     '/professional-profile',
     '/offerings/new',
-    '/icps/new',
+    'icp-settings-modal',
     '/strategies/new',
   ]) {
-    await page.goto(route);
-    if (route === '/icps/new') {
+    await page.goto(route === 'icp-settings-modal' ? '/profile' : route);
+    if (route === 'icp-settings-modal') {
+      await page.getByRole('button', { name: 'Add your ICP', exact: true }).click();
       await page.getByRole('combobox', { name: 'Collected industry options', exact: true }).focus();
       await page.keyboard.press('ArrowDown');
       await page
@@ -192,14 +193,19 @@ test('configuration wide/narrow layouts expose labels, keyboard focus and safe l
       await expect(page.getByText('Healthcare', { exact: true })).toBeVisible();
       await expect(page.getByText('USA', { exact: true })).toBeVisible();
     }
+    // The ICP form is in a modal, and the page behind it is unreachable.
+    await page.waitForFunction(() =>
+      document.getAnimations().every((animation) => animation.playState !== 'running'),
+    );
     expect(
       (
         await new AxeBuilder({ page })
+          .include(route === 'icp-settings-modal' ? '.settings-dialog' : 'html')
           .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
           .analyze()
       ).violations,
     ).toEqual([]);
-    if (route === '/icps/new') {
+    if (route === 'icp-settings-modal') {
       await page.screenshot({
         path: 'test-results/configuration-icp-populated-wide.png',
         fullPage: true,
@@ -214,7 +220,7 @@ test('configuration wide/narrow layouts expose labels, keyboard focus and safe l
       fullPage: true,
     });
     await page.setViewportSize({ width: 1280, height: 900 });
-    if (route === '/icps/new') {
+    if (route === 'icp-settings-modal') {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     }
   }

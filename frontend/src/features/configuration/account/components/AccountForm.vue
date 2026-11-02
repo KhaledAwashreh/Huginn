@@ -14,9 +14,6 @@ import {
 import { useAccount } from '../composables/useAccount';
 import { createAccountDraft, type AccountResponse, type AccountDraft } from '../forms/accountDraft';
 import { serializeAccountPatch } from '../forms/serializeAccountPatch';
-import PasswordSecurityForm from './PasswordSecurityForm.vue';
-import RecoveryEmailEnrollment from '../../../account-lifecycle/components/RecoveryEmailEnrollment.vue';
-import { useAccountSecurity } from '../../../account-lifecycle/composables/useAccountSecurity';
 import { useSession } from '../../../session/composables/useSession';
 
 const props = defineProps<{ account: AccountResponse }>();
@@ -32,7 +29,6 @@ const {
 const draft = computed(() => draftRef.value);
 const { save, account: accountQuery } = useAccount();
 const session = useSession();
-const security = useAccountSecurity();
 const pending = computed(() => save.isPending.value);
 const errors = ref<Record<string, string>>({});
 const message = ref('');
@@ -105,8 +101,13 @@ async function submit(): Promise<void> {
     if (!(error instanceof ApiError)) uncertainOutcome.value = true;
   }
 }
-onBeforeRouteLeave(() => (pending.value ? false : canLeave()));
-onBeforeRouteUpdate(() => (pending.value ? false : canLeave()));
+function canClose(): boolean | Promise<boolean> {
+  return pending.value ? false : canLeave();
+}
+onBeforeRouteLeave(canClose);
+onBeforeRouteUpdate(canClose);
+// The settings dialog asks before discarding edits, since closing it is not a navigation.
+defineExpose({ canClose });
 </script>
 <template>
   <div class="configuration-form">
@@ -232,18 +233,6 @@ onBeforeRouteUpdate(() => (pending.value ? false : canLeave()));
       />
       <p v-if="refreshMessage" role="status">{{ refreshMessage }}</p>
     </section>
-    <PasswordSecurityForm />
-    <section class="security" aria-labelledby="account-security-title">
-      <h2 id="account-security-title">Account security</h2>
-      <p>
-        Your contact email is used for profile communication. Recovery email is a separate verified
-        address used for password recovery.
-      </p>
-      <p v-if="security.data.value">
-        Username: <strong>{{ security.data.value.username }}</strong>
-      </p>
-      <RecoveryEmailEnrollment />
-    </section>
   </div>
 </template>
 <style scoped>
@@ -277,11 +266,6 @@ onBeforeRouteUpdate(() => (pending.value ? false : canLeave()));
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-3);
-}
-.security {
-  padding: var(--space-6);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
 }
 h2 {
   margin-top: 0;

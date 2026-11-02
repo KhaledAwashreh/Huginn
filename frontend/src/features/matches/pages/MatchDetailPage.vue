@@ -7,6 +7,7 @@ import PageHeader from '../../../shared/ui/PageHeader.vue';
 import LoadingState from '../../../shared/ui/LoadingState.vue';
 import ErrorState from '../../../shared/ui/ErrorState.vue';
 import StatusLabel from '../../../shared/ui/StatusLabel.vue';
+import MatchReactionActions from '../components/MatchReactionActions.vue';
 import MatchSignals from '../components/MatchSignals.vue';
 import { useMatch } from '../composables/useMatch';
 import { useMatchSignals } from '../composables/useMatchSignals';
@@ -33,7 +34,7 @@ function canRetry(error: unknown): boolean {
       :title="match.data.value?.company.name ?? 'Match details'"
       description="Review the stored match and the company’s current public context."
     >
-      <RouterLink to="/matches">Back to matches</RouterLink>
+      <MatchReactionActions v-if="match.data.value" :match="match.data.value" />
     </PageHeader>
     <LoadingState
       v-if="match.isPending.value && !match.data.value"
