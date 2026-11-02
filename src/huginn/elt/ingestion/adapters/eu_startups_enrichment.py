@@ -9,7 +9,7 @@ Unlike OpenCorporates' API, EU-Startups' search is a substring match, so
 skip rule applies. Candidate gate: ADR-0010 (`gold.company
 .eu_startups_searched_at`); the composition root supplies the candidate
 read while this adapter remains independent of Postgres.
-Reuses the confirmed Cloudflare/UA behavior from `eu_startups.py`
+Reuses the source-scoped browser transport from `eu_startups.py`
 (KAN-64); this module does not call that module's `extract_listing_fields`
 (Bronze stores raw HTML only, KAN-64 plan Global Constraint 6, field
 extraction is a Silver-layer concern). Jira KAN-65.
@@ -23,8 +23,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import unquote, urlencode, urlparse
 
-import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests
+from curl_cffi.requests.exceptions import RequestException
 
 from huginn.elt.ingestion.models import (
     EnrichmentBatch,
@@ -40,16 +41,6 @@ _SEARCH_URL = "https://www.eu-startups.com/directory/"
 _EXPECTED_SCHEME = "https"
 _EXPECTED_HOST = "www.eu-startups.com"
 _REQUEST_TIMEOUT_SECONDS = 10.0
-
-# Confirmed live (docs/sources/eu-startups.md, same as eu_startups.py's
-# `_USER_AGENT`): a plain browser User-Agent clears the Cloudflare check for
-# this site. Duplicated locally rather than imported, matching this plan's
-# Global Constraint 6 (a new adapter gets its own copy of the shared,
-# private constants it needs, same reasoning as Global Constraint 1).
-_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-)
 
 
 class EuStartupsEnrichmentFetchError(RuntimeError):
@@ -257,14 +248,14 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         self._timeout = timeout
 
     def fetch_page(self, url: str) -> str:
-        """GET `url` with the confirmed browser User-Agent, raising a
+        """GET `url` with the browser transport documented in docs/sources/eu-startups.md, raising a
         sanitized `EuStartupsEnrichmentFetchError` on a non-2xx response or
         a request failure. Identical shape to
         `eu_startups.py`'s `EuStartupsDiscoveryAdapter.fetch_page`, its own
         exception type per this module's docstring.
 
         `allow_redirects=False` (CodeRabbit finding, KAN-65, CWE-918 SSRF):
-        `requests.get` follows redirects by default, which would let a
+        The HTTP client follows redirects by default, which would let a
         same-origin URL that passed `_is_eu_startups_detail_url` still end
         up fetching an off-origin destination via a redirect hop. Mirrors
         `silver/resolution.py`'s `_request_with_retry`, this codebase's
@@ -277,7 +268,8 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
         try:
             response = requests.get(
                 url,
-                headers={"User-Agent": _USER_AGENT},
+                impersonate="chrome",
+                verify=True,
                 timeout=self._timeout,
                 allow_redirects=False,
             )
@@ -287,7 +279,7 @@ class EuStartupsEnrichmentAdapter(WebScrapeSourcePort):
                 )
             response.raise_for_status()
             return response.text
-        except requests.RequestException as exc:
+        except RequestException as exc:
             raise EuStartupsEnrichmentFetchError(
                 f"EU-Startups page fetch failed: {type(exc).__name__}"
             ) from None
