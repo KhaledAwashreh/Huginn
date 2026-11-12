@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, toRaw } from 'vue';
-import { onBeforeRouteLeave, onBeforeRouteUpdate, RouterLink } from 'vue-router';
+import { computed, inject, ref, toRaw } from 'vue';
+import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate, RouterLink } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import { ApiError } from '../../../../api/apiError';
@@ -104,8 +104,10 @@ async function submit(): Promise<void> {
 function canClose(): boolean | Promise<boolean> {
   return pending.value ? false : canLeave();
 }
-onBeforeRouteLeave(canClose);
-onBeforeRouteUpdate(canClose);
+if (inject(matchedRouteKey, null)) {
+  onBeforeRouteLeave(canClose);
+  onBeforeRouteUpdate(canClose);
+}
 // The settings dialog asks before discarding edits, since closing it is not a navigation.
 defineExpose({ canClose });
 </script>

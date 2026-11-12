@@ -50,7 +50,7 @@ defineEmits<{ 'update:modelValue': [value: string]; more: [] }>();
       :disabled="loading || disabled"
       @click="$emit('more')"
     />
-    <RouterLink to="/profile">Create icp</RouterLink>
+    <RouterLink to="/profile">Manage ICPs in Profile</RouterLink>
   </div>
 </template>
 <style scoped>

@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import PasswordSecurityForm from './PasswordSecurityForm.vue';
 import RecoveryEmailEnrollment from '../../../account-lifecycle/components/RecoveryEmailEnrollment.vue';
 import { useAccountSecurity } from '../../../account-lifecycle/composables/useAccountSecurity';
 
 const security = useAccountSecurity();
+const passwordForm = ref<InstanceType<typeof PasswordSecurityForm> | null>(null);
+defineExpose({ canClose: () => passwordForm.value?.canClose() ?? true });
 </script>
 <template>
   <div class="account-security">
-    <PasswordSecurityForm />
+    <PasswordSecurityForm ref="passwordForm" />
     <section class="security" aria-labelledby="account-security-title">
       <h2 id="account-security-title">Recovery</h2>
       <p>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref } from 'vue';
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } from 'vue-router';
+import { inject, onBeforeUnmount, reactive, ref } from 'vue';
+import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import { ApiError } from '../../../../api/apiError';
@@ -30,8 +30,11 @@ function canLeave(): boolean {
   if (!draft.current_password && !draft.new_password) return true;
   return typeof window === 'undefined' || window.confirm('Discard the unsaved password change?');
 }
-onBeforeRouteLeave(canLeave);
-onBeforeRouteUpdate(canLeave);
+if (inject(matchedRouteKey, null)) {
+  onBeforeRouteLeave(canLeave);
+  onBeforeRouteUpdate(canLeave);
+}
+defineExpose({ canClose: canLeave });
 async function submit(): Promise<void> {
   if (pending.value || uncertain.value) return;
   pending.value = true;

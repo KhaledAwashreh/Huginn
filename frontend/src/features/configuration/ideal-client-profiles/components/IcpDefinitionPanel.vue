@@ -7,13 +7,17 @@ import type { IdealClientProfileDraft } from '../forms/idealClientProfileDraft';
 import type { IcpClientAnnotation, IcpFeedbackAnnotation } from '../models/icpAnnotations';
 import IdealClientProfileForm from './IdealClientProfileForm.vue';
 
-defineProps<{ clients: IcpClientAnnotation[]; reactions: IcpFeedbackAnnotation[] }>();
-const { list, create, update } = useIdealClientProfile();
+const props = defineProps<{
+  clients: IcpClientAnnotation[];
+  reactions: IcpFeedbackAnnotation[];
+  selectedIcpId?: string | undefined;
+}>();
+const { list, detail, create, update } = useIdealClientProfile(() => props.selectedIcpId);
 const form = ref<InstanceType<typeof IdealClientProfileForm> | null>(null);
 
-// Each business has one ICP for now; accounts with more edit their first.
 const items = computed(() => list.data.value?.items ?? []);
-const icp = computed(() => items.value[0]);
+const query = computed(() => (props.selectedIcpId ? detail : list));
+const icp = computed(() => (props.selectedIcpId ? detail.data.value : items.value[0]));
 const initial = computed<IdealClientProfileDraft>(() => {
   const current = icp.value;
   if (!current) {
@@ -38,6 +42,11 @@ const initial = computed<IdealClientProfileDraft>(() => {
 });
 
 async function refreshSaved() {
+  if (props.selectedIcpId) {
+    const result = await detail.refetch();
+    if (result.isError || !result.data) throw new Error('ICP refresh failed');
+    return result.data;
+  }
   const result = await list.refetch();
   if (result.isError || !result.data) throw new Error('List refresh failed');
   return result.data.items[0] ?? null;
@@ -46,7 +55,7 @@ async function save(
   draft: IdealClientProfileDraft,
   patch: Parameters<typeof update.mutateAsync>[0]['body'] | null,
 ) {
-  const id = icp.value?.id;
+  const id = props.selectedIcpId ?? icp.value?.id;
   if (!id) return create.mutateAsync(draft);
   if (!patch) throw new Error('There are no changes to save.');
   return update.mutateAsync({ id, body: patch });
@@ -57,11 +66,14 @@ defineExpose({ canClose: () => form.value?.canClose() ?? true });
 
 <template>
   <div class="icp-definition">
-    <LoadingState v-if="list.isPending.value" message="Loading your ICP definition…" />
-    <ErrorState v-else-if="list.isError.value" message="Your ICP definition could not be loaded." />
+    <LoadingState v-if="query.isPending.value" message="Loading your ICP definition…" />
+    <ErrorState
+      v-else-if="query.isError.value && !query.data.value"
+      message="Your ICP definition could not be loaded."
+    />
     <template v-else>
-      <p v-if="items.length > 1" class="annotations-empty">
-        You have {{ items.length }} ICPs. This edits the first one, {{ icp?.name }}.
+      <p v-if="!selectedIcpId && items.length > 1" class="annotations-empty">
+        Editing {{ icp?.name }}. Choose a different ICP from Profile.
       </p>
       <IdealClientProfileForm
         ref="form"

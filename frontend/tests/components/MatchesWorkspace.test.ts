@@ -187,6 +187,19 @@ beforeEach(() => {
 });
 
 describe('matches workspace', () => {
+  it('shows saved workflow statuses on match tiles', () => {
+    const statuses = ['contacted', 'responded', 'dismissed', 'converted'] as const;
+    state.page = {
+      items: statuses.map((status) => ({ ...companyMatch, id: status, status })),
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    };
+    const wrapper = mount(MatchesPage, { global });
+    const tiles = wrapper.findAll('[data-testid="match-row"]');
+    expect(tiles.map((tile) => tile.get('[role="status"]').text())).toEqual(statuses);
+  });
+
   it('keeps overall empty context separate from out-of-range empty pages', async () => {
     state.offset = 50;
     state.overview = { ...overviewWithoutMatches, has_matches: true };
@@ -200,7 +213,10 @@ describe('matches workspace', () => {
   it('keeps pagination when a search finds nothing on this page and scopes the message to it', async () => {
     state.page = { items: [companyMatch], limit: 50, offset: 0, has_more: true };
     const wrapper = mount(MatchesPage, { global });
-    await wrapper.get('input[type="search"]').setValue('no such company');
+    const search = wrapper.get('input[type="search"]');
+    const hint = wrapper.get(`[id="${search.attributes('aria-describedby')}"]`);
+    expect(hint.text()).toBe('Searches the current page only.');
+    await search.setValue('no such company');
     expect(wrapper.find('[data-testid="match-row"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Search covers only the current page.');
     await wrapper.get('button[aria-label="Next page"]').trigger('click');

@@ -1,16 +1,30 @@
 <script setup lang="ts">
-import { provide, ref } from 'vue';
+import { onScopeDispose, provide, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import AppNavigation from './AppNavigation.vue';
 import SettingsDialog from './SettingsDialog.vue';
 import TopBar from './TopBar.vue';
 import { pageTitleKey, type PageTitle } from '../../shared/navigation/pageTitle';
 import { openSettingsKey, type SettingsSection } from '../../shared/navigation/settingsSections';
+import { useSession } from '../../features/session/composables/useSession';
 
 provide(pageTitleKey, ref<PageTitle | null>(null));
 const settingsVisible = ref(false);
 const settingsSection = ref<SettingsSection>('account');
+const selectedIcpId = ref<string>();
+const settingsDialog = ref<InstanceType<typeof SettingsDialog> | null>(null);
+const session = useSession();
+const router = useRouter();
 
-function openSettings(section: SettingsSection): void {
+// The shell sits outside RouterView, so its dialog needs its own navigation guard.
+const removeGuard = router.beforeEach((to) => {
+  if (to.meta.requiresAuth || !session.isAuthenticated.value || !settingsVisible.value) return;
+  return settingsDialog.value?.canClose();
+});
+onScopeDispose(removeGuard);
+
+function openSettings(section: SettingsSection, icpId?: string): void {
+  selectedIcpId.value = icpId;
   settingsSection.value = section;
   settingsVisible.value = true;
 }
@@ -26,7 +40,12 @@ provide(openSettingsKey, openSettings);
       <div class="workspace-content"><slot /></div>
     </main>
   </div>
-  <SettingsDialog v-model:visible="settingsVisible" v-model:section="settingsSection" />
+  <SettingsDialog
+    ref="settingsDialog"
+    v-model:visible="settingsVisible"
+    v-model:section="settingsSection"
+    :selected-icp-id="selectedIcpId"
+  />
 </template>
 
 <style scoped>

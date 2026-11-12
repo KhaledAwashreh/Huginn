@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, toRaw } from 'vue';
-import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
+import { computed, inject, ref, toRaw } from 'vue';
+import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import FieldFeedback from '../../../../shared/ui/FieldFeedback.vue';
@@ -57,10 +57,15 @@ const excludedCountries = computed(() =>
 const canSubmit = computed(
   () => state.dirty.value && draft.value.name.trim() !== '' && conflicts.value.length === 0,
 );
-onBeforeRouteLeave(() => (busy.value ? false : state.canLeave()));
-onBeforeRouteUpdate(() => (busy.value ? false : state.canLeave()));
+function canClose(): boolean | Promise<boolean> {
+  return busy.value ? false : state.canLeave();
+}
+if (inject(matchedRouteKey, null)) {
+  onBeforeRouteLeave(canClose);
+  onBeforeRouteUpdate(canClose);
+}
 // Closing the settings modal is not a navigation, so it asks the form directly.
-defineExpose({ canClose: () => (busy.value ? false : state.canLeave()) });
+defineExpose({ canClose });
 function normalizedPath(path: (string | number)[]): string {
   const result: (string | number)[] = [];
   for (const part of path) {

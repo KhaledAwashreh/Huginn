@@ -1,6 +1,8 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
+import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { ApiError } from '@/api/apiError';
 import ProfilePage from '@/features/profile/pages/ProfilePage.vue';
 
@@ -30,7 +32,9 @@ const profileData = {
 
 const state = vi.hoisted(() => ({
   profile: undefined as unknown,
+  saveProfile: vi.fn(),
   offerings: undefined as unknown,
+  servicePage: vi.fn(),
   icps: undefined as unknown,
   create: vi.fn(),
   update: vi.fn(),
@@ -43,11 +47,14 @@ vi.mock('@/features/configuration/account/composables/useAccount', () => ({
   }),
 }));
 vi.mock('@/features/configuration/professional-profile/composables/useProfessionalProfile', () => ({
-  useProfessionalProfile: () => ({ profile: state.profile, save: { mutateAsync: vi.fn() } }),
+  useProfessionalProfile: () => ({
+    profile: state.profile,
+    save: { mutateAsync: state.saveProfile },
+  }),
 }));
 vi.mock('@/features/configuration/offerings/composables/useServiceOffering', () => ({
-  useServiceOffering: () => ({
-    list: state.offerings,
+  useServiceOffering: (_id: undefined, offset: MaybeRefOrGetter<number> = 0, limit = 100) => ({
+    list: state.servicePage(offset, limit) ?? state.offerings,
     create: { mutateAsync: state.create },
     update: { mutateAsync: state.update },
     remove: { mutateAsync: state.remove },
@@ -73,11 +80,105 @@ const button = (wrapper: VueWrapper, label: string) => {
 
 beforeEach(() => {
   state.profile = query(profileData);
+  state.saveProfile.mockReset();
   state.offerings = query(page([service]));
+  state.servicePage.mockReset();
   state.icps = query(page([]));
   state.create.mockReset();
   state.update.mockReset();
   state.remove.mockReset();
+});
+
+it('preserves an existing skill containing a comma when adding another skill', async () => {
+  state.profile = query({ ...profileData, skills: [{ name: 'Research, design' }] });
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit skills').trigger('click');
+  await button(wrapper, 'Add skill').trigger('click');
+  await wrapper.get('#skill-1').setValue('Strategy');
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).toHaveBeenCalledWith({
+    skills: [{ name: 'Research, design' }, { name: 'Strategy' }],
+  });
+});
+
+it('does not write an untouched About draft over a refreshed summary', async () => {
+  const data = ref(profileData);
+  state.profile = { ...query(profileData), data };
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit about your business').trigger('click');
+  data.value = { ...profileData, professional_summary: 'A newer saved summary.' };
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).not.toHaveBeenCalled();
+});
+
+it('keeps an edited About draft until replacing a newer summary is confirmed', async () => {
+  const data = ref(profileData);
+  state.profile = { ...query(profileData), data };
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit about your business').trigger('click');
+  await wrapper.get('#about-summary').setValue('My edited summary');
+  data.value = { ...profileData, professional_summary: 'A newer saved summary.' };
+  await wrapper.get('form').trigger('submit');
+  expect(confirm).toHaveBeenCalled();
+  expect(state.saveProfile).not.toHaveBeenCalled();
+  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+    'My edited summary',
+  );
+  confirm.mockReturnValue(true);
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).toHaveBeenCalledWith({ professional_summary: 'My edited summary' });
+});
+
+it('does not write untouched skills over refreshed skills', async () => {
+  const data = ref({ ...profileData, skills: [{ name: 'Design' }] });
+  state.profile = { ...query(data.value), data };
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit skills').trigger('click');
+  data.value = { ...data.value, skills: [{ name: 'Strategy' }] };
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).not.toHaveBeenCalled();
+});
+
+it('requires confirmation before replacing refreshed skills with an edited draft', async () => {
+  const data = ref({ ...profileData, skills: [{ name: 'Design' }] });
+  state.profile = { ...query(data.value), data };
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit skills').trigger('click');
+  await wrapper.get('#skill-0').setValue('Research');
+  data.value = { ...data.value, skills: [{ name: 'Strategy' }] };
+  await wrapper.get('form').trigger('submit');
+  expect(confirm).toHaveBeenCalled();
+  expect(state.saveProfile).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).toHaveBeenCalledWith({ skills: [{ name: 'Research' }] });
+});
+
+it('keeps an About draft and requires a refresh after an uncertain save', async () => {
+  const profile = query(profileData);
+  state.profile = profile;
+  state.saveProfile.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  profile.refetch.mockResolvedValue({ isError: false, data: profileData });
+  const wrapper = mount(ProfilePage, { global });
+  await button(wrapper, 'Edit about your business').trigger('click');
+  await wrapper.get('#about-summary').setValue('An updated summary');
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(wrapper.text()).toContain('The save outcome is unknown.');
+  expect(wrapper.text()).not.toContain('Failed to fetch');
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).toHaveBeenCalledOnce();
+
+  await button(wrapper, 'Refresh saved profile').trigger('click');
+  await flushPromises();
+  expect(profile.refetch).toHaveBeenCalledOnce();
+  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+    'An updated summary',
+  );
+  await wrapper.get('form').trigger('submit');
+  expect(state.saveProfile).toHaveBeenCalledTimes(2);
 });
 
 describe('profile load failures', () => {
@@ -139,6 +240,35 @@ describe('service changes', () => {
     expect(button(wrapper, 'Save')).toBeTruthy();
   });
 
+  it('updates only the edited service fields', async () => {
+    const wrapper = mount(ProfilePage, { global });
+    await openService(wrapper);
+    await wrapper.get('#item-name').setValue('Product advising');
+    await wrapper.get('form').trigger('submit');
+    expect(state.update).toHaveBeenCalledWith({
+      id: service.id,
+      body: { name: 'Product advising' },
+    });
+  });
+
+  it('does not update an unchanged service', async () => {
+    const wrapper = mount(ProfilePage, { global });
+    await openService(wrapper);
+    await wrapper.get('form').trigger('submit');
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it('updates only the description when the service name is untouched', async () => {
+    const wrapper = mount(ProfilePage, { global });
+    await openService(wrapper);
+    await wrapper.get('#item-description').setValue('Project advice.');
+    await wrapper.get('form').trigger('submit');
+    expect(state.update).toHaveBeenCalledWith({
+      id: service.id,
+      body: { description: 'Project advice.' },
+    });
+  });
+
   it('reports a network failure as uncertain and requires a refresh before retrying', async () => {
     state.update.mockRejectedValue(new TypeError('Failed to fetch'));
     const offerings = query(page([service]));
@@ -146,6 +276,7 @@ describe('service changes', () => {
     state.offerings = offerings;
     const wrapper = mount(ProfilePage, { global });
     await openService(wrapper);
+    await wrapper.get('#item-name').setValue('Product advising');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(wrapper.text()).toContain('The outcome is uncertain.');
@@ -161,6 +292,65 @@ describe('service changes', () => {
     expect(offerings.refetch).toHaveBeenCalledOnce();
     expect(wrapper.find('form').exists()).toBe(false);
   });
+});
+
+it('browses services beyond the first API page', async () => {
+  const nextService = { id: 'service-101', name: 'Implementation', description: 'Project work.' };
+  state.servicePage.mockImplementation((offset: MaybeRefOrGetter<number>, limit: number) => ({
+    ...query(undefined),
+    data: computed(() => {
+      const current = toValue(offset);
+      return {
+        items: current === 0 ? [service] : [nextService],
+        limit,
+        offset: current,
+        has_more: current === 0,
+      };
+    }),
+  }));
+  const wrapper = mount(ProfilePage, { global });
+  expect(wrapper.text()).toContain('Advising');
+  expect(button(wrapper, 'Previous').attributes('disabled')).toBeDefined();
+  await button(wrapper, 'Next').trigger('click');
+  expect(wrapper.text()).toContain('Implementation');
+  expect(wrapper.get('nav[aria-label="Service pages"]').text()).toContain('Page 2');
+  expect(wrapper.text()).not.toContain('Advising');
+  expect(button(wrapper, 'Next').attributes('disabled')).toBeDefined();
+
+  await button(wrapper, 'Previous').trigger('click');
+  expect(wrapper.text()).toContain('Advising');
+  expect(wrapper.text()).not.toContain('Implementation');
+});
+
+it('keeps an unsaved About draft when the user declines to leave Profile', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/profile', component: ProfilePage },
+      { path: '/matches', component: { template: '<div>Matches</div>' } },
+    ],
+  });
+  await router.push('/profile');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const wrapper = mount(RouterView, { global: { ...global, plugins: [PrimeVue, router] } });
+  await button(wrapper, 'Edit about your business').trigger('click');
+  await wrapper.get('#about-summary').setValue('Unsaved summary');
+
+  const unload = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+
+  await router.push('/matches');
+
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(router.currentRoute.value.path).toBe('/profile');
+  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+    'Unsaved summary',
+  );
+
+  confirm.mockReturnValue(true);
+  await router.push('/matches');
+  expect(router.currentRoute.value.path).toBe('/matches');
 });
 
 describe('features awaiting a backend', () => {

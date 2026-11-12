@@ -25,6 +25,7 @@ type SectionOption = {
 
 const visible = defineModel<boolean>('visible', { required: true });
 const section = defineModel<SettingsSection>('section', { required: true });
+defineProps<{ selectedIcpId?: string | undefined }>();
 const session = useSession();
 const router = useRouter();
 const { account } = useAccount();
@@ -38,6 +39,7 @@ const icpFeedback = computed(() =>
 );
 const accountForm = ref<InstanceType<typeof AccountForm> | null>(null);
 const icpPanel = ref<InstanceType<typeof IcpDefinitionPanel> | null>(null);
+const securityPanel = ref<InstanceType<typeof AccountSecurityPanel> | null>(null);
 
 const sections = computed<SectionOption[]>(() => [
   {
@@ -93,7 +95,7 @@ const adminTools = [
 ];
 
 async function canLeaveSection(): Promise<boolean> {
-  const form = accountForm.value ?? icpPanel.value;
+  const form = accountForm.value ?? icpPanel.value ?? securityPanel.value;
   return form ? await form.canClose() : true;
 }
 
@@ -105,6 +107,8 @@ async function select(next: SettingsSection): Promise<void> {
 async function close(): Promise<void> {
   if (await canLeaveSection()) visible.value = false;
 }
+
+defineExpose({ canClose: canLeaveSection });
 
 // Admin tools are full pages with their own run history, so they open behind the dialog.
 async function openAdminTool(path: string): Promise<void> {
@@ -171,10 +175,11 @@ async function openAdminTool(path: string): Promise<void> {
           <IcpDefinitionPanel
             v-else-if="current.value === 'icp'"
             ref="icpPanel"
+            :selected-icp-id="selectedIcpId"
             :clients="details.clients"
             :reactions="icpFeedback"
           />
-          <AccountSecurityPanel v-else-if="current.value === 'security'" />
+          <AccountSecurityPanel v-else-if="current.value === 'security'" ref="securityPanel" />
           <div v-else class="admin-tools">
             <article v-for="tool in adminTools" :key="tool.to" class="admin-tool">
               <h3>{{ tool.title }}</h3>

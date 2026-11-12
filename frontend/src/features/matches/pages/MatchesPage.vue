@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, useId } from 'vue';
 import { Search } from '@lucide/vue';
 import Button from 'primevue/button';
 import { ApiError } from '../../../api/apiError';
@@ -16,6 +16,7 @@ import { useMatchesOverview } from '../composables/useMatchesOverview';
 const list = useMatches();
 const { overview } = useMatchesOverview();
 const search = ref('');
+const searchHintId = useId();
 const visibleMatches = computed(() => {
   const items = list.matches.data.value?.items ?? [];
   const query = search.value.trim().toLocaleLowerCase();
@@ -46,14 +47,18 @@ function firstPage(): void {
   <div class="matches-page">
     <PageHeader title="Matches" />
     <section class="matches-workspace" aria-label="Matched companies">
-      <div v-if="list.matches.data.value?.items.length" class="match-search">
-        <Search :size="18" aria-hidden="true" />
-        <input
-          v-model="search"
-          type="search"
-          aria-label="Search matches"
-          placeholder="Search matches"
-        />
+      <div v-if="list.matches.data.value?.items.length">
+        <div class="match-search">
+          <Search :size="18" aria-hidden="true" />
+          <input
+            v-model="search"
+            type="search"
+            aria-label="Search matches"
+            :aria-describedby="searchHintId"
+            placeholder="Search matches"
+          />
+        </div>
+        <p :id="searchHintId" class="match-search-hint">Searches the current page only.</p>
       </div>
       <ErrorState
         v-if="overview.isError.value"
@@ -171,6 +176,11 @@ function firstPage(): void {
 .match-search:focus-within {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+.match-search-hint {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 .match-search input {
   min-width: 0;

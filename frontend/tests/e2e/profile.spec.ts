@@ -43,6 +43,20 @@ test('profile edits real items in dialogs and disables what has no backend', asy
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: /Advising/ })).toBeVisible();
 
+  await page.getByRole('button', { name: /Advising/ }).click();
+  await dialog.getByLabel('Name').fill('Advising plus');
+  const renameRequest = page.waitForRequest(
+    (request) => request.method() === 'PATCH' && request.url().includes('/offerings/'),
+  );
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await renameRequest).postDataJSON()).toEqual({ name: 'Advising plus' });
+  await expect(dialog).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button', { name: /Advising plus/ }).click();
+  await expect(dialog.getByLabel('Name')).toHaveValue('Advising plus');
+  await expect(dialog.getByLabel('Description')).toHaveValue('Monthly product advice.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+
   await page.getByRole('button', { name: 'Add your ICP', exact: true }).click();
   const icpDialog = page.getByRole('dialog', { name: 'ICP definition', exact: true });
   await icpDialog.getByLabel('Name').fill('Early founders');
@@ -83,11 +97,24 @@ test('profile edits real items in dialogs and disables what has no backend', asy
   await expect(page.getByRole('button', { name: /Advising/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Edit skills' }).click();
-  await dialog.getByLabel(/Skills/).fill('Research');
+  await dialog.getByRole('button', { name: 'Add skill' }).click();
+  await dialog.getByLabel('Skill 1').fill('Research');
   page.once('dialog', (confirm) => confirm.dismiss());
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toBeVisible();
   page.once('dialog', (confirm) => confirm.accept());
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Edit skills' }).click();
+  await dialog.getByRole('button', { name: 'Add skill' }).click();
+  await dialog.getByLabel('Skill 1').fill('Research, design');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button', { name: 'Edit skills' }).click();
+  await expect(dialog.getByLabel('Skill 1')).toHaveValue('Research, design');
+  await expect(dialog.getByLabel('Skill 2')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 

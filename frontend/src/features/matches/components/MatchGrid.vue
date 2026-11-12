@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router';
+import StatusLabel from '../../../shared/ui/StatusLabel.vue';
 import type { UserMatch } from '../api/listMatches';
 import { useMatchReactions } from '../composables/useMatchReactions';
 import { matchDayLabel } from '../lib/matchDayLabel';
@@ -41,6 +42,7 @@ function logoHue(name: string): number {
           >
           <span v-else-if="reactionFor(match.id)?.kind === 'down'" class="tile-tag">Not a fit</span>
           <span v-else-if="match.status === 'new'" class="tile-tag tile-tag--new">New</span>
+          <StatusLabel v-else :status="match.status" />
         </div>
         <h2>
           <RouterLink :to="{ name: 'match-detail', params: { id: match.id } }">{{

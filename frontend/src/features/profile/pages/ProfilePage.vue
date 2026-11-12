@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue';
+import { computed, inject, onMounted, onUnmounted, ref } from 'vue';
+import { matchedRouteKey, onBeforeRouteLeave } from 'vue-router';
 import { ExternalLink, Link as LinkIcon } from '@lucide/vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
@@ -15,7 +16,10 @@ import PageHeader from '../../../shared/ui/PageHeader.vue';
 import { useAccount } from '../../configuration/account/composables/useAccount';
 import { useIdealClientProfile } from '../../configuration/ideal-client-profiles/composables/useIdealClientProfile';
 import { useServiceOffering } from '../../configuration/offerings/composables/useServiceOffering';
+import { serializeServiceOfferingPatch } from '../../configuration/offerings/forms/serializeServiceOfferingPatch';
 import { useProfessionalProfile } from '../../configuration/professional-profile/composables/useProfessionalProfile';
+import SkillRows from '../../configuration/professional-profile/components/SkillRows.vue';
+import type { SkillDraft } from '../../configuration/professional-profile/forms/professionalProfileDraft';
 import { useMatchReactions } from '../../matches/composables/useMatchReactions';
 import { matchRejectionReasonLabel } from '../../matches/lib/matchRejectionReasons';
 import BusinessCard from '../components/BusinessCard.vue';
@@ -49,7 +53,9 @@ type Editing =
 const openSettings = inject(openSettingsKey, null);
 const { account } = useAccount();
 const { profile, save } = useProfessionalProfile();
-const offerings = useServiceOffering();
+const serviceOffset = ref(0);
+const servicePageSize = 100;
+const offerings = useServiceOffering(undefined, serviceOffset, servicePageSize);
 const icps = useIdealClientProfile();
 const { allReactions } = useMatchReactions();
 const { details, saveDetails } = useBusinessDetails();
@@ -80,7 +86,10 @@ const clientDates = (client: ClientReference) =>
   engagementDates(client.startMonth ?? '', client.endMonth ?? '', client.current ?? false);
 const resourceHref = (resource: ProfileResource) => websiteUrl(resource.url) ?? undefined;
 const servicesEmpty = computed(
-  () => !offerings.list.isError.value && offerings.list.data.value?.items.length === 0,
+  () =>
+    serviceOffset.value === 0 &&
+    !offerings.list.isError.value &&
+    offerings.list.data.value?.items.length === 0,
 );
 const icpsEmpty = computed(
   () => !icps.list.isError.value && icps.list.data.value?.items.length === 0,
@@ -88,6 +97,9 @@ const icpsEmpty = computed(
 
 const editing = ref<Editing | null>(null);
 const fields = ref<Record<string, string>>({});
+const initialFields = ref<Record<string, string>>({});
+const skills = ref<SkillDraft[]>([]);
+const initialSkills = ref('[]');
 const flag = ref(false);
 const currentClient = ref(false);
 const opened = ref('');
@@ -95,7 +107,8 @@ const pending = ref(false);
 const error = ref('');
 const outcomeUncertain = ref(false);
 
-const snapshot = () => JSON.stringify([fields.value, flag.value, currentClient.value]);
+const snapshot = () =>
+  JSON.stringify([fields.value, skills.value, flag.value, currentClient.value]);
 const dialogTitle = computed(() => {
   const current = editing.value;
   if (!current) return '';
@@ -119,6 +132,10 @@ const canDelete = computed(() => {
 function open(next: Editing, values: Record<string, string>, checked = false): void {
   editing.value = next;
   fields.value = values;
+  initialFields.value = { ...values };
+  skills.value =
+    next.kind === 'skills' ? (data.value?.skills ?? []).map(({ name }) => ({ name })) : [];
+  initialSkills.value = JSON.stringify(skills.value);
   flag.value = checked;
   opened.value = snapshot();
   error.value = '';
@@ -132,10 +149,7 @@ function editAbout(): void {
   open({ kind: 'about' }, { summary: data.value?.professional_summary ?? '' });
 }
 function editSkills(): void {
-  open(
-    { kind: 'skills' },
-    { skills: (data.value?.skills ?? []).map((skill) => skill.name).join(', ') },
-  );
+  open({ kind: 'skills' }, {});
 }
 function editLeader(index: number | null): void {
   const item = index === null ? undefined : leaders.value[index];
@@ -174,9 +188,25 @@ function editService(service?: { id: string; name: string; description: string }
   );
 }
 
+const dirty = computed(() => editing.value !== null && snapshot() !== opened.value);
+
+function canClose(): boolean {
+  return !pending.value && (!dirty.value || window.confirm('Discard your unsaved changes?'));
+}
+
+if (inject(matchedRouteKey, null)) onBeforeRouteLeave(canClose);
+
+function protectDraft(event: BeforeUnloadEvent): void {
+  if (!dirty.value && !pending.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+onMounted(() => window.addEventListener('beforeunload', protectDraft));
+onUnmounted(() => window.removeEventListener('beforeunload', protectDraft));
+
 function close(): void {
-  if (pending.value) return;
-  if (snapshot() !== opened.value && !window.confirm('Discard your unsaved changes?')) return;
+  if (!canClose()) return;
   editing.value = null;
 }
 function replaced<T>(items: readonly T[], index: number | null, item: T): T[] {
@@ -190,6 +220,14 @@ function generalFailure(failure: unknown): ServiceMutationFailure {
         ? failure.message
         : 'This could not be saved. Try again.',
     outcomeUncertain: false,
+  };
+}
+
+function profileFailure(failure: unknown): ServiceMutationFailure {
+  if (failure instanceof ApiError && failure.status < 500) return generalFailure(failure);
+  return {
+    message: 'The save outcome is unknown. Refresh the saved profile before trying again.',
+    outcomeUncertain: true,
   };
 }
 
@@ -225,13 +263,56 @@ async function refreshServices(): Promise<void> {
   editing.value = null;
 }
 
+async function refreshProfile(): Promise<void> {
+  if (pending.value) return;
+  pending.value = true;
+  try {
+    const result = await profile.refetch();
+    if (result.isError || !result.data) {
+      error.value = 'The saved profile could not be refreshed. Your draft is still here.';
+      return;
+    }
+    outcomeUncertain.value = false;
+    error.value = 'Saved profile refreshed. Review your draft before saving again.';
+  } finally {
+    pending.value = false;
+  }
+}
+
 async function submit(): Promise<void> {
   const current = editing.value;
   const profileData = data.value;
   if (!current || !profileData || pending.value || outcomeUncertain.value) return;
   const value = fields.value;
   const describeFailure =
-    current.kind === 'service' ? describeServiceMutationFailure : generalFailure;
+    current.kind === 'service' ? describeServiceMutationFailure : profileFailure;
+  if (current.kind === 'skills' && skills.value.some(({ name }) => !name.trim())) {
+    error.value = 'Enter a name for each skill or remove the empty row.';
+    return;
+  }
+  if (current.kind === 'about' || current.kind === 'skills') {
+    const baseline =
+      current.kind === 'about' ? initialFields.value.summary?.trim() || null : initialSkills.value;
+    const draft =
+      current.kind === 'about'
+        ? value.summary?.trim() || null
+        : JSON.stringify(skills.value.map(({ name }) => ({ name: name.trim() })));
+    const saved =
+      current.kind === 'about'
+        ? profileData.professional_summary
+        : JSON.stringify(profileData.skills);
+    if (draft === baseline || draft === saved) {
+      editing.value = null;
+      return;
+    }
+    if (
+      saved !== baseline &&
+      !window.confirm(
+        `Your saved ${current.kind === 'about' ? 'summary' : 'skills'} changed while you were editing. Replace the saved value with your draft?`,
+      )
+    )
+      return;
+  }
   await persist(async () => {
     if (current.kind === 'business') {
       saveDetails({
@@ -242,13 +323,13 @@ async function submit(): Promise<void> {
         practice: (value.practice ?? '').trim(),
       });
     } else if (current.kind === 'about') {
-      await save.mutateAsync({ professional_summary: (value.summary ?? '').trim() || null });
+      const summary = (value.summary ?? '').trim() || null;
+      if (summary !== profileData.professional_summary)
+        await save.mutateAsync({ professional_summary: summary });
     } else if (current.kind === 'skills') {
-      const skills = (value.skills ?? '')
-        .split(/[,\n]/)
-        .map((name) => ({ name: name.trim() }))
-        .filter((skill) => skill.name);
-      await save.mutateAsync({ skills });
+      const nextSkills = skills.value.map(({ name }) => ({ name: name.trim() }));
+      if (JSON.stringify(nextSkills) !== JSON.stringify(profileData.skills))
+        await save.mutateAsync({ skills: nextSkills });
     } else if (current.kind === 'leader') {
       saveDetails({
         leaders: replaced(leaders.value, current.index, {
@@ -289,8 +370,16 @@ async function submit(): Promise<void> {
         name: (value.name ?? '').trim(),
         description: (value.description ?? '').trim(),
       };
-      if (current.id) await offerings.update.mutateAsync({ id: current.id, body });
-      else await offerings.create.mutateAsync(body);
+      if (current.id) {
+        const patch = serializeServiceOfferingPatch(
+          {
+            name: initialFields.value.name ?? '',
+            description: initialFields.value.description ?? '',
+          },
+          body,
+        );
+        if (patch) await offerings.update.mutateAsync({ id: current.id, body: patch });
+      } else await offerings.create.mutateAsync(body);
     }
   }, describeFailure);
 }
@@ -370,8 +459,9 @@ async function removeItem(): Promise<void> {
           :key="icp.id"
           type="button"
           class="icp-tile"
-          @click="openSettings?.('icp')"
+          @click="openSettings?.('icp', icp.id)"
         >
+          <strong>{{ icp.name }}</strong>
           <span class="icp-description">{{ icpDescription(icp) }}</span>
         </button>
         <p v-if="icpsEmpty" class="placeholder">
@@ -445,6 +535,31 @@ async function removeItem(): Promise<void> {
         <p v-if="servicesEmpty" class="placeholder">
           Add what you sell, so Huginn knows who would buy it.
         </p>
+        <p
+          v-else-if="serviceOffset > 0 && offerings.list.data.value?.items.length === 0"
+          class="placeholder"
+        >
+          No services on this page.
+        </p>
+        <nav
+          v-if="serviceOffset > 0 || offerings.list.data.value?.has_more"
+          class="service-pagination"
+          aria-label="Service pages"
+        >
+          <Button
+            label="Previous"
+            severity="secondary"
+            :disabled="serviceOffset === 0"
+            @click="serviceOffset = Math.max(0, serviceOffset - servicePageSize)"
+          />
+          <span>Page {{ Math.floor(serviceOffset / servicePageSize) + 1 }}</span>
+          <Button
+            label="Next"
+            severity="secondary"
+            :disabled="offerings.list.isFetching.value || !offerings.list.data.value?.has_more"
+            @click="serviceOffset += servicePageSize"
+          />
+        </nav>
       </ProfileSection>
 
       <ProfileSection
@@ -512,7 +627,9 @@ async function removeItem(): Promise<void> {
         </button>
       </ProfileSection>
 
-      <p class="last-edited">Last edited {{ new Date(data.updated_at).toLocaleDateString() }}</p>
+      <p class="last-edited">
+        Professional profile updated {{ new Date(data.updated_at).toLocaleDateString() }}
+      </p>
     </template>
 
     <Dialog
@@ -538,11 +655,10 @@ async function removeItem(): Promise<void> {
         </template>
         <template v-else-if="editing?.kind === 'about'">
           <label for="about-summary">Summary</label>
-          <Textarea id="about-summary" v-model="fields.summary" rows="7" />
+          <Textarea id="about-summary" v-model="fields.summary" rows="7" :disabled="pending" />
         </template>
         <template v-else-if="editing?.kind === 'skills'">
-          <label for="skills-list">Skills, separated by commas</label>
-          <Textarea id="skills-list" v-model="fields.skills" rows="5" />
+          <SkillRows v-model="skills" :disabled="pending" />
         </template>
         <template v-else-if="editing?.kind === 'leader'">
           <label for="leader-name">Name</label>
@@ -641,9 +757,9 @@ async function removeItem(): Promise<void> {
             <Button
               v-if="outcomeUncertain"
               type="button"
-              label="Refresh services"
+              :label="editing?.kind === 'service' ? 'Refresh services' : 'Refresh saved profile'"
               :loading="pending"
-              @click="refreshServices"
+              @click="editing?.kind === 'service' ? refreshServices() : refreshProfile()"
             />
             <Button v-else type="submit" label="Save" :loading="pending" />
           </span>
@@ -683,6 +799,13 @@ async function removeItem(): Promise<void> {
 }
 .item-title {
   font-weight: 500;
+}
+.service-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .item-meta,
 .body-text,
