@@ -57,6 +57,33 @@ test('profile edits real items in dialogs and disables what has no backend', asy
   await expect(dialog.getByLabel('Description')).toHaveValue('Monthly product advice.');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 
+  // The server commits, but the browser loses the create response.
+  await page.getByRole('button', { name: 'Add a service', exact: true }).click();
+  await dialog.getByLabel('Name').fill('Recovery planning');
+  await dialog.getByLabel('Description').fill('A draft retained after a lost response.');
+  await page.route(
+    '**/api/v1/offerings',
+    async (route) => {
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      await route.abort('failed');
+    },
+    { times: 1 },
+  );
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('The outcome is uncertain.');
+  await dialog.getByRole('button', { name: 'Refresh services', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Your new service is still unconfirmed.');
+  await expect(dialog.getByLabel('Name')).toHaveValue('Recovery planning');
+  await expect(dialog.getByLabel('Description')).toHaveValue(
+    'A draft retained after a lost response.',
+  );
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  page.once('dialog', (confirm) => confirm.accept());
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Recovery planning/ })).toHaveCount(1);
+
   await page.getByRole('button', { name: 'Add your ICP', exact: true }).click();
   const icpDialog = page.getByRole('dialog', { name: 'ICP definition', exact: true });
   await icpDialog.getByLabel('Name').fill('Early founders');

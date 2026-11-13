@@ -258,6 +258,13 @@ async function refreshServices(): Promise<void> {
     error.value = 'Your services could not be refreshed. Try Refresh services again.';
     return;
   }
+  if (editing.value?.kind === 'service' && editing.value.id === null) {
+    // A create has no returned ID after a lost response. A refreshed page cannot
+    // establish its identity, even if it contains a service with matching text.
+    error.value =
+      'Your new service is still unconfirmed. Your draft is retained. Cancel to discard the draft and review your saved services before adding it again.';
+    return;
+  }
   outcomeUncertain.value = false;
   error.value = '';
   editing.value = null;

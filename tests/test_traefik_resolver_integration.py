@@ -163,7 +163,6 @@ def test_only_selected_resolver_loads_when_both_certificate_stores_exist(
         tmp_path / "proxy",
         selected=selected,
         seeded=("production", "staging"),
-        require_trusted=False,
     ) as proxy:
         result = subprocess.run(
             ["docker", "exec", proxy.container, "cat", "/proc/1/cmdline"],

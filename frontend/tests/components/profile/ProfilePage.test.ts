@@ -292,6 +292,40 @@ describe('service changes', () => {
     expect(offerings.refetch).toHaveBeenCalledOnce();
     expect(wrapper.find('form').exists()).toBe(false);
   });
+
+  it('retains an uncertain service create after refreshing a page that cannot confirm it', async () => {
+    state.create.mockRejectedValue(new TypeError('Failed to fetch'));
+    const offerings = query({ ...page([service]), has_more: true });
+    offerings.refetch.mockResolvedValue({
+      isError: false,
+      data: { ...page([service]), has_more: true },
+    });
+    state.offerings = offerings;
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const wrapper = mount(ProfilePage, { global });
+    await button(wrapper, 'Add a service').trigger('click');
+    await wrapper.get('#item-name').setValue('Implementation');
+    await wrapper.get('#item-description').setValue('A carefully drafted service description.');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    await button(wrapper, 'Refresh services').trigger('click');
+    await flushPromises();
+    expect((wrapper.get('#item-name').element as HTMLInputElement).value).toBe('Implementation');
+    expect((wrapper.get('#item-description').element as HTMLTextAreaElement).value).toBe(
+      'A carefully drafted service description.',
+    );
+    expect(wrapper.text()).toContain('Your new service is still unconfirmed.');
+    expect(wrapper.findAll('button').some((item) => item.text() === 'Save')).toBe(false);
+    await wrapper.get('form').trigger('submit');
+    expect(state.create).toHaveBeenCalledOnce();
+    await button(wrapper, 'Cancel').trigger('click');
+    expect(confirm).toHaveBeenCalled();
+    expect(wrapper.find('form').exists()).toBe(true);
+    confirm.mockReturnValue(true);
+    await button(wrapper, 'Cancel').trigger('click');
+    expect(wrapper.find('form').exists()).toBe(false);
+  });
 });
 
 it('browses services beyond the first API page', async () => {
