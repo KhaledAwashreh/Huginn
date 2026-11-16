@@ -35,6 +35,7 @@ function model(): RecommendationView {
     updated_at: '2026-11-02T00:00:00Z',
     current_revision_id: 'revision-1',
     first_presented_at: null,
+    assessment_presented_at: null,
     resolved_at: null,
     resolved_by_user_id: null,
     resolution_reason: null,

@@ -12,11 +12,15 @@ vi.mock('../../../src/features/recommendations/api/confirmRecommendationOffer', 
   confirmRecommendationOffer: mocks.confirm,
 }));
 
-function item(first: string | null = null): RecommendationView {
+function item(
+  first: string | null = null,
+  assessmentPresented: string | null = first,
+): RecommendationView {
   return {
     id: 'rec-1',
     current_revision_id: 'revision-1',
     first_presented_at: first,
+    assessment_presented_at: assessmentPresented,
     status: 'open',
     assessment: { id: 'revision-1' },
     evidence_state: 'current',
@@ -63,10 +67,10 @@ beforeEach(() => {
   });
   mocks.confirm.mockResolvedValue({ presented_at: '2026-11-15T00:00:00Z' });
 });
-function render(first: string | null = null, newlySelected = false) {
+function render(first: string | null = null, assessmentPresented: string | null = first) {
   return mount(RecommendationPresentation, {
     attachTo: document.body,
-    props: { recommendation: item(first), identity: crypto.randomUUID(), newlySelected },
+    props: { recommendation: item(first, assessmentPresented), identity: crypto.randomUUID() },
     slots: {
       default: ({ recommendation }: { recommendation: RecommendationView }) =>
         h(
@@ -111,7 +115,7 @@ it('offers a newly selected repeat and retries an uncertain confirmation with th
   mocks.confirm
     .mockRejectedValueOnce(new TypeError('response lost'))
     .mockResolvedValueOnce({ presented_at: '2026-11-15T00:00:00Z' });
-  const wrapper = render('2026-01-01T00:00:00Z', true);
+  const wrapper = render('2026-01-01T00:00:00Z', null);
   await visible();
   await visible();
   expect(mocks.confirm).toHaveBeenCalledTimes(1);
@@ -183,7 +187,7 @@ it('ignores an old-session preparation result after identity changes', async () 
 });
 
 it('renders refreshed canonical company state after confirming a newly selected offer', async () => {
-  const wrapper = render(null, true);
+  const wrapper = render(null);
   await visible();
   await visible();
   expect(mocks.confirm).toHaveBeenCalledTimes(1);
@@ -205,6 +209,32 @@ it('keeps new assessment content hidden when preparation has an uncertain result
   await visible();
   expect(wrapper.text()).toContain('Presentation is unconfirmed.');
   expect(wrapper.text()).not.toContain('Exact assessment content');
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
+it('prepares and confirms an unpresented repeat assessment after remount in a new session', async () => {
+  const first = render('2026-01-01T00:00:00Z', null);
+  first.unmount();
+  const reopened = render('2026-01-01T00:00:00Z', null);
+  expect(reopened.text()).not.toContain('Exact assessment content');
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  await visible();
+  expect(mocks.prepare).toHaveBeenCalledExactlyOnceWith(
+    'rec-1',
+    expect.objectContaining({ assessment_revision_id: 'revision-1' }),
+  );
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  await visible();
+  expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith('cycle-1', { claim_token: 'secret-token' });
+  reopened.unmount();
+});
+
+it('does not reoffer the exact assessment already confirmed by another session or channel', async () => {
+  const wrapper = render('2026-01-01T00:00:00Z', '2026-11-15T00:00:00Z');
+  expect(wrapper.text()).toContain('Exact assessment content');
+  await visible();
+  expect(mocks.prepare).not.toHaveBeenCalled();
   expect(mocks.confirm).not.toHaveBeenCalled();
   wrapper.unmount();
 });

@@ -8,6 +8,7 @@ from huginn.management.domain.entities.weekly_digest_delivery import (
 from huginn.management.domain.entities.weekly_digest_delivery_event import (
     WeeklyDigestDeliveryEvent,
 )
+from huginn.management.domain.value_objects.json_snapshot import JsonSnapshot
 
 DigestDeliveryOutcome = Literal[
     "sent",
@@ -20,6 +21,19 @@ DigestDeliveryOutcome = Literal[
 
 
 class WeeklyDigestDeliveryRepository(Protocol):
+    def reconcile_stopped_sending(
+        self,
+        business_id: UUID,
+        delivery_id: UUID,
+        expected_version: int,
+        expected_content_id: UUID,
+        expected_sending_started_at: datetime,
+        actor_user_id: UUID,
+        reason: str,
+        recorded_at: datetime,
+        payload: JsonSnapshot,
+    ) -> WeeklyDigestDelivery: ...
+
     def reserve(
         self,
         business_id: UUID,

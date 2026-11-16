@@ -44,6 +44,7 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
         "/api/v1/suppressions/{suppression_block_id}/reverse-rejection": {"post"},
         "/api/v1/suppressions/{suppression_block_id}/cancel-pause": {"post"},
         "/api/v1/weekly-digests/{delivery_id}/recovery": {"post"},
+        "/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation": {"post"},
         "/api/v1/matches": {"get"},
         "/api/v1/matches/overview": {"get"},
         "/api/v1/matches/{match_id}": {"get"},
@@ -169,6 +170,11 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
 def test_openapi_documents_every_success_response_model():
     document = _document()
     expected = {
+        (
+            "/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation",
+            "post",
+            "200",
+        ): "RecoveredWeeklyDigestResponse",
         ("/api/v1/sessions", "post", "200"): "LoginResponse",
         ("/api/v1/me", "get", "200"): "UserResponse",
         ("/api/v1/me", "patch", "200"): "UserResponse",

@@ -1,5 +1,7 @@
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -18,6 +20,9 @@ from huginn.management.application.requests.mark_recommendation_not_relevant_req
 )
 from huginn.management.application.requests.prepare_recommendation_offer_request import (
     PrepareRecommendationOfferRequest,
+)
+from huginn.management.application.requests.reconcile_stopped_weekly_digest_request import (
+    ReconcileStoppedWeeklyDigestRequest,
 )
 from huginn.management.application.requests.record_recommendation_feedback_request import (
     RecordRecommendationFeedbackRequest,
@@ -1281,6 +1286,276 @@ def test_malformed_smtp_acceptance_is_unknown_without_invented_presentation_time
                 "SELECT count(*) FROM operational.suppression_blocks "
                 "WHERE business_id=%s AND company_id=%s AND kind='cooldown'",
                 (context.business_id, context.company_id),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+@pytest.mark.parametrize("outcome", ["sent", "failed"])
+def test_stopped_sender_reconciliation_preserves_frozen_delivery_and_cadence(
+    weekly_service_database_url, monkeypatch, outcome
+):
+    context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
+    with psycopg.connect(context.database_url) as connection:
+        connection.execute(
+            "UPDATE gold.company SET country=NULL WHERE id=%s", (context.company_id,)
+        )
+    _subscribe(context)
+    actual_accepted = context.current_time[0] + timedelta(seconds=2)
+
+    class Sender:
+        calls = 0
+
+        def send(self, message):
+            self.calls += 1
+            return actual_accepted
+
+    sender = Sender()
+    service = _make_service(context, sender)
+    authorized = []
+    original_authorize = service._authorize
+    original_settle = service._settle_transport
+
+    def remember_authorization(*args):
+        result = original_authorize(*args)
+        authorized.append(result)
+        return result
+
+    monkeypatch.setattr(service, "_authorize", remember_authorization)
+
+    def settlement_failed(*args, **kwargs):
+        raise RuntimeError("Settlement database unavailable after SMTP")
+
+    monkeypatch.setattr(service, "_settle_transport", settlement_failed)
+    assert service.run()["failed"] == 1
+    with psycopg.connect(context.database_url) as connection:
+        delivery_id, version, content_id, started_at = connection.execute(
+            "SELECT id,version,current_content_id,sending_started_at FROM operational.weekly_digest_deliveries "
+            "WHERE business_id=%s AND state='sending'",
+            (context.business_id,),
+        ).fetchone()
+        frozen_content = connection.execute(
+            "SELECT * FROM operational.weekly_digest_contents WHERE id=%s",
+            (content_id,),
+        ).fetchone()
+        frozen_members = connection.execute(
+            "SELECT * FROM operational.weekly_digest_members WHERE content_id=%s",
+            (content_id,),
+        ).fetchall()
+        cycle_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT offer_cycle_id FROM operational.weekly_digest_members WHERE content_id=%s ORDER BY position",
+                (content_id,),
+            ).fetchall()
+        )
+        authorization_events = connection.execute(
+            "SELECT * FROM operational.offer_cycle_events WHERE offer_cycle_id=ANY(%s) AND event_kind='sending_authorized'",
+            (list(cycle_ids),),
+        ).fetchall()
+        connection.execute(
+            "UPDATE operational.business_recommendation_preferences SET repeat_interval_days=60,updated_at=updated_at+interval '1 second' WHERE business_id=%s",
+            (context.business_id,),
+        )
+        block_id = uuid4()
+        connection.execute(
+            "INSERT INTO operational.suppression_blocks (id,business_id,company_id,kind,created_at,effective_at,expires_at,created_by_user_id,reason) "
+            "VALUES (%s,%s,%s,'pause',%s,%s,%s,%s,'Independent pause')",
+            (
+                block_id,
+                context.business_id,
+                context.company_id,
+                context.current_time[0],
+                context.current_time[0],
+                context.current_time[0] + timedelta(days=90),
+                context.owner_user_id,
+            ),
+        )
+        independent_block = connection.execute(
+            "SELECT * FROM operational.suppression_blocks WHERE id=%s", (block_id,)
+        ).fetchone()
+
+    context.current_time[0] += timedelta(days=35)
+    # Age alone cannot release Sending protection or cause a second handoff.
+    assert service.run()["sent"] == 0
+    assert sender.calls == 1
+    recover = RecoverWeeklyDigestService(
+        lambda: PostgresProspectingUnitOfWork(context.connection_factory),
+        delivery_repository_factory=lambda work: PostgresWeeklyDigestDeliveryRepository(
+            work.connection
+        ),
+        content_repository_factory=lambda work: PostgresWeeklyDigestContentRepository(
+            work.connection
+        ),
+        clock=lambda: context.current_time[0],
+    )
+    request = ReconcileStoppedWeeklyDigestRequest(
+        delivery_id,
+        version,
+        content_id,
+        started_at,
+        cycle_ids,
+        True,
+        "Original sender exited; host process absence verified",
+    )
+    for changes in (
+        {"expected_version": version + 1},
+        {"expected_content_id": uuid4()},
+        {"expected_offer_cycle_ids": (uuid4(),)},
+        {"expected_sending_started_at": started_at + timedelta(seconds=1)},
+    ):
+        with pytest.raises(ConflictError):
+            recover.reconcile_stopped_sender(
+                context.principal, replace(request, **changes)
+            )
+    reconciled = recover.reconcile_stopped_sender(context.principal, request)
+    assert reconciled.state == "unknown"
+    with pytest.raises(ConflictError):
+        original_settle(*authorized[0], "sent", accepted_at=actual_accepted)
+    assert recover.reconcile_stopped_sender(context.principal, request) == reconciled
+    with pytest.raises(ConflictError):
+        recover.reconcile_stopped_sender(
+            context.principal, replace(request, reason="Different evidence")
+        )
+
+    with psycopg.connect(context.database_url) as connection:
+        assert connection.execute(
+            "SELECT status,presented_at FROM operational.offer_cycles WHERE id=ANY(%s)",
+            (list(cycle_ids),),
+        ).fetchall() == [("unknown", None)]
+        assert connection.execute(
+            "SELECT actor_user_id,reason FROM operational.offer_cycle_events WHERE offer_cycle_id=ANY(%s) AND event_kind='sending_unknown'",
+            (list(cycle_ids),),
+        ).fetchall() == [(context.owner_user_id, request.reason)]
+        assert connection.execute(
+            "SELECT actor_user_id,reason FROM operational.weekly_digest_delivery_events WHERE delivery_id=%s AND event_kind='unknown'",
+            (delivery_id,),
+        ).fetchall() == [(context.owner_user_id, request.reason)]
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.suppression_blocks WHERE business_id=%s AND kind='cooldown'",
+                (context.business_id,),
+            ).fetchone()[0]
+            == 0
+        )
+
+    result = recover.execute(
+        context.principal,
+        RecoverWeeklyDigestRequest(
+            delivery_id,
+            "Provider audit confirms actual outcome",
+            outcome,
+            actual_accepted if outcome == "sent" else None,
+        ),
+    )
+    assert result.state == outcome
+    assert recover.reconcile_stopped_sender(context.principal, request) == result
+    assert sender.calls == 1
+    with psycopg.connect(context.database_url) as connection:
+        assert (
+            connection.execute(
+                "SELECT * FROM operational.weekly_digest_contents WHERE id=%s",
+                (content_id,),
+            ).fetchone()
+            == frozen_content
+        )
+        assert (
+            connection.execute(
+                "SELECT * FROM operational.weekly_digest_members WHERE content_id=%s",
+                (content_id,),
+            ).fetchall()
+            == frozen_members
+        )
+        assert (
+            connection.execute(
+                "SELECT * FROM operational.offer_cycle_events WHERE offer_cycle_id=ANY(%s) AND event_kind='sending_authorized'",
+                (list(cycle_ids),),
+            ).fetchall()
+            == authorization_events
+        )
+        assert (
+            connection.execute(
+                "SELECT * FROM operational.suppression_blocks WHERE id=%s", (block_id,)
+            ).fetchone()
+            == independent_block
+        )
+        assert connection.execute(
+            "SELECT status,presented_at FROM operational.offer_cycles WHERE id=ANY(%s)",
+            (list(cycle_ids),),
+        ).fetchall() == [
+            (
+                "confirmed" if outcome == "sent" else "abandoned",
+                actual_accepted if outcome == "sent" else None,
+            )
+        ]
+        cooldowns = connection.execute(
+            "SELECT effective_at,expires_at FROM operational.suppression_blocks WHERE business_id=%s AND kind='cooldown'",
+            (context.business_id,),
+        ).fetchall()
+        assert cooldowns == (
+            [(actual_accepted, actual_accepted + timedelta(days=30))]
+            if outcome == "sent"
+            else []
+        )
+
+
+@pytest.mark.parametrize("phase", ["prepare", "authorize"])
+@pytest.mark.parametrize("error_type", [RuntimeError, TypeError])
+def test_unexpected_candidate_failure_is_persisted_as_failed_without_smtp(
+    weekly_service_database_url, monkeypatch, phase, error_type
+):
+    context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
+    with psycopg.connect(context.database_url) as connection:
+        connection.execute(
+            "UPDATE gold.company SET country=NULL WHERE id=%s", (context.company_id,)
+        )
+    _subscribe(context)
+
+    class Sender:
+        def send(self, message):
+            raise AssertionError("Unexpected preparation failure must not contact SMTP")
+
+    service = _make_service(context, Sender())
+
+    def selection_failure(*args):
+        raise error_type("Unexpected current selection failure")
+
+    if phase == "prepare":
+        monkeypatch.setattr(
+            "huginn.management.application.services.weekly_digest.load_current_offer_selection",
+            selection_failure,
+        )
+    else:
+        original_authorize = service._authorize
+
+        def fail_during_authorization(*args):
+            monkeypatch.setattr(
+                "huginn.management.application.services.weekly_digest.load_current_offer_selection",
+                selection_failure,
+            )
+            return original_authorize(*args)
+
+        monkeypatch.setattr(service, "_authorize", fail_during_authorization)
+    result = service.run()
+    assert result["failed"] == 1
+    assert result["skipped"] == result["sent"] == 0
+    with psycopg.connect(context.database_url) as connection:
+        assert connection.execute(
+            "SELECT state FROM operational.weekly_digest_deliveries WHERE business_id=%s",
+            (context.business_id,),
+        ).fetchall() == [("failed",)]
+        assert connection.execute(
+            "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
+            (context.business_id,),
+        ).fetchall() == ([("abandoned",)] if phase == "authorize" else [])
+        assert connection.execute(
+            "SELECT first_presented_at FROM operational.recommendations WHERE business_id=%s",
+            (context.business_id,),
+        ).fetchall() == [(None,)]
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.suppression_blocks WHERE business_id=%s",
+                (context.business_id,),
             ).fetchone()[0]
             == 0
         )

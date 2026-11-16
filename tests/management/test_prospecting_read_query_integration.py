@@ -545,11 +545,12 @@ def test_prospect_page_batches_all_saved_origins_without_history_or_owner_loss(
                 for origin in view.origins
             )
             assert view.activities is None
+            assert view.current_source_context is None
         queries.clear()
         detail = query.get_prospect(
             identity.business_id, page.items[0].prospect.id, datetime.now(UTC)
         )
-        assert len(queries) <= 6, queries
+        assert len(queries) <= 7, queries
         assert detail.origins == page.items[0].origins
         assert detail.activities[0].kind.value == "prospect_saved"
         assert (
@@ -643,3 +644,423 @@ def test_batched_prospect_reads_preserve_captured_source_and_persisted_history(
     assert detail.activities[0].kind.value == "prospect_saved"
     with psycopg.connect(context.database_url) as connection:
         assert _snapshot(connection, context.business_id) == before
+
+
+def test_retained_prospect_reads_new_guarded_source_without_rewriting_saved_origin(
+    retained_management_database_url, monkeypatch
+):
+    from huginn.config import Config
+    from huginn.elt.materialization import build_eu_startups_materialization_stages
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    saved = SaveRecommendationService(lambda: _work(context.database_url)).execute(
+        context.principal,
+        SaveRecommendationRequest(
+            selection.recommendation_id, selection.revision_id, "save-current-context"
+        ),
+    )
+    service = _service(context.database_url)
+    original = service.get_prospect(context.principal, saved.prospect_id)
+    assert original.current_source_context.evidence_state == "current"
+    original_ids = {
+        signal.observation_id for signal in original.current_source_context.signals
+    }
+    with psycopg.connect(context.database_url) as connection:
+        before = _snapshot(connection, context.business_id)
+        payload = connection.execute(
+            "SELECT payload FROM bronze.web_scrape_ingest WHERE source='eu_startups' AND stable_id=%s",
+            (context.stable_id,),
+        ).fetchone()[0]
+        # Controlled follow-up to the captured real source, through the same
+        # ingestion/materialization boundary. No live upstream claim is made.
+        payload["html"] = payload["html"].replace("Brightroom", "Brightroom current")
+        connection.execute(
+            "UPDATE bronze.web_scrape_ingest SET payload=%s,fetched_at=clock_timestamp() WHERE source='eu_startups' AND stable_id=%s",
+            (psycopg.types.json.Jsonb(payload), context.stable_id),
+        )
+    unavailable = service.get_prospect(context.principal, saved.prospect_id)
+    assert unavailable.current_source_context.evidence_state == "unavailable"
+    assert unavailable.current_source_context.signals == ()
+    assert unavailable.origins == original.origins
+    stages = build_eu_startups_materialization_stages(
+        Config(database_url=context.database_url, yc_algolia_api_key="test"),
+        include_manual_review=False,
+        resolve_eu_startups_only=True,
+    )
+    for stage in stages:
+        stage.run()
+    for _ in range(2):
+        detail = service.get_prospect(context.principal, saved.prospect_id)
+        current = detail.current_source_context
+        assert current.evidence_state == "changed"
+        assert len(current.signals) == 1
+        signal = current.signals[0]
+        assert signal.observation_id not in original_ids
+        assert signal.source_url == context.listing_url
+        assert signal.source == "eu_startups"
+        assert "Brightroom current" in signal.description
+        assert (
+            signal.observed_at > original.current_source_context.signals[0].observed_at
+        )
+        assert detail.origins == original.origins
+        assert (
+            service.list_prospects(context.principal, ListProspectingRequest())
+            .items[0]
+            .current_source_context
+            is None
+        )
+    with psycopg.connect(context.database_url) as connection:
+        assert _snapshot(connection, context.business_id) == before
+        persisted = connection.execute(
+            "SELECT observation_id,source_url,description,observed_at,occurred_at FROM gold.current_source_evidence WHERE company_id=%s",
+            (context.company_id,),
+        ).fetchone()
+        assert persisted == (
+            signal.observation_id,
+            signal.source_url,
+            signal.description,
+            signal.observed_at,
+            signal.occurred_at,
+        )
+    from fastapi.testclient import TestClient
+
+    from huginn.management.app import create_app
+    from huginn.management.config import ManagementConfig
+    from huginn.management.domain.entities.session import Session
+    from huginn.management.presentation.api.dependencies.authentication import (
+        AuthenticatedSession,
+        get_authenticated_session,
+    )
+    from huginn.management.presentation.api.prospecting_mapping import prospect_response
+
+    app = create_app(ManagementConfig(context.database_url, environment="test"))
+    now = datetime.now(UTC)
+    session = Session(uuid4(), context.account_id, "digest", "csrf", now, now, None)
+    app.dependency_overrides[get_authenticated_session] = lambda: AuthenticatedSession(
+        context.principal, session, "opaque"
+    )
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/prospects/{saved.prospect_id}")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["current_source_context"]["evidence_state"] == "changed"
+        assert body["current_source_context"]["signals"][0]["observation_id"] == str(
+            signal.observation_id
+        )
+        assert body["current_source_context"]["signals"][0][
+            "observed_at"
+        ] == signal.observed_at.isoformat().replace("+00:00", "Z")
+        assert (
+            body["origins"]
+            == prospect_response(original).model_dump(mode="json")["origins"]
+        )
+    with psycopg.connect(context.database_url) as connection:
+        assert _snapshot(connection, context.business_id) == before
+
+
+def test_exact_revision_presentation_survives_repeat_generation_and_rereads(
+    retained_management_database_url, monkeypatch
+):
+    from huginn.management.application.requests.confirm_recommendation_offer_request import (
+        ConfirmRecommendationOfferRequest,
+    )
+    from huginn.management.application.requests.prepare_recommendation_offer_request import (
+        PrepareRecommendationOfferRequest,
+    )
+    from huginn.management.application.services.confirm_recommendation_offer_service import (
+        ConfirmRecommendationOfferService,
+    )
+    from huginn.management.application.services.prepare_recommendation_offer_service import (
+        PrepareRecommendationOfferService,
+    )
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    initial = generate_retained_brightroom_selection(context)
+
+    def factory():
+        return _work(context.database_url)
+
+    kwargs = {
+        "source_factory": PostgresRecommendationGenerationSource,
+        "clock": lambda: context.current_time[0],
+    }
+    prepare = PrepareRecommendationOfferService(factory, **kwargs)
+    confirm = ConfirmRecommendationOfferService(factory, **kwargs)
+    first_claim = prepare.execute(
+        context.principal,
+        PrepareRecommendationOfferRequest(
+            initial.recommendation_id, initial.revision_id, "first-read-confirm"
+        ),
+    )
+    first = confirm.execute(
+        context.principal,
+        ConfirmRecommendationOfferRequest(
+            first_claim.offer_cycle_id, first_claim.claim_token
+        ),
+    )
+    context.current_time[0] += timedelta(days=31)
+    newer = generate_retained_brightroom_selection(context)
+    assert newer.recommendation_id == initial.recommendation_id
+    assert newer.revision_id != initial.revision_id
+    for _ in range(2):
+        service = _service(context.database_url)
+        detail = service.get_recommendation(context.principal, newer.recommendation_id)
+        assert detail.recommendation.first_presented_at == first.presented_at
+        assert detail.assessment.id == newer.revision_id
+        assert detail.assessment_presented_at is None
+        assert (
+            service.list_recommendations(context.principal, ListProspectingRequest())
+            .items[0]
+            .assessment_presented_at
+            is None
+        )
+        historical = service.get_recommendation(
+            context.principal,
+            initial.recommendation_id,
+            assessment_revision_id=initial.revision_id,
+        )
+        assert historical.assessment_presented_at == first.presented_at
+    pending = prepare.execute(
+        context.principal,
+        PrepareRecommendationOfferRequest(
+            newer.recommendation_id, newer.revision_id, "repeat-read-confirm"
+        ),
+    )
+    assert (
+        _service(context.database_url)
+        .get_recommendation(context.principal, newer.recommendation_id)
+        .assessment_presented_at
+        is None
+    )
+    second = confirm.execute(
+        context.principal,
+        ConfirmRecommendationOfferRequest(pending.offer_cycle_id, pending.claim_token),
+    )
+    with psycopg.connect(context.database_url) as connection:
+        before = _snapshot(connection, context.business_id)
+    for _ in range(2):
+        service = _service(context.database_url)
+        assert (
+            service.get_recommendation(
+                context.principal, newer.recommendation_id
+            ).assessment_presented_at
+            == second.presented_at
+        )
+        assert (
+            service.list_recommendations(context.principal, ListProspectingRequest())
+            .items[0]
+            .assessment_presented_at
+            == second.presented_at
+        )
+        assert (
+            service.get_recommendation(
+                context.principal,
+                initial.recommendation_id,
+                assessment_revision_id=initial.revision_id,
+            ).assessment_presented_at
+            == first.presented_at
+        )
+    with psycopg.connect(context.database_url) as connection:
+        assert _snapshot(connection, context.business_id) == before
+
+
+@pytest.mark.parametrize("additional_count", (1, 51))
+def test_prospect_context_detects_additional_current_sources_beyond_display_bound(
+    retained_management_database_url, monkeypatch, additional_count
+):
+    from huginn.config import Config
+    from huginn.elt.materialization import build_eu_startups_materialization_stages
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    saved = SaveRecommendationService(lambda: _work(context.database_url)).execute(
+        context.principal,
+        SaveRecommendationRequest(
+            selection.recommendation_id,
+            selection.revision_id,
+            "save-additional-context",
+        ),
+    )
+    service = _service(context.database_url)
+    original = service.get_prospect(context.principal, saved.prospect_id)
+    original_ids = {
+        signal.observation_id for signal in original.current_source_context.signals
+    }
+    with psycopg.connect(context.database_url) as connection:
+        payload = connection.execute(
+            "SELECT payload FROM bronze.web_scrape_ingest WHERE source='eu_startups' AND stable_id=%s",
+            (context.stable_id,),
+        ).fetchone()[0]
+        # Additional controlled listings retain the captured source content and
+        # explicit company website while entering through Bronze and normal ELT.
+        for index in range(additional_count):
+            stable_id = f"brightroom-additional-{index}"
+            url = context.listing_url.replace("brightroom/", f"{stable_id}/")
+            followup = {
+                **payload,
+                "url": url,
+                "html": payload["html"].replace(context.listing_url, url),
+            }
+            connection.execute(
+                "INSERT INTO bronze.web_scrape_ingest (source,stable_id,payload,content_hash,run_id) VALUES ('eu_startups',%s,%s,%s,%s)",
+                (stable_id, psycopg.types.json.Jsonb(followup), uuid4().hex, uuid4()),
+            )
+    stages = build_eu_startups_materialization_stages(
+        Config(database_url=context.database_url, yc_algolia_api_key="test"),
+        include_manual_review=False,
+        resolve_eu_startups_only=True,
+    )
+    for stage in stages:
+        stage.run()
+    detail = service.get_prospect(context.principal, saved.prospect_id)
+    assert detail.current_source_context.evidence_state == "changed"
+    assert len(detail.current_source_context.signals) == min(50, additional_count + 1)
+    assert detail.current_source_context.has_more is (additional_count + 1 > 50)
+    assert detail.origins == original.origins
+    assert (
+        service.get_prospect(
+            context.principal, saved.prospect_id
+        ).current_source_context
+        == detail.current_source_context
+    )
+    with psycopg.connect(context.database_url) as connection:
+        current_ids = {
+            row[0]
+            for row in connection.execute(
+                "SELECT observation_id FROM gold.current_source_evidence WHERE company_id=%s",
+                (context.company_id,),
+            ).fetchall()
+        }
+        assert len(current_ids) == additional_count + 1
+        assert original_ids < current_ids
+
+
+@pytest.mark.parametrize("status", ("preparing", "sending", "unknown", "abandoned"))
+def test_unconfirmed_offer_states_never_claim_revision_presentation(
+    management_database_url, status
+):
+    from huginn.management.domain.entities.offer_cycle import OfferCycle
+    from huginn.management.domain.value_objects.accepted_offer_cadence import (
+        AcceptedOfferCadence,
+    )
+    from huginn.management.domain.value_objects.offer_cycle_status import (
+        OfferCycleStatus,
+    )
+
+    now = datetime.now(UTC)
+    with psycopg.connect(management_database_url) as connection:
+        identity, recommendation, revision = _seed(connection, f"Unconfirmed {status}")
+    with _work(management_database_url) as work:
+        work.lock_business_company(identity.business_id, identity.company_id)
+        cycle = work.offer_cycles.acquire_preparing(
+            OfferCycle(
+                uuid4(),
+                identity.business_id,
+                identity.company_id,
+                recommendation.id,
+                revision.id,
+                f"read-{status}",
+                "a" * 64,
+                OfferCycleStatus("preparing"),
+                now,
+                now,
+                claim_token="claim",
+                lease_expires_at=now + timedelta(minutes=5),
+            ),
+            now=now,
+            lease_expires_at=now + timedelta(minutes=5),
+            claim_token="claim",
+        )
+        if status in {"sending", "unknown"}:
+            started = now + timedelta(seconds=1)
+            work.offer_cycles.mark_sending(
+                identity.business_id,
+                identity.company_id,
+                cycle.id,
+                "claim",
+                started,
+                AcceptedOfferCadence(30, now, started),
+            )
+        if status == "unknown":
+            work.offer_cycles.settle_sending(
+                identity.business_id,
+                identity.company_id,
+                cycle.id,
+                "claim",
+                "unknown",
+                now + timedelta(seconds=2),
+            )
+        elif status == "abandoned":
+            work.offer_cycles.abandon_preparing(
+                identity.business_id,
+                identity.company_id,
+                cycle.id,
+                "claim",
+                identity.owner_user_id,
+                "Never displayed",
+                now + timedelta(seconds=1),
+            )
+        work.commit()
+    with psycopg.connect(management_database_url) as connection:
+        before = _snapshot(connection, identity.business_id)
+    service = _service(management_database_url)
+    assert (
+        service.get_recommendation(
+            _principal(identity), recommendation.id
+        ).assessment_presented_at
+        is None
+    )
+    assert (
+        service.list_recommendations(_principal(identity), ListProspectingRequest())
+        .items[0]
+        .assessment_presented_at
+        is None
+    )
+    with psycopg.connect(management_database_url) as connection:
+        assert _snapshot(connection, identity.business_id) == before
+
+
+def test_unassessed_recommendation_has_no_assessment_presentation(
+    management_database_url,
+):
+    from tests.management.persistence.prospecting_fixtures import (
+        seed_prospecting_owner_company,
+        valid_recommendation,
+    )
+
+    with psycopg.connect(management_database_url) as connection:
+        identity = seed_prospecting_owner_company(connection)
+    with _work(management_database_url) as work:
+        recommendation = work.recommendations.create_open(
+            valid_recommendation(identity)
+        )
+        work.commit()
+    service = _service(management_database_url)
+    view = service.get_recommendation(_principal(identity), recommendation.id)
+    assert view.assessment is None
+    assert view.assessment_presented_at is None
+    assert (
+        service.list_recommendations(_principal(identity), ListProspectingRequest())
+        .items[0]
+        .assessment_presented_at
+        is None
+    )

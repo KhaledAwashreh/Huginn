@@ -8,6 +8,9 @@ from huginn.management.presentation.api.responses.common import ResponseModel
 from huginn.management.presentation.api.responses.current_company import (
     CurrentCompanyResponse,
 )
+from huginn.management.presentation.api.responses.current_source_context import (
+    CurrentSourceContextResponse,
+)
 from huginn.management.presentation.api.responses.prospecting_activity import (
     ProspectActivityResponse,
 )
@@ -34,3 +37,4 @@ class ProspectResponse(ResponseModel):
     company: CurrentCompanyResponse
     origins: list[ProspectOriginResponse]
     activities: list[ProspectActivityResponse] | None
+    current_source_context: CurrentSourceContextResponse | None

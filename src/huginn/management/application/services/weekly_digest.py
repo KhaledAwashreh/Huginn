@@ -45,7 +45,11 @@ from huginn.management.domain.entities.assessment_revision import AssessmentRevi
 from huginn.management.domain.entities.offer_cycle import OfferCycle
 from huginn.management.domain.entities.suppression_block import SuppressionBlock
 from huginn.management.domain.entities.weekly_digest_content import WeeklyDigestContent
-from huginn.management.domain.errors.errors import ConflictError, NotFoundError
+from huginn.management.domain.errors.errors import (
+    ConflictError,
+    NotFoundError,
+    ValidationDomainError,
+)
 from huginn.management.domain.value_objects.accepted_offer_cadence import (
     AcceptedOfferCadence,
 )
@@ -230,7 +234,7 @@ class WeeklyDigestService:
             for profile in profiles:
                 try:
                     validated_profile_inputs(profile)
-                except Exception:
+                except ValidationDomainError:
                     continue
                 return True
             return False
@@ -298,7 +302,7 @@ class WeeklyDigestService:
                         is not None
                     ):
                         continue
-                except Exception:
+                except ConflictError, NotFoundError:
                     continue
                 claim_token = self._claim_token()
                 cycle_id = uuid4()
@@ -496,7 +500,7 @@ class WeeklyDigestService:
                         ).eligible
                     ):
                         continue
-                except Exception:
+                except ConflictError, NotFoundError:
                     continue
                 valid.append((member, cycle, selection.revision, token))
 
@@ -608,6 +612,18 @@ class WeeklyDigestService:
     ) -> None:
         now = self._now()
         with self._uow_factory() as work:
+            current = self._delivery_repository(work).get_for_update(
+                content.business_id, delivery.id
+            )
+            if (
+                current is None
+                or current.state != "sending"
+                or current.version != delivery.version
+                or current.current_content_id != content.id
+            ):
+                raise ConflictError(
+                    "Weekly send authorization changed before settlement"
+                )
             for company_id in sorted(
                 {member.company_id for member in content.members}, key=str
             ):
@@ -687,6 +703,9 @@ class WeeklyDigestService:
 
     def _cleanup_pre_authorization(self, delivery, content, claims) -> None:
         with self._uow_factory() as work:
+            current = self._delivery_repository(work).get_for_update(
+                delivery.business_id, delivery.id
+            )
             for company_id in sorted(
                 {member.company_id for member in content.members}, key=str
             ):
@@ -710,9 +729,6 @@ class WeeklyDigestService:
                         "Weekly delivery authorization could not be completed",
                         self._now(),
                     )
-            current = self._delivery_repository(work).get_for_update(
-                delivery.business_id, delivery.id
-            )
             if current is not None and current.state == "preparing":
                 self._delivery_repository(work).settle(
                     delivery.business_id,

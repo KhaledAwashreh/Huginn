@@ -11,7 +11,6 @@ const registry = new Map<string, Map<string, OfferPresentation>>();
 export function useRecommendationPresentation(props: {
   readonly identity: string;
   readonly recommendation: RecommendationView;
-  readonly newlySelected: boolean;
   readonly historical: boolean;
 }) {
   watch(
@@ -30,7 +29,7 @@ export function useRecommendationPresentation(props: {
       );
     if (unresolved) return unresolved;
     const revisionId = props.recommendation.assessment?.id;
-    if (!revisionId || !isNewAppOffer(props.recommendation, props.newlySelected)) return null;
+    if (!revisionId || !isNewAppOffer(props.recommendation)) return null;
     if (!entries) {
       entries = new Map();
       registry.set(props.identity, entries);

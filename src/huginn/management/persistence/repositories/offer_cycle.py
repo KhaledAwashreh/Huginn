@@ -386,7 +386,19 @@ class PostgresOfferCycleRepository(OfferCycleRepository):
         outcome: Literal["confirmed", "pre_send_failed", "unknown"],
         settled_at: datetime,
         presented_at: datetime | None = None,
+        *,
+        actor_user_id: UUID | None = None,
+        reason: str | None = None,
     ) -> OfferCycle:
+        if (actor_user_id is not None or reason is not None) and (
+            outcome != "unknown"
+            or not isinstance(actor_user_id, UUID)
+            or type(reason) is not str
+            or not reason.strip()
+        ):
+            raise ValidationDomainError(
+                "Stopped sender observation requires an actor and reason"
+            )
         if outcome == "confirmed":
             if presented_at is None:
                 raise ValidationDomainError("Confirmed delivery requires handoff time")
@@ -424,6 +436,8 @@ class PostgresOfferCycleRepository(OfferCycleRepository):
             outcome=outcome,
             presented_at=presented_at,
             recorded_at=settled_at,
+            actor_user_id=actor_user_id,
+            reason=reason,
         )
         return row
 

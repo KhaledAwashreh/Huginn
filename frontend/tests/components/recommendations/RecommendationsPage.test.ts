@@ -34,6 +34,7 @@ function recommendation(status: RecommendationView['status'] = 'open'): Recommen
     updated_at: '2026-11-01T00:00:00Z',
     current_revision_id: 'revision-1',
     first_presented_at: null,
+    assessment_presented_at: null,
     resolved_at: status === 'open' ? null : '2026-11-02T00:00:00Z',
     resolved_by_user_id: status === 'open' ? null : 'user-1',
     resolution_reason: status === 'rejected' ? 'Wrong buyer' : null,

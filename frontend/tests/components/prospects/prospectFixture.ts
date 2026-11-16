@@ -23,6 +23,7 @@ export function prospect(overrides: Partial<Prospect> = {}): Prospect {
     notes: 'Current customer need is unclear.',
     follow_up_at: null,
     version: 4,
+    current_source_context: null,
     origins: [],
     activities: [],
     ...overrides,

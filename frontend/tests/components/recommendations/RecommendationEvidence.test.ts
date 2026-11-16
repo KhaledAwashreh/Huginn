@@ -9,6 +9,7 @@ function recommendation(overrides: Partial<RecommendationView> = {}): Recommenda
     id: 'same-recommendation',
     current_revision_id: 'revision-1',
     first_presented_at: null,
+    assessment_presented_at: null,
     status: 'open',
     current_eligibility: 'not_reassessed',
     evidence_state: 'not_assessed',

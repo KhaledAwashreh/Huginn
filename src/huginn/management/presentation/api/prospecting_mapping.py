@@ -1,5 +1,7 @@
 """Map prospecting read models and domain values to explicit API responses."""
 
+from dataclasses import asdict
+
 from huginn.management.application.read_models.current_company import CurrentCompany
 from huginn.management.application.read_models.manageable_suppression_view import (
     ManageableSuppressionView,
@@ -27,6 +29,12 @@ from huginn.management.domain.value_objects.strategy_assessment_snapshot import 
 )
 from huginn.management.presentation.api.responses.current_company import (
     CurrentCompanyResponse,
+)
+from huginn.management.presentation.api.responses.current_company_signal import (
+    CurrentCompanySignalResponse,
+)
+from huginn.management.presentation.api.responses.current_source_context import (
+    CurrentSourceContextResponse,
 )
 from huginn.management.presentation.api.responses.prospect_command import (
     ProspectCommandResponse,
@@ -101,6 +109,7 @@ def recommendation_response(view: RecommendationView) -> RecommendationResponse:
         updated_at=recommendation.updated_at,
         current_revision_id=recommendation.current_revision_id,
         first_presented_at=recommendation.first_presented_at,
+        assessment_presented_at=view.assessment_presented_at,
         resolved_at=recommendation.resolved_at,
         resolved_by_user_id=recommendation.resolved_by_user_id,
         resolution_reason=recommendation.resolution_reason,
@@ -153,6 +162,18 @@ def prospect_response(view: ProspectView) -> ProspectResponse:
         ),
         company=_company_response(view.company),
         origins=[_prospect_origin(origin) for origin in view.origins],
+        current_source_context=(
+            CurrentSourceContextResponse(
+                signals=[
+                    CurrentCompanySignalResponse(**asdict(signal))
+                    for signal in view.current_source_context.signals
+                ],
+                has_more=view.current_source_context.has_more,
+                evidence_state=view.current_source_context.evidence_state,
+            )
+            if view.current_source_context is not None
+            else None
+        ),
         activities=(
             [_prospect_activity(activity, history) for activity in history]
             if history is not None

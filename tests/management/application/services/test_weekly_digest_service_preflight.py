@@ -1,5 +1,8 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
+
+import pytest
 
 from huginn.management.application.read_models.digest_subscription import (
     DigestSubscription,
@@ -34,7 +37,11 @@ class SubscriptionAccess:
 
 class Source:
     def active_profiles(self, owner_user_id):
-        return (object(),)
+        return (
+            SimpleNamespace(
+                snapshot_json='{"offering": {}, "icp": {}}', offering_text=""
+            ),
+        )
 
 
 class DeliveryRepository:
@@ -82,3 +89,22 @@ def test_invalid_active_profile_does_not_consume_weekly_reservation():
     result = service.run()
     assert result["skipped"] == 1
     assert delivery.reservations == 0
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, TypeError])
+def test_unexpected_profile_validation_failure_is_logged_without_reserving(
+    error_type, monkeypatch, caplog
+):
+    def fail_validation(profile):
+        raise error_type("Unexpected projection failure")
+
+    monkeypatch.setattr(
+        "huginn.management.application.services.weekly_digest.validated_profile_inputs",
+        fail_validation,
+    )
+    service, delivery = _service()
+    result = service.run()
+    assert result["failed"] == 1
+    assert result["skipped"] == 0
+    assert delivery.reservations == 0
+    assert "Weekly digest processing failed" in caplog.text

@@ -279,3 +279,76 @@ def test_prospect_command_mapper_preserves_fresh_and_replayed_http_output():
     ).model_dump(mode="json")
     assert mapper(result).model_dump(mode="json") == expected
     assert mapper(replay).model_dump(mode="json") == expected
+
+
+def test_recommendation_maps_exact_displayed_assessment_presentation():
+    identity, recommendation, revision, _, company = _base()
+    presented_at = datetime.now(UTC)
+    view = RecommendationView(
+        recommendation,
+        company,
+        revision,
+        None,
+        BusinessCompanyState(),
+        presented_at,
+        "current",
+        assessment_presented_at=presented_at,
+    )
+    assert recommendation_response(view).assessment_presented_at == presented_at
+
+
+def test_prospect_current_sources_are_separate_from_immutable_origins():
+    from huginn.management.application.read_models.current_company_signal import (
+        CurrentCompanySignal,
+    )
+    from huginn.management.application.read_models.current_source_context import (
+        CurrentSourceContext,
+    )
+
+    identity, recommendation, revision, prospect, company = _base()
+    origin = ProspectOriginView(
+        valid_prospect_origin(identity, recommendation, revision, prospect),
+        recommendation,
+        revision,
+    )
+    now = datetime.now(UTC)
+    signal = CurrentCompanySignal(
+        uuid4(),
+        "directory",
+        "eu_startups",
+        "https://example.test/current",
+        "New current evidence",
+        None,
+        now,
+        now,
+        uuid4(),
+        now,
+        "directory_context",
+        "not_applicable",
+    )
+    view = ProspectView(
+        prospect,
+        company,
+        (origin,),
+        (),
+        CurrentSourceContext((signal,), False, "changed"),
+    )
+    response = prospect_response(view)
+    assert response.current_source_context.evidence_state == "changed"
+    assert (
+        response.current_source_context.signals[0].observation_id
+        == signal.observation_id
+    )
+    assert response.current_source_context.signals[0].observed_at == now
+    assert (
+        response.current_source_context.signals[0].description == "New current evidence"
+    )
+    assert response.origins[0].assessment.evidence_snapshots == [
+        item.to_json_object() for item in revision.evidence_snapshots
+    ]
+    assert (
+        prospect_response(
+            ProspectView(prospect, company, (origin,))
+        ).current_source_context
+        is None
+    )

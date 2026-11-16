@@ -87,6 +87,39 @@ message may still arrive; the database and SMTP acceptance cannot be atomic.
 
 ## Resolve an uncertain delivery
 
+If a sender exits after committing authorization, or database settlement fails
+after SMTP, the delivery can remain `sending`. Its Company protection does not
+expire with age. Stop the original sender and verify it cannot resume or make
+another SMTP handoff before reconciling it. Inspect the exact current delivery
+version, content ID, authorization timestamp and frozen member cycle IDs using
+read-only operator access. Then attest to the stopped sender through the
+authenticated, CSRF-protected action:
+
+```http
+POST /api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation
+X-CSRF-Token: <session csrf token>
+Content-Type: application/json
+
+{
+  "expected_version": 3,
+  "expected_content_id": "<current frozen content UUID>",
+  "expected_sending_started_at": "<exact timezone-aware authorization timestamp>",
+  "expected_offer_cycle_ids": ["<each frozen member cycle UUID>"],
+  "sender_stopped": true,
+  "reason": "<how the original sender was stopped and verified, with evidence reference>"
+}
+```
+
+`sender_stopped` records the owner's attestation; it is not machine verification
+that the process stopped. Elapsed time, an absent inbox message, or an SMTP
+timeout cannot establish that fact. Changed authorization fences or members
+cause a conflict. The action atomically moves the exact delivery and all its
+Sending member cycles to `unknown`, recording the actor and reason. It preserves
+frozen content, accepted cadence and independent blocks without recording a
+presentation, starting cooldown, releasing protection or sending email. An exact
+retry is idempotent, including after a later outcome resolution; changed evidence
+cannot replace the original reconciliation.
+
 Recovery is an authenticated, CSRF-protected API action. It is scoped to the
 authenticated operator's Business and delivery; it does not accept a client
 supplied owner ID. Only an `unknown` delivery can be resolved. The action

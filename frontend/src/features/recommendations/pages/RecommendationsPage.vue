@@ -88,14 +88,6 @@ function statusLabel(item: RecommendationResponse): string {
       ? 'Saved as prospect'
       : 'Not relevant';
 }
-function newlySelected(item: RecommendationResponse): boolean {
-  return (
-    workspace.generationResult.value?.references.some(
-      (reference) =>
-        reference.recommendation_id === item.id && reference.revision_id === item.assessment?.id,
-    ) ?? false
-  );
-}
 </script>
 
 <template>
@@ -279,8 +271,6 @@ function newlySelected(item: RecommendationResponse): boolean {
                 v-slot="{ recommendation: item }"
                 :recommendation="row"
                 :identity="workspace.identity.value"
-                :newly-selected="newlySelected(row)"
-                :historical="Boolean(emailLink)"
                 @confirmed="workspace.refresh()"
               >
                 <div class="card-heading">
