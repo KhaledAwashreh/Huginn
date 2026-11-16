@@ -513,6 +513,7 @@ def test_build_eu_startups_enrichment_stages_reuses_gold_materialization_order()
         "silver.signal_resolution",
         "gold.company",
         "gold.company_signal",
+        "silver.source_currentness.eu_startups",
     ]
     assert stages[1].depends_on == ("silver.eu_startups_staging",)
     assert stages[1].run.__name__ == "resolve_eu_startups"

@@ -44,9 +44,17 @@ class PostgresUserRepository(PostgresIdentityRepository, UserRepository):
     def create(self, user: NewUser) -> User:
         try:
             row = self._write(
+                "WITH created_user AS ("
                 "INSERT INTO operational.users (account_id, first_name, last_name, email, "
                 "phone_number, country_of_residence, timezone) "
-                f"VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {self._columns}",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *), "
+                "created_business AS ("
+                "INSERT INTO operational.businesses(owner_user_id) "
+                "SELECT id FROM created_user RETURNING id), "
+                "created_preferences AS ("
+                "INSERT INTO operational.business_recommendation_preferences(business_id) "
+                "SELECT id FROM created_business RETURNING business_id) "
+                f"SELECT {self._columns} FROM created_user",
                 (
                     user.account_id,
                     user.first_name,

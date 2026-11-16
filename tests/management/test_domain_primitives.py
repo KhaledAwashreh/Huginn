@@ -54,6 +54,12 @@ def test_repository_ports_are_protocols():
     from huginn.management.persistence.contracts.repositories.account import (
         AccountRepository,
     )
+    from huginn.management.persistence.contracts.repositories.business import (
+        BusinessRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.business_recommendation_preferences import (
+        BusinessRecommendationPreferencesRepository,
+    )
     from huginn.management.persistence.contracts.repositories.discovery_strategy import (
         ClientDiscoveryStrategyRepository,
     )
@@ -73,6 +79,8 @@ def test_repository_ports_are_protocols():
 
     for port in (
         AccountRepository,
+        BusinessRepository,
+        BusinessRecommendationPreferencesRepository,
         ClientDiscoveryStrategyRepository,
         IdealClientProfileRepository,
         ProfessionalProfileRepository,
@@ -86,6 +94,12 @@ def test_repository_ports_are_protocols():
 def test_repository_ports_cover_documented_operations_with_typed_results():
     from huginn.management.persistence.contracts.repositories.account import (
         AccountRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.business import (
+        BusinessRepository,
+    )
+    from huginn.management.persistence.contracts.repositories.business_recommendation_preferences import (
+        BusinessRecommendationPreferencesRepository,
     )
     from huginn.management.persistence.contracts.repositories.discovery_strategy import (
         ClientDiscoveryStrategyRepository,
@@ -106,6 +120,8 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
 
     ports = SimpleNamespace(
         AccountRepository=AccountRepository,
+        BusinessRepository=BusinessRepository,
+        BusinessRecommendationPreferencesRepository=BusinessRecommendationPreferencesRepository,
         ClientDiscoveryStrategyRepository=ClientDiscoveryStrategyRepository,
         IdealClientProfileRepository=IdealClientProfileRepository,
         ProfessionalProfileRepository=ProfessionalProfileRepository,
@@ -114,6 +130,10 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
         UserRepository=UserRepository,
     )
     from huginn.management.domain.entities.account import Account
+    from huginn.management.domain.entities.business import Business
+    from huginn.management.domain.entities.business_recommendation_preferences import (
+        BusinessRecommendationPreferences,
+    )
     from huginn.management.domain.entities.client_discovery_strategy import (
         ClientDiscoveryStrategy,
     )
@@ -134,6 +154,13 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
             "set_status",
             "set_password_hash",
         },
+        ports.BusinessRepository: {
+            "get_by_id",
+            "get_by_owner_user_id",
+            "create",
+            "update",
+        },
+        ports.BusinessRecommendationPreferencesRepository: {"get", "update"},
         ports.UserRepository: {"create", "update"},
         ports.ProfessionalProfileRepository: {"create", "update"},
         ports.SessionRepository: {
@@ -166,6 +193,8 @@ def test_repository_ports_cover_documented_operations_with_typed_results():
     }
     results = {
         ports.AccountRepository: Account,
+        ports.BusinessRepository: Business,
+        ports.BusinessRecommendationPreferencesRepository: BusinessRecommendationPreferences,
         ports.UserRepository: User,
         ports.ProfessionalProfileRepository: ProfessionalProfile,
         ports.SessionRepository: Session,

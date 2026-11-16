@@ -158,9 +158,8 @@ async function clickRefreshSaved(): Promise<void> {
     const response = await props.refreshSaved();
     if (!response) {
       refreshed.value = true;
-      uncertain.value = false;
       formError.value =
-        'Saved data list was refreshed. Check the list to confirm whether this draft was created; it remains unchanged.';
+        'The saved list was refreshed, but the create result is still uncertain. Review ICP definitions before starting another create; this draft cannot be submitted again.';
       return;
     }
     const latest = fromResponse(response);

@@ -1,1 +1,1 @@
-"""Independent Match creation and qualification module."""
+"""Source-linked company assessment and research ranking."""

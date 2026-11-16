@@ -10,7 +10,6 @@ from huginn.management.application.services.discovery_strategies import (
 )
 from huginn.management.domain.value_objects.client_discovery_strategy import (
     ClientDiscoveryStrategyChanges,
-    NewClientDiscoveryStrategy,
 )
 from huginn.management.presentation.api.dependencies.authentication import (
     Authenticated,
@@ -19,7 +18,6 @@ from huginn.management.presentation.api.dependencies.authentication import (
 from huginn.management.presentation.api.dependencies.services import Management
 from huginn.management.presentation.api.mapping import (
     request_to_changes,
-    request_to_domain,
     response_from_domain,
 )
 from huginn.management.presentation.api.openapi.responses import error_responses
@@ -59,11 +57,10 @@ def create_discovery_strategy(
 ) -> DiscoveryStrategyResponse:
     value = service.create(
         authenticated.principal,
-        request_to_domain(
-            body,
-            NewClientDiscoveryStrategy,
-            user_id=authenticated.principal.user_id,
-        ),
+        name=body.name,
+        service_offering_id=body.service_offering_id,
+        ideal_client_profile_id=body.ideal_client_profile_id,
+        is_active=body.is_active,
     )
     return response_from_domain(value, DiscoveryStrategyResponse)
 

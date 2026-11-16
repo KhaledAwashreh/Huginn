@@ -2,10 +2,10 @@
 
 from dataclasses import replace
 
-from huginn.management.application.policies.country_identity import normalize_country
 from huginn.management.application.read_models.recommendation_company import (
     RecommendationCompany,
 )
+from huginn.matchmaking.domain.policies.business_company_fit import normalize_country
 
 
 def resolve_country_evidence(company: RecommendationCompany) -> RecommendationCompany:
@@ -25,5 +25,10 @@ def resolve_country_evidence(company: RecommendationCompany) -> RecommendationCo
             known.append((country, observation_id))
     if len({country for country, _ in known}) == 1:
         country, observation_id = sorted(known, key=lambda item: str(item[1]))[0]
-        return replace(company, country=country, country_evidence_id=observation_id)
+        return replace(
+            company,
+            country=country,
+            country_evidence_id=observation_id,
+            source_country_value=company.country,
+        )
     return company

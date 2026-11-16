@@ -16,6 +16,9 @@ from huginn.management.domain.value_objects.service_offering import NewServiceOf
 from huginn.management.domain.value_objects.user import NewUser
 from huginn.management.persistence.database.client import PsycopgDatabaseSession
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.business import (
+    PostgresBusinessRepository,
+)
 from huginn.management.persistence.repositories.ideal_client_profile import (
     PostgresIdealClientProfileRepository,
 )
@@ -41,7 +44,7 @@ from huginn.management.presentation.api.responses.ideal_client_profile import (
 def _profile(**overrides):
     values = {
         "id": uuid4(),
-        "user_id": uuid4(),
+        "business_id": uuid4(),
         "name": "Target",
         "industries": ({"name": "SaaS"},),
         "company_sizes": ({"band": "11-100"},),
@@ -122,10 +125,15 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
                 "US",
             )
         )
+        business_repository = PostgresBusinessRepository(
+            PsycopgDatabaseSession(connection)
+        )
+        owner_business_id = business_repository.get_by_owner_user_id(owner.id).id
+        other_business_id = business_repository.get_by_owner_user_id(other.id).id
         repo = PostgresIdealClientProfileRepository(PsycopgDatabaseSession(connection))
         profile = repo.create(
             NewIdealClientProfile(
-                owner.id,
+                owner_business_id,
                 "Target",
                 ({"name": "SaaS"},),
                 ({"band": "11-100"},),
@@ -134,7 +142,7 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
             )
         )
         changed = repo.update_owned(
-            owner.id,
+            owner_business_id,
             profile.id,
             IdealClientProfileChanges(
                 {"industries": (), "exclusions": ()},
@@ -142,15 +150,18 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
             ),
         )
         assert changed.industries == () and changed.exclusions == ()
-        assert repo.get_owned(other.id, profile.id) is None
-        assert repo.list_owned(owner.id, limit=1, offset=0).items[0].id == profile.id
+        assert repo.get_owned(other_business_id, profile.id) is None
+        assert (
+            repo.list_owned(owner_business_id, limit=1, offset=0).items[0].id
+            == profile.id
+        )
         connection.execute(
             "UPDATE operational.ideal_client_profiles "
             "SET industries='[{\"unexpected\":true}]'::jsonb WHERE id=%s",
             (profile.id,),
         )
         with pytest.raises(ValidationError):
-            repo.get_owned(owner.id, profile.id)
+            repo.get_owned(owner_business_id, profile.id)
         connection.execute(
             "UPDATE operational.ideal_client_profiles SET industries='[]'::jsonb "
             "WHERE id=%s",
@@ -158,15 +169,15 @@ def test_icp_repository_crud_ownership_validation_and_referenced_delete(
         )
         offering = PostgresServiceOfferingRepository(
             PsycopgDatabaseSession(connection)
-        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
+        ).create(NewServiceOffering(owner_business_id, "Consulting", "Audit"))
         connection.execute(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id,name,service_offering_id,ideal_client_profile_id) "
+            "(business_id,name,service_offering_id,ideal_client_profile_id) "
             "VALUES (%s,'Strategy',%s,%s)",
-            (owner.id, offering.id, profile.id),
+            (owner_business_id, offering.id, profile.id),
         )
         with pytest.raises(ConflictError):
-            repo.delete_owned(owner.id, profile.id)
+            repo.delete_owned(owner_business_id, profile.id)
         connection.rollback()
 
 
@@ -193,17 +204,22 @@ def test_icp_company_exclusion_uuid_round_trips_jsonb_crud(management_database_u
                 "exclusions": [{"kind": "company", "company_id": str(company_id)}],
             }
         )
+        business_id = (
+            PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+            .get_by_owner_user_id(owner.id)
+            .id
+        )
         profile = repo.create(
-            request_to_domain(create, NewIdealClientProfile, user_id=owner.id)
+            request_to_domain(create, NewIdealClientProfile, business_id=business_id)
         )
         expected = {"kind": "company", "company_id": str(company_id)}
         assert profile.exclusions == (expected,)
-        assert repo.get_owned(owner.id, profile.id).exclusions == (expected,)
-        assert repo.list_owned(owner.id, limit=1, offset=0).items[0].exclusions == (
+        assert repo.get_owned(business_id, profile.id).exclusions == (expected,)
+        assert repo.list_owned(business_id, limit=1, offset=0).items[0].exclusions == (
             expected,
         )
         updated = repo.update_owned(
-            owner.id,
+            business_id,
             profile.id,
             request_to_changes(
                 IcpPatch.model_validate(

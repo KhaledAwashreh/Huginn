@@ -119,6 +119,36 @@ CREATE TABLE operational.users (
 
 CREATE UNIQUE INDEX users_email_lower_key ON operational.users (lower(btrim(email)));
 
+CREATE TABLE operational.businesses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL UNIQUE REFERENCES operational.users (id) ON DELETE CASCADE,
+    name TEXT CHECK (name IS NULL OR (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)')),
+    tagline TEXT CHECK (tagline IS NULL OR (tagline <> '' AND tagline !~ '(^[[:space:]])|([[:space:]]$)')),
+    website TEXT CHECK (website IS NULL OR (website <> '' AND website !~ '(^[[:space:]])|([[:space:]]$)')),
+    location TEXT CHECK (location IS NULL OR (location <> '' AND location !~ '(^[[:space:]])|([[:space:]]$)')),
+    description TEXT CHECK (description IS NULL OR (description <> '' AND description !~ '(^[[:space:]])|([[:space:]]$)')),
+    capabilities JSONB CHECK (
+        capabilities IS NULL OR (
+            jsonb_typeof(capabilities) = 'array'
+            AND NOT jsonb_path_exists(capabilities, 'strict $[*] ? (@.type() != "object")')
+        )
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (owner_user_id, id)
+);
+
+CREATE INDEX businesses_owner_user_id_idx ON operational.businesses (owner_user_id);
+
+CREATE TABLE operational.business_recommendation_preferences (
+    business_id UUID PRIMARY KEY REFERENCES operational.businesses (id) ON DELETE CASCADE,
+    repeat_interval_days INTEGER NOT NULL DEFAULT 30 CHECK (repeat_interval_days > 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO operational.business_recommendation_preferences (business_id)
+SELECT id FROM operational.businesses;
+
 CREATE TABLE operational.professional_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES operational.users (id),
@@ -155,22 +185,22 @@ CREATE INDEX sessions_account_id_idx
 
 CREATE TABLE operational.service_offerings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    business_id UUID NOT NULL REFERENCES operational.businesses (id) ON DELETE NO ACTION,
     name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
     description TEXT NOT NULL CHECK (
         description <> '' AND description !~ '(^[[:space:]])|([[:space:]]$)'
     ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (user_id, id)
+    UNIQUE (business_id, id)
 );
 
-CREATE INDEX service_offerings_user_created_idx
-    ON operational.service_offerings (user_id, created_at, id);
+CREATE INDEX service_offerings_business_created_idx
+    ON operational.service_offerings (business_id, created_at, id);
 
 CREATE TABLE operational.ideal_client_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    business_id UUID NOT NULL REFERENCES operational.businesses (id) ON DELETE NO ACTION,
     name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
     industries JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
         jsonb_typeof(industries) = 'array'
@@ -195,32 +225,32 @@ CREATE TABLE operational.ideal_client_profiles (
     ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (user_id, id)
+    UNIQUE (business_id, id)
 );
 
-CREATE INDEX ideal_client_profiles_user_created_idx
-    ON operational.ideal_client_profiles (user_id, created_at, id);
+CREATE INDEX ideal_client_profiles_business_created_idx
+    ON operational.ideal_client_profiles (business_id, created_at, id);
 
 CREATE TABLE operational.client_discovery_strategies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    business_id UUID NOT NULL REFERENCES operational.businesses (id) ON DELETE NO ACTION,
     name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
     service_offering_id UUID NOT NULL,
     ideal_client_profile_id UUID NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    FOREIGN KEY (user_id, service_offering_id)
-        REFERENCES operational.service_offerings (user_id, id) ON DELETE NO ACTION,
-    FOREIGN KEY (user_id, ideal_client_profile_id)
-        REFERENCES operational.ideal_client_profiles (user_id, id) ON DELETE NO ACTION
+    FOREIGN KEY (business_id, service_offering_id)
+        REFERENCES operational.service_offerings (business_id, id) ON DELETE NO ACTION,
+    FOREIGN KEY (business_id, ideal_client_profile_id)
+        REFERENCES operational.ideal_client_profiles (business_id, id) ON DELETE NO ACTION
 );
 
-CREATE INDEX client_discovery_strategies_user_created_idx
-    ON operational.client_discovery_strategies (user_id, created_at, id);
+CREATE INDEX client_discovery_strategies_business_created_idx
+    ON operational.client_discovery_strategies (business_id, created_at, id);
 
-CREATE INDEX client_discovery_strategies_user_active_created_idx
-    ON operational.client_discovery_strategies (user_id, is_active, created_at, id);
+CREATE INDEX client_discovery_strategies_business_active_created_idx
+    ON operational.client_discovery_strategies (business_id, is_active, created_at, id);
 
 CREATE TABLE operational.employee (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

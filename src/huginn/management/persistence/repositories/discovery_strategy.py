@@ -24,7 +24,7 @@ from huginn.management.persistence.row_models.resources import (
 
 class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepository):
     _columns = (
-        "id,user_id,name,service_offering_id,ideal_client_profile_id,is_active,"
+        "id,business_id,name,service_offering_id,ideal_client_profile_id,is_active,"
         "created_at,updated_at"
     )
     _update_columns = {
@@ -43,7 +43,7 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
         validated = ClientDiscoveryStrategyRow.model_validate(value.__dict__)
         return ClientDiscoveryStrategy(
             validated.id,
-            validated.user_id,
+            validated.business_id,
             validated.name,
             validated.service_offering_id,
             validated.ideal_client_profile_id,
@@ -67,10 +67,10 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
     def create(self, strategy: NewClientDiscoveryStrategy) -> ClientDiscoveryStrategy:
         row = self._one(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+            "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
             f"VALUES (%s,%s,%s,%s,%s) RETURNING {self._columns}",
             (
-                strategy.user_id,
+                strategy.business_id,
                 strategy.name,
                 strategy.service_offering_id,
                 strategy.ideal_client_profile_id,
@@ -81,25 +81,25 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
         return self._map(row)
 
     def get_owned(
-        self, user_id: UUID, strategy_id: UUID
+        self, business_id: UUID, strategy_id: UUID
     ) -> ClientDiscoveryStrategy | None:
         row = self._one(
             f"SELECT {self._columns} FROM operational.client_discovery_strategies "
-            "WHERE user_id=%s AND id=%s",
-            (user_id, strategy_id),
+            "WHERE business_id=%s AND id=%s",
+            (business_id, strategy_id),
         )
         return self._map(row) if row else None
 
     def list_owned(
         self,
-        user_id: UUID,
+        business_id: UUID,
         *,
         limit: int,
         offset: int,
         active: bool | None = None,
     ) -> Page[ClientDiscoveryStrategy]:
-        predicate = "user_id=%s"
-        params: list[Any] = [user_id]
+        predicate = "business_id=%s"
+        params: list[Any] = [business_id]
         if active is not None:
             predicate += " AND is_active=%s"
             params.append(active)
@@ -117,13 +117,13 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
 
     def update_owned(
         self,
-        user_id: UUID,
+        business_id: UUID,
         strategy_id: UUID,
         changes: ClientDiscoveryStrategyChanges,
     ) -> ClientDiscoveryStrategy | None:
         supplied = changes.supplied_fields
         if not supplied:
-            return self.get_owned(user_id, strategy_id)
+            return self.get_owned(business_id, strategy_id)
         if not supplied <= self._update_columns.keys():
             raise ValueError("unsupported strategy update field")
         ordered = sorted(supplied)
@@ -132,15 +132,15 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
         )
         row = self._one(
             f"UPDATE operational.client_discovery_strategies SET {assignments}, "
-            f"updated_at=clock_timestamp() WHERE user_id=%s AND id=%s RETURNING {self._columns}",
-            (*(changes.values[field] for field in ordered), user_id, strategy_id),
+            f"updated_at=clock_timestamp() WHERE business_id=%s AND id=%s RETURNING {self._columns}",
+            (*(changes.values[field] for field in ordered), business_id, strategy_id),
         )
         return self._map(row) if row else None
 
-    def delete_owned(self, user_id: UUID, strategy_id: UUID) -> bool:
+    def delete_owned(self, business_id: UUID, strategy_id: UUID) -> bool:
         row = self._one(
             "DELETE FROM operational.client_discovery_strategies "
-            "WHERE user_id=%s AND id=%s RETURNING id",
-            (user_id, strategy_id),
+            "WHERE business_id=%s AND id=%s RETURNING id",
+            (business_id, strategy_id),
         )
         return row is not None

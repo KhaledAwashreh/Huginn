@@ -12,6 +12,9 @@ from huginn.management.domain.value_objects.service_offering import (
 from huginn.management.domain.value_objects.user import NewUser
 from huginn.management.persistence.database.client import PsycopgDatabaseSession
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.business import (
+    PostgresBusinessRepository,
+)
 from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
@@ -50,56 +53,62 @@ def test_offering_repository_crud_pagination_timestamp_and_ownership(
             )
         )
         repo = PostgresServiceOfferingRepository(PsycopgDatabaseSession(connection))
-        a = repo.create(NewServiceOffering(owner.id, "A", "First"))
-        b = repo.create(NewServiceOffering(owner.id, "B", "Second"))
+        businesses = PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+        owner_business_id = businesses.get_by_owner_user_id(owner.id).id
+        other_business_id = businesses.get_by_owner_user_id(other.id).id
+        a = repo.create(NewServiceOffering(owner_business_id, "A", "First"))
+        b = repo.create(NewServiceOffering(owner_business_id, "B", "Second"))
         connection.execute(
             "UPDATE operational.service_offerings "
             "SET created_at='2020-01-01T00:00:00Z', "
             "updated_at=now() - interval '1 day' WHERE id IN (%s,%s)",
             (a.id, b.id),
         )
-        a, b = repo.get_owned(owner.id, a.id), repo.get_owned(owner.id, b.id)
-        page = repo.list_owned(owner.id, limit=1, offset=0)
+        a, b = (
+            repo.get_owned(owner_business_id, a.id),
+            repo.get_owned(owner_business_id, b.id),
+        )
+        page = repo.list_owned(owner_business_id, limit=1, offset=0)
         assert [item.id for item in page.items] == [
             min((a, b), key=lambda item: item.id).id
         ]
         assert page.has_more
         # Equal creation timestamps use UUID as a stable tie breaker.
-        assert repo.list_owned(owner.id, limit=2, offset=0).items == tuple(
+        assert repo.list_owned(owner_business_id, limit=2, offset=0).items == tuple(
             sorted((a, b), key=lambda item: (item.created_at, item.id))
         )
         changed = repo.update_owned(
-            owner.id,
+            owner_business_id,
             a.id,
             ServiceOfferingChanges(
                 {"description": "Revised"}, frozenset({"description"})
             ),
         )
         assert changed.description == "Revised" and changed.updated_at > a.updated_at
-        assert repo.get_owned(other.id, a.id) is None
+        assert repo.get_owned(other_business_id, a.id) is None
         assert (
             repo.update_owned(
-                other.id,
+                other_business_id,
                 a.id,
                 ServiceOfferingChanges({"name": "Stolen"}, frozenset({"name"})),
             )
             is None
         )
-        assert not repo.delete_owned(other.id, a.id)
+        assert not repo.delete_owned(other_business_id, a.id)
         # Database predicate is the boundary for cross-owner isolation; referenced delete is mapped.
         connection.execute(
-            "INSERT INTO operational.ideal_client_profiles (user_id,name) VALUES (%s,'ICP')",
-            (owner.id,),
+            "INSERT INTO operational.ideal_client_profiles (business_id,name) VALUES (%s,'ICP')",
+            (owner_business_id,),
         )
         profile_id = connection.execute(
-            "SELECT id FROM operational.ideal_client_profiles WHERE user_id=%s",
-            (owner.id,),
+            "SELECT id FROM operational.ideal_client_profiles WHERE business_id=%s",
+            (owner_business_id,),
         ).fetchone()[0]
         connection.execute(
-            "INSERT INTO operational.client_discovery_strategies (user_id,name,service_offering_id,ideal_client_profile_id) VALUES (%s,'Strategy',%s,%s)",
-            (owner.id, a.id, profile_id),
+            "INSERT INTO operational.client_discovery_strategies (business_id,name,service_offering_id,ideal_client_profile_id) VALUES (%s,'Strategy',%s,%s)",
+            (owner_business_id, a.id, profile_id),
         )
         with pytest.raises(ConflictError):
-            repo.delete_owned(owner.id, a.id)
+            repo.delete_owned(owner_business_id, a.id)
         connection.execute("ROLLBACK TO SAVEPOINT offering_repository")
         connection.execute("RELEASE SAVEPOINT offering_repository")

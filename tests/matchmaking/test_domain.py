@@ -1,27 +1,8 @@
-from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
-from uuid import uuid4
 
 import pytest
 
-from huginn.matchmaking.domain.entities.match import Match, MatchStatus
 from huginn.matchmaking.domain.value_objects.signal_window import SignalWindow
-
-
-def test_match_is_immutable_and_has_the_workflow_status_values():
-    now = datetime(2026, 10, 7, tzinfo=UTC)
-    match = Match(uuid4(), uuid4(), uuid4(), MatchStatus.NEW, None, now, now)
-
-    assert match.status is MatchStatus.NEW
-    assert [status.value for status in MatchStatus] == [
-        "new",
-        "contacted",
-        "responded",
-        "dismissed",
-        "converted",
-    ]
-    with pytest.raises(FrozenInstanceError):
-        match.notes = "changed"
 
 
 def test_signal_window_normalizes_offsets_and_accepts_equal_bounds():

@@ -9,8 +9,7 @@ import IcpDefinitionPanel from '../../features/configuration/ideal-client-profil
 import AccountSecurityPanel from '../../features/configuration/account/components/AccountSecurityPanel.vue';
 import { useAccount } from '../../features/configuration/account/composables/useAccount';
 import { useMatchReactions } from '../../features/matches/composables/useMatchReactions';
-import { matchRejectionReasonLabel } from '../../features/matches/lib/matchRejectionReasons';
-import { useBusinessDetails } from '../../features/profile/composables/useBusinessDetails';
+import { canonicalFeedbackReason } from '../../features/recommendations/models/canonicalFeedbackReason';
 import { useSession } from '../../features/session/composables/useSession';
 import LoadingState from '../../shared/ui/LoadingState.vue';
 import ErrorState from '../../shared/ui/ErrorState.vue';
@@ -30,11 +29,10 @@ const session = useSession();
 const router = useRouter();
 const { account } = useAccount();
 const { allReactions } = useMatchReactions();
-const { details } = useBusinessDetails();
 const icpFeedback = computed(() =>
   allReactions.value.map((reaction) => ({
     ...reaction,
-    reasonLabel: reaction.reason ? matchRejectionReasonLabel(reaction.reason) : null,
+    reasonLabel: reaction.reason ? canonicalFeedbackReason(reaction.reason) : null,
   })),
 );
 const accountForm = ref<InstanceType<typeof AccountForm> | null>(null);
@@ -176,7 +174,7 @@ async function openAdminTool(path: string): Promise<void> {
             v-else-if="current.value === 'icp'"
             ref="icpPanel"
             :selected-icp-id="selectedIcpId"
-            :clients="details.clients"
+            :clients="[]"
             :reactions="icpFeedback"
           />
           <AccountSecurityPanel v-else-if="current.value === 'security'" ref="securityPanel" />

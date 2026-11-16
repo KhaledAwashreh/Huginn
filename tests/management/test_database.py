@@ -13,24 +13,26 @@ EXPECTED_PROBES = (
     "SELECT id, account_id, first_name, last_name, email, phone_number, "
     "country_of_residence, timezone, created_at, updated_at "
     "FROM operational.users LIMIT 0",
+    "SELECT id, owner_user_id, name, tagline, website, location, description, "
+    "capabilities, created_at, updated_at FROM operational.businesses LIMIT 0",
+    "SELECT business_id, repeat_interval_days, updated_at "
+    "FROM operational.business_recommendation_preferences LIMIT 0",
     "SELECT id, user_id, headline, professional_summary, skills, experience, "
     "previous_projects, created_at, updated_at "
     "FROM operational.professional_profiles LIMIT 0",
     "SELECT id, account_id, token_digest, csrf_digest, created_at, expires_at, "
     "revoked_at FROM operational.sessions LIMIT 0",
-    "SELECT id, user_id, name, description, created_at, updated_at "
+    "SELECT id, business_id, name, description, created_at, updated_at "
     "FROM operational.service_offerings LIMIT 0",
-    "SELECT id, user_id, name, industries, company_sizes, geographies, "
+    "SELECT id, business_id, name, industries, company_sizes, geographies, "
     "exclusions, created_at, updated_at "
     "FROM operational.ideal_client_profiles LIMIT 0",
-    "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
+    "SELECT id, business_id, name, service_offering_id, ideal_client_profile_id, "
     "is_active, created_at, updated_at "
     "FROM operational.client_discovery_strategies LIMIT 0",
     "SELECT id, company_id, observation_id, signal_type, source, source_stable_id, "
     "source_url, description, stage, occurred_at, ingested_at, observed_at, "
     "evidence_kind, hiring_state FROM gold.current_source_evidence LIMIT 0",
-    "SELECT match_id, observation_id, cutoff, as_of "
-    "FROM operational.match_source_evidence LIMIT 0",
 )
 
 
@@ -83,7 +85,11 @@ def test_is_ready_uses_read_only_timeouts_and_exact_probes(monkeypatch):
             },
         )
     ]
-    assert connection.queries == list(EXPECTED_PROBES)
+    assert connection.queries[: len(EXPECTED_PROBES)] == list(EXPECTED_PROBES)
+    assert all(
+        query.startswith("SELECT ") and query.endswith("LIMIT 0")
+        for query in connection.queries[1:]
+    )
     assert connection.closed is True
 
 

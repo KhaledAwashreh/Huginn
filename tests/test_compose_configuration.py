@@ -185,13 +185,13 @@ def test_compose_resolves_shared_image_without_changing_infrastructure(tmp_path,
         "app",
         "admin-seed",
         "collection-worker",
-        "matching-worker",
         "mail-worker",
         "weekly-digest",
     ):
         assert services[name]["image"] == (image or "huginn-app:local"), name
     assert services["db"]["image"] == "postgres:16-alpine"
     assert services["mailpit"]["image"] == "axllent/mailpit:v1.27.10"
+    assert "matching-worker" not in services
 
 
 def _compose_environment():
@@ -286,7 +286,7 @@ def test_hosted_compose_uses_private_upstream_and_pinned_ingress(tmp_path):
     for name, service in services.items():
         if name not in {"app", "traefik"}:
             assert "ingress" not in service.get("networks", {})
-    for name in ("app", "mail-worker", "matching-worker", "collection-worker"):
+    for name in ("app", "mail-worker", "collection-worker"):
         assert (
             services[name]["environment"]["HUGINN_WEB_ORIGIN"] == "https://huginn.live"
         )

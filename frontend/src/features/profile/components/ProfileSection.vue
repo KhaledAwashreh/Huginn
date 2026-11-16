@@ -6,8 +6,9 @@ import { awaitingBackendAttrs } from '../../../shared/availability/awaitingBacke
 defineProps<{
   title: string;
   addLabel?: string | undefined;
-  // The add action has no backend yet, so it stays visible but disabled.
   addAwaitsBackend?: boolean;
+  availabilityReasonId?: string | undefined;
+  availabilityMessage?: string | undefined;
 }>();
 defineEmits<{ add: [] }>();
 const headingId = useId();
@@ -23,11 +24,19 @@ const headingId = useId();
         type="button"
         class="add-button"
         :aria-label="addLabel"
+        :aria-describedby="addAwaitsBackend ? availabilityReasonId : undefined"
         @click="$emit('add')"
       >
         <Plus :size="18" aria-hidden="true" />
       </button>
     </div>
+    <p
+      v-if="addAwaitsBackend && availabilityReasonId && availabilityMessage"
+      :id="availabilityReasonId"
+      class="availability-reason"
+    >
+      {{ availabilityMessage }}
+    </p>
     <slot />
   </section>
 </template>
@@ -47,6 +56,11 @@ h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+}
+.availability-reason {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 .add-button {
   width: 32px;

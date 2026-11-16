@@ -4,12 +4,14 @@ import MegaMenu from 'primevue/megamenu';
 import { Bird } from '@lucide/vue';
 import UserMenu from './UserMenu.vue';
 import type { SettingsSection } from '../../shared/navigation/settingsSections';
+import { workspaceLandingPath } from '../../shared/navigation/workspaceLanding';
 
 defineEmits<{ openSettings: [section: SettingsSection] }>();
 const route = useRoute();
 
 const items = [
-  { label: 'Matches', to: '/matches', activePaths: ['/matches'] },
+  { label: 'Recommendations', to: workspaceLandingPath, activePaths: ['/recommendations'] },
+  { label: 'Prospects', to: '/prospects', activePaths: ['/prospects'] },
   {
     label: 'Profile',
     to: '/profile',

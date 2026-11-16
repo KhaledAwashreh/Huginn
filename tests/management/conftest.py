@@ -41,3 +41,10 @@ def empty_management_database_url() -> Iterator[str]:
         "huginn_management_empty_test", apply_schema=False
     ) as database_url:
         yield database_url
+
+
+@pytest.fixture
+def retained_management_database_url() -> Iterator[str]:
+    """Real materialization must not consume synthetic rows from other tests."""
+    with provisioned_postgres("huginn_retained_management_test") as database_url:
+        yield database_url

@@ -7,6 +7,7 @@ import { ApiError } from '../../api/apiError';
 import { useAccount } from '../../features/configuration/account/composables/useAccount';
 import { useSession } from '../../features/session/composables/useSession';
 import type { SettingsSection } from '../../shared/navigation/settingsSections';
+import { workspaceLandingPath } from '../../shared/navigation/workspaceLanding';
 
 const emit = defineEmits<{ open: [section: SettingsSection] }>();
 const session = useSession();
@@ -45,6 +46,16 @@ async function signOut(): Promise<void> {
   signingOut.value = true;
   message.value = '';
   try {
+    // Ask the active editor's existing route guard before sending logout or
+    // clearing the session. Keep the shell mounted so logout errors stay visible.
+    try {
+      await router.push(workspaceLandingPath);
+    } catch {
+      message.value = 'Could not leave this page. Your draft is still here.';
+      return;
+    }
+    if (router.currentRoute.value.path !== workspaceLandingPath) return;
+
     await session.logout();
     await router.replace('/login');
   } catch (error) {

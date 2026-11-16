@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue';
+import { computed, inject, onMounted, onUnmounted, ref, useId } from 'vue';
 import { matchedRouteKey, onBeforeRouteLeave } from 'vue-router';
-import { ExternalLink, Link as LinkIcon } from '@lucide/vue';
 import Button from 'primevue/button';
-import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
@@ -21,60 +19,35 @@ import { useProfessionalProfile } from '../../configuration/professional-profile
 import SkillRows from '../../configuration/professional-profile/components/SkillRows.vue';
 import type { SkillDraft } from '../../configuration/professional-profile/forms/professionalProfileDraft';
 import { useMatchReactions } from '../../matches/composables/useMatchReactions';
-import { matchRejectionReasonLabel } from '../../matches/lib/matchRejectionReasons';
+import { canonicalFeedbackReason } from '../../recommendations/models/canonicalFeedbackReason';
 import BusinessCard from '../components/BusinessCard.vue';
+import BusinessProfileForm from '../components/BusinessProfileForm.vue';
 import ProfileSection from '../components/ProfileSection.vue';
-import {
-  useBusinessDetails,
-  type ClientReference,
-  type Leader,
-  type ProfileResource,
-} from '../composables/useBusinessDetails';
-import {
-  engagementDates,
-  icpDescription,
-  websiteLabel,
-  websiteUrl,
-} from '../lib/profileFormatting';
+import { useBusinessProfile } from '../composables/useBusinessProfile';
+import { icpDescription } from '../lib/profileFormatting';
 import {
   describeServiceMutationFailure,
   type ServiceMutationFailure,
 } from '../lib/serviceMutationFailure';
 
-type Editing =
-  | { kind: 'business' }
-  | { kind: 'about' }
-  | { kind: 'skills' }
-  | { kind: 'leader'; index: number | null }
-  | { kind: 'client'; index: number | null }
-  | { kind: 'resource'; index: number | null }
-  | { kind: 'service'; id: string | null };
+type Editing = { kind: 'about' } | { kind: 'skills' } | { kind: 'service'; id: string | null };
 
 const openSettings = inject(openSettingsKey, null);
+const availabilityScope = useId();
 const { account } = useAccount();
 const { profile, save } = useProfessionalProfile();
+const { business } = useBusinessProfile();
 const serviceOffset = ref(0);
 const servicePageSize = 100;
 const offerings = useServiceOffering(undefined, serviceOffset, servicePageSize);
 const icps = useIdealClientProfile();
 const { allReactions } = useMatchReactions();
-const { details, saveDetails } = useBusinessDetails();
 
 const data = computed(() => profile.data.value);
-const businessName = computed(() => details.value.name || 'your business');
-// Until leaders are edited, the account holder is the business's founder.
-const leaders = computed<Leader[]>(() => {
-  if (details.value.leaders.length) return details.value.leaders;
-  const owner = account.data.value;
-  if (!owner) return [];
-  return [
-    {
-      name: `${owner.first_name} ${owner.last_name}`.trim(),
-      role: data.value?.headline ?? '',
-      bio: '',
-    },
-  ];
-});
+const businessData = computed(() => business.data.value);
+const ownerName = computed(() =>
+  `${account.data.value?.first_name ?? ''} ${account.data.value?.last_name ?? ''}`.trim(),
+);
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -82,9 +55,6 @@ const initials = (name: string) =>
     .join('')
     .slice(0, 2)
     .toUpperCase();
-const clientDates = (client: ClientReference) =>
-  engagementDates(client.startMonth ?? '', client.endMonth ?? '', client.current ?? false);
-const resourceHref = (resource: ProfileResource) => websiteUrl(resource.url) ?? undefined;
 const servicesEmpty = computed(
   () =>
     serviceOffset.value === 0 &&
@@ -96,90 +66,49 @@ const icpsEmpty = computed(
 );
 
 const editing = ref<Editing | null>(null);
+const businessEditorVisible = ref(false);
+const businessForm = ref<InstanceType<typeof BusinessProfileForm> | null>(null);
 const fields = ref<Record<string, string>>({});
 const initialFields = ref<Record<string, string>>({});
 const skills = ref<SkillDraft[]>([]);
 const initialSkills = ref('[]');
-const flag = ref(false);
-const currentClient = ref(false);
 const opened = ref('');
 const pending = ref(false);
 const error = ref('');
 const outcomeUncertain = ref(false);
 
-const snapshot = () =>
-  JSON.stringify([fields.value, skills.value, flag.value, currentClient.value]);
+const snapshot = () => JSON.stringify([fields.value, skills.value]);
 const dialogTitle = computed(() => {
   const current = editing.value;
   if (!current) return '';
-  if (current.kind === 'business') return 'Business details';
-  if (current.kind === 'about') return `About ${businessName.value}`;
+  if (current.kind === 'about') return 'Professional summary';
   if (current.kind === 'skills') return 'Skills';
-  if (current.kind === 'service') return current.id ? 'Edit service' : 'Add a service';
-  if (current.kind === 'leader') return current.index === null ? 'Add a leader' : 'Edit leader';
-  if (current.kind === 'client') return current.index === null ? 'Add a client' : 'Edit client';
-  return current.index === null ? 'Add a link' : 'Edit link';
+  return current.id ? 'Edit service' : 'Add a service';
 });
 const canDelete = computed(() => {
   const current = editing.value;
-  if (!current) return false;
-  if (current.kind === 'service') return current.id !== null;
-  if (!('index' in current)) return false;
-  if (current.kind === 'leader') return current.index !== null && details.value.leaders.length > 0;
-  return current.index !== null;
+  return current?.kind === 'service' && current.id !== null;
 });
 
-function open(next: Editing, values: Record<string, string>, checked = false): void {
+function open(next: Editing, values: Record<string, string>): void {
   editing.value = next;
   fields.value = values;
   initialFields.value = { ...values };
   skills.value =
     next.kind === 'skills' ? (data.value?.skills ?? []).map(({ name }) => ({ name })) : [];
   initialSkills.value = JSON.stringify(skills.value);
-  flag.value = checked;
   opened.value = snapshot();
   error.value = '';
   outcomeUncertain.value = false;
 }
 function editBusiness(): void {
-  const { name, tagline, website, location, practice } = details.value;
-  open({ kind: 'business' }, { name, tagline, website, location, practice });
+  businessEditorVisible.value = true;
 }
 function editAbout(): void {
   open({ kind: 'about' }, { summary: data.value?.professional_summary ?? '' });
 }
 function editSkills(): void {
   open({ kind: 'skills' }, {});
-}
-function editLeader(index: number | null): void {
-  const item = index === null ? undefined : leaders.value[index];
-  open(
-    { kind: 'leader', index },
-    { name: item?.name ?? '', role: item?.role ?? '', bio: item?.bio ?? '' },
-  );
-}
-function editClient(index: number | null): void {
-  const item = index === null ? undefined : details.value.clients[index];
-  currentClient.value = item?.current ?? false;
-  open(
-    { kind: 'client', index },
-    {
-      name: item?.name ?? '',
-      role: item?.role ?? '',
-      location: item?.location ?? '',
-      startMonth: item?.startMonth ?? '',
-      endMonth: item?.endMonth ?? '',
-      work: item?.work ?? '',
-      industry: item?.industry ?? '',
-      stage: item?.stage ?? '',
-      size: item?.size ?? '',
-    },
-    item?.idealExample ?? false,
-  );
-}
-function editResource(index: number | null): void {
-  const item = index === null ? undefined : details.value.resources[index];
-  open({ kind: 'resource', index }, { title: item?.title ?? '', url: item?.url ?? '' });
 }
 function editService(service?: { id: string; name: string; description: string }): void {
   open(
@@ -194,7 +123,12 @@ function canClose(): boolean {
   return !pending.value && (!dirty.value || window.confirm('Discard your unsaved changes?'));
 }
 
-if (inject(matchedRouteKey, null)) onBeforeRouteLeave(canClose);
+async function canLeaveProfile(): Promise<boolean> {
+  if (!canClose()) return false;
+  return businessForm.value?.canClose ? await businessForm.value.canClose() : true;
+}
+
+if (inject(matchedRouteKey, null)) onBeforeRouteLeave(canLeaveProfile);
 
 function protectDraft(event: BeforeUnloadEvent): void {
   if (!dirty.value && !pending.value) return;
@@ -209,10 +143,6 @@ function close(): void {
   if (!canClose()) return;
   editing.value = null;
 }
-function replaced<T>(items: readonly T[], index: number | null, item: T): T[] {
-  return index === null ? [...items, item] : items.map((old, at) => (at === index ? item : old));
-}
-
 function generalFailure(failure: unknown): ServiceMutationFailure {
   return {
     message:
@@ -321,15 +251,7 @@ async function submit(): Promise<void> {
       return;
   }
   await persist(async () => {
-    if (current.kind === 'business') {
-      saveDetails({
-        name: (value.name ?? '').trim(),
-        tagline: (value.tagline ?? '').trim(),
-        website: (value.website ?? '').trim(),
-        location: (value.location ?? '').trim(),
-        practice: (value.practice ?? '').trim(),
-      });
-    } else if (current.kind === 'about') {
+    if (current.kind === 'about') {
       const summary = (value.summary ?? '').trim() || null;
       if (summary !== profileData.professional_summary)
         await save.mutateAsync({ professional_summary: summary });
@@ -337,41 +259,6 @@ async function submit(): Promise<void> {
       const nextSkills = skills.value.map(({ name }) => ({ name: name.trim() }));
       if (JSON.stringify(nextSkills) !== JSON.stringify(profileData.skills))
         await save.mutateAsync({ skills: nextSkills });
-    } else if (current.kind === 'leader') {
-      saveDetails({
-        leaders: replaced(leaders.value, current.index, {
-          name: (value.name ?? '').trim(),
-          role: (value.role ?? '').trim(),
-          bio: (value.bio ?? '').trim(),
-        }),
-      });
-    } else if (current.kind === 'client') {
-      saveDetails({
-        clients: replaced(details.value.clients, current.index, {
-          name: (value.name ?? '').trim(),
-          role: (value.role ?? '').trim(),
-          startMonth: value.startMonth ?? '',
-          endMonth: currentClient.value ? '' : (value.endMonth ?? ''),
-          current: currentClient.value,
-          work: (value.work ?? '').trim(),
-          industry: (value.industry ?? '').trim(),
-          stage: (value.stage ?? '').trim(),
-          size: (value.size ?? '').trim(),
-          location: (value.location ?? '').trim(),
-          idealExample: flag.value,
-        }),
-      });
-    } else if (current.kind === 'resource') {
-      const previous = current.index === null ? undefined : details.value.resources[current.index];
-      const url = (value.url ?? '').trim();
-      if (!websiteUrl(url)) throw new Error('Add a valid link.');
-      saveDetails({
-        resources: replaced(details.value.resources, current.index, {
-          id: previous?.id ?? crypto.randomUUID(),
-          title: (value.title ?? '').trim() || websiteLabel(url),
-          url,
-        }),
-      });
     } else {
       const body = {
         name: (value.name ?? '').trim(),
@@ -399,13 +286,7 @@ async function removeItem(): Promise<void> {
   const describeFailure =
     current.kind === 'service' ? describeServiceMutationFailure : generalFailure;
   await persist(async () => {
-    if (current.kind === 'leader') {
-      saveDetails({ leaders: details.value.leaders.filter((_, at) => at !== current.index) });
-    } else if (current.kind === 'client') {
-      saveDetails({ clients: details.value.clients.filter((_, at) => at !== current.index) });
-    } else if (current.kind === 'resource') {
-      saveDetails({ resources: details.value.resources.filter((_, at) => at !== current.index) });
-    } else if (current.kind === 'service' && current.id) {
+    if (current.kind === 'service' && current.id) {
       await offerings.remove.mutateAsync(current.id);
     }
   }, describeFailure);
@@ -427,16 +308,52 @@ async function removeItem(): Promise<void> {
       />
     </ErrorState>
     <template v-else-if="data">
-      <BusinessCard :business="details" @edit="editBusiness" />
+      <BusinessCard v-if="businessData" :business="businessData" @edit="editBusiness" />
+      <ErrorState
+        v-else-if="business.isError.value"
+        message="Business details could not be loaded."
+      >
+        <Button
+          label="Retry business details"
+          :disabled="business.isFetching.value"
+          @click="business.refetch()"
+        />
+      </ErrorState>
+      <LoadingState v-else message="Loading Business details…" />
 
-      <ProfileSection :title="`About ${businessName}`">
-        <button type="button" class="item" aria-label="Edit about your business" @click="editAbout">
+      <ProfileSection v-if="businessData" title="About your business">
+        <button
+          type="button"
+          class="item"
+          aria-label="Edit business description"
+          @click="editBusiness"
+        >
+          <span v-if="businessData.description" class="body-text">{{
+            businessData.description
+          }}</span>
+          <span v-else class="placeholder">Describe what your business does.</span>
+        </button>
+      </ProfileSection>
+
+      <ProfileSection title="Professional summary">
+        <button
+          type="button"
+          class="item"
+          aria-label="Edit professional summary"
+          @click="editAbout"
+        >
           <span v-if="data.professional_summary" class="body-text">{{
             data.professional_summary
           }}</span>
-          <span v-else class="placeholder">Describe your business in a few sentences.</span>
+          <span v-else class="placeholder">Add a personal professional summary.</span>
         </button>
       </ProfileSection>
+      <BusinessProfileForm
+        v-if="businessData && businessEditorVisible"
+        ref="businessForm"
+        v-model:visible="businessEditorVisible"
+        :profile="businessData"
+      />
 
       <ProfileSection
         title="ICP definition"
@@ -478,7 +395,7 @@ async function removeItem(): Promise<void> {
           <li v-for="reaction in allReactions" :key="reaction.matchId">
             {{ reaction.kind === 'up' ? 'More like' : 'Less like' }} {{ reaction.companyName
             }}<template v-if="reaction.reason">
-              ({{ matchRejectionReasonLabel(reaction.reason) }})</template
+              ({{ canonicalFeedbackReason(reaction.reason) }})</template
             >
           </li>
         </ul>
@@ -488,21 +405,19 @@ async function removeItem(): Promise<void> {
         title="Leadership"
         add-label="Add a leader"
         add-awaits-backend
-        @add="editLeader(null)"
+        :availability-reason-id="`${availabilityScope}-leaders-unavailable`"
+        availability-message="Leader details cannot be saved yet."
       >
         <button
-          v-for="(leader, index) in leaders"
+          v-if="ownerName"
           v-bind="awaitingBackendAttrs"
-          :key="`${leader.name}-${index}`"
           type="button"
           class="item item--person"
-          @click="editLeader(index)"
+          :aria-describedby="`${availabilityScope}-leaders-unavailable`"
         >
-          <span class="person-avatar" aria-hidden="true">{{ initials(leader.name) }}</span>
+          <span class="person-avatar" aria-hidden="true">{{ initials(ownerName) }}</span>
           <span class="person-copy">
-            <span class="item-title">{{ leader.name }}</span>
-            <span v-if="leader.role" class="item-meta">{{ leader.role }}</span>
-            <span v-if="leader.bio" class="body-text">{{ leader.bio }}</span>
+            <span class="item-title">{{ ownerName }}</span>
           </span>
         </button>
       </ProfileSection>
@@ -573,56 +488,20 @@ async function removeItem(): Promise<void> {
         title="Clients"
         add-label="Add a client"
         add-awaits-backend
-        @add="editClient(null)"
+        :availability-reason-id="`${availabilityScope}-clients-unavailable`"
+        availability-message="Client details cannot be saved yet."
       >
-        <div v-if="details.clients.length" class="client-list">
-          <button
-            v-for="(client, index) in details.clients"
-            v-bind="awaitingBackendAttrs"
-            :key="`${client.name}-${index}`"
-            type="button"
-            class="client-row"
-            @click="editClient(index)"
-          >
-            <span class="client-logo" aria-hidden="true">{{ client.name.charAt(0) }}</span>
-            <span class="client-copy">
-              <span class="item-title">{{ client.name }}</span>
-              <span v-if="client.role" class="client-line">{{ client.role }}</span>
-              <span v-if="clientDates(client)" class="client-line">{{ clientDates(client) }}</span>
-            </span>
-            <span v-if="client.idealExample" class="client-tag">Ideal client</span>
-          </button>
-        </div>
-        <p v-else class="placeholder">Client list is coming soon.</p>
+        <p class="placeholder">Client list is coming soon.</p>
       </ProfileSection>
 
       <ProfileSection
         title="Links"
         add-label="Add a link"
         add-awaits-backend
-        @add="editResource(null)"
+        :availability-reason-id="`${availabilityScope}-links-unavailable`"
+        availability-message="Link details cannot be saved yet."
       >
-        <div v-for="(resource, index) in details.resources" :key="resource.id" class="resource">
-          <button
-            v-bind="awaitingBackendAttrs"
-            type="button"
-            class="item item--resource"
-            @click="editResource(index)"
-          >
-            <LinkIcon :size="18" aria-hidden="true" />
-            <span class="item-title">{{ resource.title }}</span>
-          </button>
-          <a
-            v-if="resourceHref(resource)"
-            class="resource-open"
-            :href="resourceHref(resource)"
-            target="_blank"
-            rel="noopener noreferrer"
-            :aria-label="`Open ${resource.title}`"
-            ><ExternalLink :size="16" aria-hidden="true"
-          /></a>
-        </div>
-        <p v-if="!details.resources.length" class="placeholder">Links are coming soon.</p>
+        <p class="placeholder">Links are coming soon.</p>
       </ProfileSection>
 
       <ProfileSection title="Skills">
@@ -648,93 +527,12 @@ async function removeItem(): Promise<void> {
       @update:visible="(visible: boolean) => (visible ? undefined : close())"
     >
       <form class="edit-form" @submit.prevent="submit">
-        <template v-if="editing?.kind === 'business'">
-          <label for="business-name">Business name</label>
-          <InputText id="business-name" v-model="fields.name" />
-          <label for="business-tagline">Tagline</label>
-          <InputText id="business-tagline" v-model="fields.tagline" />
-          <label for="business-website">Website</label>
-          <InputText id="business-website" v-model="fields.website" />
-          <label for="business-location">Location</label>
-          <InputText id="business-location" v-model="fields.location" />
-          <label for="business-practice">Type of practice</label>
-          <InputText id="business-practice" v-model="fields.practice" placeholder="Solo practice" />
-        </template>
-        <template v-else-if="editing?.kind === 'about'">
-          <label for="about-summary">Summary</label>
-          <Textarea id="about-summary" v-model="fields.summary" rows="7" :disabled="pending" />
+        <template v-if="editing?.kind === 'about'">
+          <label for="personal-summary">Professional summary</label>
+          <Textarea id="personal-summary" v-model="fields.summary" rows="7" :disabled="pending" />
         </template>
         <template v-else-if="editing?.kind === 'skills'">
           <SkillRows v-model="skills" :disabled="pending" />
-        </template>
-        <template v-else-if="editing?.kind === 'leader'">
-          <label for="leader-name">Name</label>
-          <InputText id="leader-name" v-model="fields.name" required />
-          <label for="leader-role">Role</label>
-          <InputText id="leader-role" v-model="fields.role" />
-          <label for="leader-bio">Short bio</label>
-          <Textarea id="leader-bio" v-model="fields.bio" rows="4" />
-        </template>
-        <template v-else-if="editing?.kind === 'client'">
-          <label for="client-name">Client name <span aria-hidden="true">*</span></label>
-          <InputText id="client-name" v-model="fields.name" required />
-          <label for="client-role">Your role</label>
-          <InputText
-            id="client-role"
-            v-model="fields.role"
-            placeholder="Fractional Head of Design"
-          />
-          <label for="client-location">Location</label>
-          <InputText id="client-location" v-model="fields.location" />
-          <div class="field-pair">
-            <span class="field-stack">
-              <label for="client-start">Start month</label>
-              <InputText id="client-start" v-model="fields.startMonth" type="month" />
-            </span>
-            <span v-if="!currentClient" class="field-stack">
-              <label for="client-end">End month</label>
-              <InputText id="client-end" v-model="fields.endMonth" type="month" />
-            </span>
-          </div>
-          <div class="checkbox-row">
-            <Checkbox v-model="currentClient" input-id="client-current" binary />
-            <label for="client-current">I currently work with them</label>
-          </div>
-          <label for="client-work">What you did for them</label>
-          <Textarea
-            id="client-work"
-            v-model="fields.work"
-            rows="4"
-            maxlength="2000"
-            aria-describedby="client-work-help"
-            placeholder="Built their design system from scratch"
-          />
-          <small id="client-work-help" class="field-note"
-            >One per line. Huginn can use these as examples when finding matches.
-            {{ (fields.work ?? '').length }} / 2000 characters</small
-          >
-          <label for="client-industry">Industry</label>
-          <InputText id="client-industry" v-model="fields.industry" />
-          <div class="field-pair">
-            <span class="field-stack">
-              <label for="client-stage">Stage</label>
-              <InputText id="client-stage" v-model="fields.stage" placeholder="Series A" />
-            </span>
-            <span class="field-stack">
-              <label for="client-size">Company size</label>
-              <InputText id="client-size" v-model="fields.size" />
-            </span>
-          </div>
-          <div class="checkbox-row">
-            <Checkbox v-model="flag" input-id="client-ideal" binary />
-            <label for="client-ideal">This is the kind of client I want more of</label>
-          </div>
-        </template>
-        <template v-else-if="editing?.kind === 'resource'">
-          <label for="resource-title">Title</label>
-          <InputText id="resource-title" v-model="fields.title" />
-          <label for="resource-url">Link</label>
-          <InputText id="resource-url" v-model="fields.url" placeholder="https://" />
         </template>
         <template v-else-if="editing">
           <label for="item-name">Name</label>
@@ -873,104 +671,6 @@ async function removeItem(): Promise<void> {
   display: grid;
   gap: var(--space-1);
 }
-.client-list {
-  display: grid;
-  gap: var(--space-1);
-}
-.client-row {
-  width: 100%;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-  padding: var(--space-3);
-  margin-inline: calc(var(--space-3) * -1);
-  box-sizing: content-box;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--color-text);
-  text-align: left;
-  cursor: pointer;
-}
-.client-row:not(:disabled):hover {
-  background: var(--color-surface-muted);
-}
-.client-logo {
-  flex: none;
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  font-weight: 650;
-}
-.client-copy {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-}
-.client-line {
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-}
-.field-pair {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: var(--space-3);
-}
-.field-stack {
-  min-width: 0;
-  display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.field-stack label {
-  font-weight: 600;
-}
-.client-tag {
-  flex: none;
-  padding: 2px var(--space-2);
-  border: 1px solid var(--color-success-border);
-  border-radius: 999px;
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-  font-size: 0.8125rem;
-}
-.resource {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.item--resource {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--color-text);
-}
-.item--resource svg {
-  flex: none;
-  color: var(--color-text-muted);
-}
-.resource-open {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  color: var(--color-text-muted);
-}
-.resource-open:hover {
-  background: var(--color-surface-muted);
-}
-.field-note {
-  color: var(--color-text-muted);
-}
 .feedback {
   display: grid;
   gap: var(--space-1);
@@ -990,12 +690,6 @@ async function removeItem(): Promise<void> {
 .edit-form > label {
   margin-top: var(--space-2);
   font-weight: 600;
-}
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 .edit-error {
   margin: var(--space-2) 0 0;

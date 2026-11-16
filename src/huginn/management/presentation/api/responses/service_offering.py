@@ -8,7 +8,7 @@ from huginn.management.presentation.api.responses.common import NonBlank, Respon
 
 class ServiceOfferingResponse(ResponseModel):
     id: UUID
-    user_id: UUID
+    business_id: UUID
     name: NonBlank
     description: NonBlank
     created_at: datetime

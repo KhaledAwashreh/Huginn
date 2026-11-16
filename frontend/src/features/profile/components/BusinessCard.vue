@@ -1,28 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Building2, Globe, MapPin, UsersRound } from '@lucide/vue';
-import { awaitingBackendAttrs } from '../../../shared/availability/awaitingBackend';
-import type { BusinessDetails } from '../composables/useBusinessDetails';
+import { Building2, Globe, MapPin, Pencil } from '@lucide/vue';
+import type { BusinessProfile } from '../models/businessProfile';
 import { websiteLabel, websiteUrl } from '../lib/profileFormatting';
 
 const props = defineProps<{
-  business: BusinessDetails;
+  business: BusinessProfile;
 }>();
 defineEmits<{ edit: [] }>();
 
 const displayName = computed(() => props.business.name || 'Your business');
-const link = computed(() => websiteUrl(props.business.website));
+const link = computed(() => websiteUrl(props.business.website ?? ''));
 </script>
 
 <template>
   <section class="business-card" aria-label="Your business">
-    <button
-      v-bind="awaitingBackendAttrs"
-      type="button"
-      class="card-edit"
-      aria-label="Edit business details"
-      @click="$emit('edit')"
-    />
     <div class="card-header">
       <span class="logo" aria-hidden="true">
         <template v-if="business.name">{{ business.name.charAt(0) }}</template>
@@ -30,21 +22,32 @@ const link = computed(() => websiteUrl(props.business.website));
       </span>
       <div class="card-title">
         <h2 :class="{ 'is-empty': !business.name }">{{ displayName }}</h2>
-        <p>{{ business.tagline || 'Business details are coming soon' }}</p>
+        <p>{{ business.tagline || 'Add a short description of your business.' }}</p>
       </div>
+      <button
+        type="button"
+        class="card-edit"
+        aria-label="Edit business details"
+        @click="$emit('edit')"
+      >
+        <Pencil :size="16" aria-hidden="true" />
+        <span>Edit details</span>
+      </button>
     </div>
-    <ul v-if="business.location || business.practice || link" class="card-facts">
+    <ul v-if="business.location || link" class="card-facts">
       <li v-if="business.location">
         <MapPin :size="16" aria-hidden="true" />{{ business.location }}
-      </li>
-      <li v-if="business.practice">
-        <UsersRound :size="16" aria-hidden="true" />{{ business.practice }}
       </li>
       <li v-if="link" class="card-link">
         <Globe :size="16" aria-hidden="true" />
         <a :href="link" target="_blank" rel="noopener noreferrer">{{
-          websiteLabel(business.website)
+          websiteLabel(business.website ?? '')
         }}</a>
+      </li>
+    </ul>
+    <ul v-if="business.capabilities?.length" class="capabilities" aria-label="Capabilities">
+      <li v-for="capability in business.capabilities" :key="capability.name">
+        {{ capability.name }}
       </li>
     </ul>
   </section>
@@ -52,7 +55,6 @@ const link = computed(() => websiteUrl(props.business.website));
 
 <style scoped>
 .business-card {
-  position: relative;
   display: grid;
   gap: var(--space-5);
   padding: var(--space-6);
@@ -60,19 +62,22 @@ const link = computed(() => websiteUrl(props.business.website));
   border-radius: 12px;
   background: var(--color-surface-muted);
 }
-.business-card:has(.card-edit:not(:disabled)):hover {
-  border-color: var(--color-text-muted);
-}
 .card-edit {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
   cursor: pointer;
 }
-.card-edit:disabled {
-  cursor: not-allowed;
+.card-edit:hover {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-muted);
 }
 .card-header {
   display: flex;
@@ -117,6 +122,27 @@ h2.is-empty {
   color: var(--color-text-muted);
   font-size: 0.9375rem;
   list-style: none;
+}
+.capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.capabilities li {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+@media (max-width: 32rem) {
+  .card-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 .card-facts li {
   display: flex;

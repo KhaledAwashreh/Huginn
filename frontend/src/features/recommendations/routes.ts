@@ -4,8 +4,8 @@ export const recommendationRoutes: RouteRecordRaw[] = [
   {
     path: '/weekly-matches',
     name: 'weekly-matches',
-    component: RecommendationsPage,
-    meta: { requiresAuth: true, navigationLabel: 'Weekly Matches' },
+    redirect: '/recommendations',
+    meta: { requiresAuth: true },
   },
   {
     path: '/recommendations',

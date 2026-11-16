@@ -1,29 +1,110 @@
 """Owned recommendation snapshots and append-only customer feedback."""
 
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Response
 
+from huginn.management.application.requests.confirm_recommendation_offer_request import (
+    ConfirmRecommendationOfferRequest as ConfirmOfferCommand,
+)
+from huginn.management.application.requests.generate_recommendations_request import (
+    GenerateRecommendationsRequest as GenerateRequest,
+)
+from huginn.management.application.requests.later_recommendation_request import (
+    LaterRecommendationRequest as LaterRecommendationCommand,
+)
+from huginn.management.application.requests.list_prospecting_request import (
+    ListProspectingRequest,
+)
+from huginn.management.application.requests.mark_recommendation_not_relevant_request import (
+    MarkRecommendationNotRelevantRequest as MarkRecommendationNotRelevantCommand,
+)
+from huginn.management.application.requests.prepare_recommendation_offer_request import (
+    PrepareRecommendationOfferRequest as PrepareOfferCommand,
+)
+from huginn.management.application.requests.record_recommendation_feedback_request import (
+    RecordRecommendationFeedbackRequest as RecordFeedbackCommand,
+)
+from huginn.management.application.requests.save_recommendation_request import (
+    SaveRecommendationRequest as SaveRequest,
+)
+from huginn.management.domain.value_objects.pause_choice import PauseChoice
 from huginn.management.domain.value_objects.recommendation_feedback import (
     RecommendationFeedback,
+)
+from huginn.management.domain.value_objects.recommendation_status import (
+    RecommendationStatus,
 )
 from huginn.management.presentation.api.dependencies.authentication import (
     Authenticated,
     CsrfProtected,
 )
+from huginn.management.presentation.api.dependencies.discovery_availability import (
+    require_new_discovery_work,
+)
+from huginn.management.presentation.api.dependencies.prospecting import (
+    private_prospecting_response,
+    prospecting_page,
+)
 from huginn.management.presentation.api.dependencies.services import Management
+from huginn.management.presentation.api.mapping import response_from_domain
 from huginn.management.presentation.api.openapi.responses import error_responses
+from huginn.management.presentation.api.prospecting_mapping import (
+    assessment_revision_response,
+    recommendation_response,
+)
+from huginn.management.presentation.api.requests.confirm_recommendation_offer import (
+    ConfirmRecommendationOfferRequest,
+)
 from huginn.management.presentation.api.requests.generate_recommendations import (
     GenerateRecommendationsRequest,
 )
-from huginn.management.presentation.api.requests.recommendation_feedback import (
-    RecommendationFeedbackRequest,
+from huginn.management.presentation.api.requests.later_recommendation import (
+    LaterRecommendationRequest,
 )
-from huginn.management.presentation.api.responses.recommendation_batch import (
-    RecommendationBatchResponse,
+from huginn.management.presentation.api.requests.mark_recommendation_not_relevant import (
+    MarkRecommendationNotRelevantRequest,
 )
-from huginn.management.presentation.api.responses.recommendation_feedback import (
-    RecommendationFeedbackResponse,
+from huginn.management.presentation.api.requests.prepare_recommendation_offer import (
+    PrepareRecommendationOfferRequest,
+)
+from huginn.management.presentation.api.requests.record_recommendation_feedback import (
+    RecordRecommendationFeedbackRequest,
+)
+from huginn.management.presentation.api.requests.save_recommendation import (
+    SaveRecommendationRequest,
+)
+from huginn.management.presentation.api.responses.common import PageResponse
+from huginn.management.presentation.api.responses.confirmed_recommendation_offer import (
+    ConfirmedRecommendationOfferResponse,
+)
+from huginn.management.presentation.api.responses.generate_recommendations import (
+    GenerateRecommendationsResponse,
+)
+from huginn.management.presentation.api.responses.generated_recommendation_reference import (
+    GeneratedRecommendationReferenceResponse,
+)
+from huginn.management.presentation.api.responses.later_recommendation import (
+    LaterRecommendationResponse,
+)
+from huginn.management.presentation.api.responses.mark_recommendation_not_relevant import (
+    MarkRecommendationNotRelevantResponse,
+)
+from huginn.management.presentation.api.responses.prepared_recommendation_offer import (
+    PreparedRecommendationOfferResponse,
+)
+from huginn.management.presentation.api.responses.prospecting_assessment_revision import (
+    AssessmentRevisionResponse,
+)
+from huginn.management.presentation.api.responses.prospecting_recommendation import (
+    RecommendationResponse,
+)
+from huginn.management.presentation.api.responses.record_recommendation_feedback import (
+    RecordRecommendationFeedbackResponse,
+)
+from huginn.management.presentation.api.responses.save_recommendation import (
+    SaveRecommendationResponse,
 )
 
 router = APIRouter(prefix="/api/v1/recommendations", tags=["recommendations"])
@@ -37,8 +118,8 @@ def _private(response):
 @router.post(
     "",
     status_code=201,
-    response_model=RecommendationBatchResponse,
-    responses=error_responses(401, 403, 404, 422, 429),
+    response_model=GenerateRecommendationsResponse,
+    responses=error_responses(401, 403, 404, 422, 429, 503),
 )
 def generate_recommendations(
     body: GenerateRecommendationsRequest,
@@ -46,109 +127,240 @@ def generate_recommendations(
     response: Response,
     dependencies: Management,
 ):
-    result = dependencies.recommendation_service.generate(
-        authenticated.principal.user_id, body.strategy_id, body.limit
+    require_new_discovery_work(dependencies)
+    result = dependencies.recommendation_generation_service.execute(
+        authenticated.principal,
+        GenerateRequest(strategy_id=body.strategy_id, limit=body.limit),
     )
     _private(response)
-    return result
+    return GenerateRecommendationsResponse(
+        run_id=result.run_id,
+        references=[
+            GeneratedRecommendationReferenceResponse(
+                recommendation_id=item.recommendation_id,
+                revision_id=item.revision_id,
+                recommendation_version=item.recommendation_version,
+            )
+            for item in result.references
+        ],
+    )
 
 
 @router.get(
-    "/latest",
-    response_model=RecommendationBatchResponse,
-    responses=error_responses(401, 404),
+    "",
+    response_model=PageResponse[RecommendationResponse],
+    responses=error_responses(401, 404, 422),
+    dependencies=[Depends(private_prospecting_response)],
 )
-def latest_recommendations(
-    strategy_id: UUID,
+def list_recommendations(
     authenticated: Authenticated,
-    response: Response,
     dependencies: Management,
+    page: Annotated[ListProspectingRequest, Depends(prospecting_page)],
+    status: Literal["open", "converted", "rejected", "all"] = "open",
 ):
-    result = dependencies.recommendation_service.latest(
-        authenticated.principal.user_id, strategy_id
+    result = dependencies.prospecting_read_service.list_recommendations(
+        authenticated.principal,
+        page,
+        status=None if status == "all" else RecommendationStatus(status),
     )
-    _private(response)
-    return result
+    return PageResponse[RecommendationResponse](
+        items=[recommendation_response(item) for item in result.items],
+        offset=result.offset,
+        limit=result.limit,
+        has_more=result.has_more,
+    )
 
 
 @router.get(
-    "/weekly",
-    response_model=list[RecommendationBatchResponse],
-    responses=error_responses(401),
+    "/{recommendation_id}",
+    response_model=RecommendationResponse,
+    responses=error_responses(401, 404, 422),
+    dependencies=[Depends(private_prospecting_response)],
 )
-def weekly_matches(
+def get_recommendation(
+    recommendation_id: UUID,
     authenticated: Authenticated,
-    response: Response,
     dependencies: Management,
-    limit: int = Query(default=12, ge=1, le=50),
-    offset: int = Query(default=0, ge=0, le=2**63 - 1),
+    assessment_revision_id: UUID | None = None,
 ):
-    result = dependencies.recommendation_service.weekly(
-        authenticated.principal.user_id, limit, offset
+    return recommendation_response(
+        dependencies.prospecting_read_service.get_recommendation(
+            authenticated.principal,
+            recommendation_id,
+            assessment_revision_id=assessment_revision_id,
+        )
     )
-    _private(response)
-    return result
 
 
 @router.get(
-    "/{batch_id}",
-    response_model=RecommendationBatchResponse,
-    responses=error_responses(401, 404),
+    "/{recommendation_id}/assessments",
+    response_model=list[AssessmentRevisionResponse],
+    responses=error_responses(401, 404, 422),
+    dependencies=[Depends(private_prospecting_response)],
 )
-def get_recommendations(
-    batch_id: UUID,
-    authenticated: Authenticated,
-    response: Response,
-    dependencies: Management,
+def list_assessments(
+    recommendation_id: UUID, authenticated: Authenticated, dependencies: Management
 ):
-    result = dependencies.recommendation_service.get(
-        authenticated.principal.user_id, batch_id
-    )
-    _private(response)
-    return result
-
-
-@router.get(
-    "/{batch_id}/feedback",
-    response_model=list[RecommendationFeedbackResponse],
-    responses=error_responses(401, 404),
-)
-def list_recommendation_feedback(
-    batch_id: UUID,
-    authenticated: Authenticated,
-    response: Response,
-    dependencies: Management,
-):
-    result = dependencies.recommendation_service.feedback(
-        authenticated.principal.user_id, batch_id
-    )
-    _private(response)
-    return result
+    return [
+        assessment_revision_response(item)
+        for item in dependencies.prospecting_read_service.list_assessments(
+            authenticated.principal, recommendation_id
+        )
+    ]
 
 
 @router.post(
-    "/{batch_id}/feedback",
-    status_code=201,
-    response_model=RecommendationFeedbackResponse,
-    responses=error_responses(401, 403, 404, 422),
+    "/{recommendation_id}/save",
+    response_model=SaveRecommendationResponse,
+    responses=error_responses(401, 403, 404, 409, 422),
+    dependencies=[Depends(private_prospecting_response)],
 )
-def save_recommendation_feedback(
-    batch_id: UUID,
-    body: RecommendationFeedbackRequest,
+def save_recommendation(
+    recommendation_id: UUID,
+    body: SaveRecommendationRequest,
     authenticated: CsrfProtected,
-    response: Response,
     dependencies: Management,
 ):
+    result = dependencies.save_recommendation_service.execute(
+        authenticated.principal,
+        SaveRequest(recommendation_id, body.assessment_revision_id, body.request_key),
+    )
+    return response_from_domain(result, SaveRecommendationResponse)
+
+
+@router.post(
+    "/{recommendation_id}/not-relevant",
+    response_model=MarkRecommendationNotRelevantResponse,
+    responses=error_responses(401, 403, 404, 409, 422),
+    dependencies=[Depends(private_prospecting_response)],
+)
+def mark_not_relevant(
+    recommendation_id: UUID,
+    body: MarkRecommendationNotRelevantRequest,
+    authenticated: CsrfProtected,
+    dependencies: Management,
+):
+    command = MarkRecommendationNotRelevantCommand(
+        recommendation_id,
+        body.assessment_revision_id,
+        body.expected_recommendation_version,
+        body.request_key,
+        body.reason,
+    )
+    return response_from_domain(
+        dependencies.mark_recommendation_not_relevant_service.execute(
+            authenticated.principal, command
+        ),
+        MarkRecommendationNotRelevantResponse,
+    )
+
+
+@router.post(
+    "/{recommendation_id}/later",
+    response_model=LaterRecommendationResponse,
+    responses=error_responses(401, 403, 404, 409, 422),
+    dependencies=[Depends(private_prospecting_response)],
+)
+def later(
+    recommendation_id: UUID,
+    body: LaterRecommendationRequest,
+    authenticated: CsrfProtected,
+    dependencies: Management,
+):
+    command = LaterRecommendationCommand(
+        recommendation_id,
+        body.assessment_revision_id,
+        body.expected_recommendation_version,
+        PauseChoice(body.pause_choice),
+        body.expected_repeat_interval_days,
+        body.expected_preference_updated_at,
+        body.expected_pause_id,
+        body.expected_pause_version,
+        body.request_key,
+    )
+    return response_from_domain(
+        dependencies.later_recommendation_service.execute(
+            authenticated.principal, command
+        ),
+        LaterRecommendationResponse,
+    )
+
+
+@router.post(
+    "/{recommendation_id}/feedback",
+    status_code=201,
+    response_model=RecordRecommendationFeedbackResponse,
+    responses=error_responses(401, 403, 404, 409, 422),
+    dependencies=[Depends(private_prospecting_response)],
+)
+def record_feedback(
+    recommendation_id: UUID,
+    body: RecordRecommendationFeedbackRequest,
+    authenticated: CsrfProtected,
+    dependencies: Management,
+):
+    value = body.feedback
     feedback = RecommendationFeedback(
-        body.usefulness,
-        tuple(body.reasons),
-        body.correction,
-        body.next_step,
-        body.outcome,
-        body.notes,
+        value.usefulness,
+        tuple(value.reasons),
+        value.correction,
+        value.next_step,
+        value.outcome,
+        value.notes,
     )
-    result = dependencies.recommendation_service.review(
-        authenticated.principal.user_id, batch_id, body.recommendation_id, feedback
+    result = dependencies.record_recommendation_feedback_service.execute(
+        authenticated.principal,
+        RecordFeedbackCommand(
+            recommendation_id, body.assessment_revision_id, body.request_key, feedback
+        ),
     )
-    _private(response)
-    return result
+    return response_from_domain(result.feedback, RecordRecommendationFeedbackResponse)
+
+
+@router.post(
+    "/{recommendation_id}/offer-preparations",
+    response_model=PreparedRecommendationOfferResponse,
+    responses=error_responses(401, 403, 404, 409, 422, 503),
+    dependencies=[Depends(private_prospecting_response)],
+)
+def prepare_offer(
+    recommendation_id: UUID,
+    body: PrepareRecommendationOfferRequest,
+    authenticated: CsrfProtected,
+    dependencies: Management,
+):
+    require_new_discovery_work(dependencies)
+    result = dependencies.prepare_recommendation_offer_service.execute(
+        authenticated.principal,
+        PrepareOfferCommand(
+            recommendation_id, body.assessment_revision_id, body.request_key
+        ),
+    )
+    return PreparedRecommendationOfferResponse(
+        offer_cycle_id=result.offer_cycle_id,
+        recommendation_id=result.recommendation_id,
+        assessment_revision_id=result.assessment_revision_id,
+        status=result.status.value,
+        claim_token=result.claim_token,
+        lease_expires_at=result.lease_expires_at,
+        presented_at=result.presented_at,
+    )
+
+
+@router.post(
+    "/offer-preparations/{offer_cycle_id}/confirm",
+    response_model=ConfirmedRecommendationOfferResponse,
+    responses=error_responses(401, 403, 404, 409, 422, 503),
+    dependencies=[Depends(private_prospecting_response)],
+)
+def confirm_offer(
+    offer_cycle_id: UUID,
+    body: ConfirmRecommendationOfferRequest,
+    authenticated: CsrfProtected,
+    dependencies: Management,
+):
+    require_new_discovery_work(dependencies)
+    result = dependencies.confirm_recommendation_offer_service.execute(
+        authenticated.principal, ConfirmOfferCommand(offer_cycle_id, body.claim_token)
+    )
+    return response_from_domain(result, ConfirmedRecommendationOfferResponse)

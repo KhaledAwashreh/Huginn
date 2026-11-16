@@ -24,7 +24,7 @@ from huginn.management.persistence.row_models.resources import IdealClientProfil
 
 class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
     _columns = (
-        "id, user_id, name, industries, company_sizes, geographies, exclusions, "
+        "id, business_id, name, industries, company_sizes, geographies, exclusions, "
         "created_at, updated_at"
     )
     _update_columns = {
@@ -58,7 +58,7 @@ class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
         values = validated.model_dump(mode="json")
         return IdealClientProfile(
             validated.id,
-            validated.user_id,
+            validated.business_id,
             validated.name,
             tuple(values["industries"]),
             tuple(values["company_sizes"]),
@@ -76,10 +76,10 @@ class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
     def create(self, profile: NewIdealClientProfile) -> IdealClientProfile:
         row = self._one(
             "INSERT INTO operational.ideal_client_profiles "
-            "(user_id,name,industries,company_sizes,geographies,exclusions) "
+            "(business_id,name,industries,company_sizes,geographies,exclusions) "
             f"VALUES (%s,%s,%s,%s,%s,%s) RETURNING {self._columns}",
             (
-                profile.user_id,
+                profile.business_id,
                 profile.name,
                 JsonParameter(list(profile.industries)),
                 JsonParameter(list(profile.company_sizes)),
@@ -90,21 +90,23 @@ class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
         assert row is not None
         return self._map(row)
 
-    def get_owned(self, user_id: UUID, profile_id: UUID) -> IdealClientProfile | None:
+    def get_owned(
+        self, business_id: UUID, profile_id: UUID
+    ) -> IdealClientProfile | None:
         row = self._one(
             f"SELECT {self._columns} FROM operational.ideal_client_profiles "
-            "WHERE user_id=%s AND id=%s",
-            (user_id, profile_id),
+            "WHERE business_id=%s AND id=%s",
+            (business_id, profile_id),
         )
         return self._map(row) if row else None
 
     def list_owned(
-        self, user_id: UUID, *, limit: int, offset: int
+        self, business_id: UUID, *, limit: int, offset: int
     ) -> Page[IdealClientProfile]:
         rows = self.connection.execute(
             f"SELECT {self._columns} FROM operational.ideal_client_profiles "
-            "WHERE user_id=%s ORDER BY created_at,id LIMIT %s OFFSET %s",
-            (user_id, limit + 1, offset),
+            "WHERE business_id=%s ORDER BY created_at,id LIMIT %s OFFSET %s",
+            (business_id, limit + 1, offset),
         ).fetchall()
         return Page(
             tuple(self._map(row) for row in rows[:limit]),
@@ -115,13 +117,13 @@ class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
 
     def update_owned(
         self,
-        user_id: UUID,
+        business_id: UUID,
         profile_id: UUID,
         changes: IdealClientProfileChanges,
     ) -> IdealClientProfile | None:
         supplied = changes.supplied_fields
         if not supplied:
-            return self.get_owned(user_id, profile_id)
+            return self.get_owned(business_id, profile_id)
         if not supplied <= self._update_columns.keys():
             raise ValueError("unsupported ICP update field")
         ordered = sorted(supplied)
@@ -136,17 +138,17 @@ class PostgresIdealClientProfileRepository(IdealClientProfileRepository):
         )
         row = self._one(
             f"UPDATE operational.ideal_client_profiles SET {assignments}, "
-            f"updated_at=clock_timestamp() WHERE user_id=%s AND id=%s RETURNING {self._columns}",
-            (*values, user_id, profile_id),
+            f"updated_at=clock_timestamp() WHERE business_id=%s AND id=%s RETURNING {self._columns}",
+            (*values, business_id, profile_id),
         )
         return self._map(row) if row else None
 
-    def delete_owned(self, user_id: UUID, profile_id: UUID) -> bool:
+    def delete_owned(self, business_id: UUID, profile_id: UUID) -> bool:
         try:
             row = self._one(
                 "DELETE FROM operational.ideal_client_profiles "
-                "WHERE user_id=%s AND id=%s RETURNING id",
-                (user_id, profile_id),
+                "WHERE business_id=%s AND id=%s RETURNING id",
+                (business_id, profile_id),
             )
         except IntegrityError as exc:
             if getattr(exc, "sqlstate", None) == "23503":

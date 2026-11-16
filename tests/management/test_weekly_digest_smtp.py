@@ -1,55 +1,15 @@
 from dataclasses import FrozenInstanceError, replace
-from datetime import date
+from datetime import UTC, datetime
 from email import message_from_bytes, policy
 
 import pytest
 
-from huginn.management.application.policies.weekly_digest_content import (
-    weekly_digest_body,
-)
 from huginn.management.application.read_models.weekly_digest_message import (
     WeeklyDigestMessage,
 )
 from huginn.management.config import ManagementConfig
 from huginn.management.delivery.smtp_digest_mail_sender import SmtpDigestMailSender
 from tests.management.test_lifecycle_smtp import _smtp_sink
-
-
-def test_frozen_digest_body_and_smtp_agree_for_mixed_source_line_endings():
-    body = weekly_digest_body(
-        {
-            "items": [
-                {
-                    "company": {"name": "Example", "domain": "example.test"},
-                    "score": 27,
-                    "rationale": "Grounded research",
-                    "evidence": [
-                        {
-                            "quote": "First line\r\n\r\nSecond line\rThird line",
-                            "source_url": "https://example.test",
-                            "occurred_at": None,
-                        }
-                    ],
-                }
-            ]
-        },
-        date(2026, 10, 26),
-        "https://example.test/batch",
-        "https://example.test/unsubscribe",
-    )
-    assert "\r" not in body
-    assert "Source: First line Second line Third line" in body
-    with _smtp_sink() as server:
-        sender = SmtpDigestMailSender(
-            ManagementConfig(
-                database_url="unused",
-                smtp_host=server.server_address[0],
-                smtp_port=server.server_address[1],
-            )
-        )
-        sender.send(replace(_message(), body=body))
-        received = message_from_bytes(server.messages[0], policy=policy.default)
-        assert received.get_content().replace("\r\n", "\n").rstrip() == body.rstrip()
 
 
 def _message():
@@ -71,7 +31,11 @@ def test_digest_delivers_plain_text_with_stable_message_id_and_configured_sender
                 smtp_sender="digest@example.test",
             )
         )
-        sender.send(_message())
+        started = datetime.now(UTC)
+        accepted_at = sender.send(_message())
+        assert isinstance(accepted_at, datetime)
+        assert accepted_at.tzinfo is not None
+        assert started <= accepted_at <= datetime.now(UTC)
         sender.send(_message())
         assert len(server.messages) == 2
         for payload in server.messages:
@@ -98,6 +62,45 @@ def test_digest_requires_paired_credentials():
         SmtpDigestMailSender(
             ManagementConfig(database_url="unused", smtp_username="user")
         )
+
+
+def test_invalid_digest_is_identified_as_proven_pretransport_failure(monkeypatch):
+    from huginn.management.application.errors.mail_pre_transport import (
+        MailPreTransportError,
+    )
+    from huginn.management.delivery import smtp_digest_mail_sender
+
+    attempted = []
+    monkeypatch.setattr(
+        smtp_digest_mail_sender, "send_email", lambda *_, **__: attempted.append(True)
+    )
+    sender = SmtpDigestMailSender(ManagementConfig(database_url="unused", smtp_port=1))
+    with pytest.raises(MailPreTransportError):
+        sender.send(
+            replace(
+                _message(), recipient="ada@example.test\r\nBcc: another@example.test"
+            )
+        )
+    assert attempted == []
+
+
+@pytest.mark.parametrize("transport_error", [OSError, ValueError])
+def test_transport_exceptions_are_never_misclassified_as_proven_pretransport(
+    monkeypatch, transport_error
+):
+    from huginn.management.application.errors.mail_pre_transport import (
+        MailPreTransportError,
+    )
+    from huginn.management.delivery import smtp_digest_mail_sender
+
+    def uncertain(*_, **__):
+        raise transport_error("Uncertain SMTP outcome")
+
+    monkeypatch.setattr(smtp_digest_mail_sender, "send_email", uncertain)
+    sender = SmtpDigestMailSender(ManagementConfig(database_url="unused"))
+    with pytest.raises(transport_error) as failure:
+        sender.send(_message())
+    assert not isinstance(failure.value, MailPreTransportError)
 
 
 def test_digest_value_is_frozen_and_keeps_recipient_and_body_private():

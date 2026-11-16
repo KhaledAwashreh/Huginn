@@ -10,7 +10,6 @@ from huginn.management.application.services.ideal_client_profiles import (
 )
 from huginn.management.domain.value_objects.ideal_client_profile import (
     IdealClientProfileChanges,
-    NewIdealClientProfile,
 )
 from huginn.management.presentation.api.dependencies.authentication import (
     Authenticated,
@@ -19,7 +18,6 @@ from huginn.management.presentation.api.dependencies.authentication import (
 from huginn.management.presentation.api.dependencies.services import Management
 from huginn.management.presentation.api.mapping import (
     request_to_changes,
-    request_to_domain,
     response_from_domain,
 )
 from huginn.management.presentation.api.openapi.responses import error_responses
@@ -61,11 +59,13 @@ def create_ideal_client_profile(
 ) -> IdealClientProfileResponse:
     created = service.create(
         authenticated.principal,
-        request_to_domain(
-            body,
-            NewIdealClientProfile,
-            user_id=authenticated.principal.user_id,
+        name=body.name,
+        industries=tuple(item.model_dump(mode="json") for item in body.industries),
+        company_sizes=tuple(
+            item.model_dump(mode="json") for item in body.company_sizes
         ),
+        geographies=tuple(item.model_dump(mode="json") for item in body.geographies),
+        exclusions=tuple(item.model_dump(mode="json") for item in body.exclusions),
     )
     return response_from_domain(created, IdealClientProfileResponse)
 

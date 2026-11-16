@@ -118,6 +118,8 @@ Internal imports use the layered paths directly, with no legacy aliases.
 | --- | --- | --- |
 | Account | Username, password hash, status | UUID primary key; username has named uniqueness on `lower(username)` |
 | User | Personal and contact data | UUID primary key; unique, required `account_id` foreign key |
+| Business | Business profile and configuration ownership | UUID primary key; unique, required `owner_user_id` foreign key |
+| BusinessRecommendationPreferences | Repeat interval | `business_id` primary/foreign key; positive interval, default 30 days |
 | ProfessionalProfile | Professional summary and collections | UUID primary key; unique, required `user_id` foreign key |
 
 Account status is `active` or `disabled` and defaults to `active`. Usernames
@@ -132,17 +134,48 @@ required text values that must be nonblank and have no leading or trailing
 whitespace. Country is a residence label, not an ISO-code contract. Timezone,
 headline, and professional summary are nullable text values that must satisfy
 the same constraints when present. Email, phone, country, and timezone
-semantic validation is deferred to input-owning tickets. All three entities
+semantic validation is deferred to input-owning tickets. Identity records
 use UUID primary keys and timezone-aware `created_at` and `updated_at` values.
 Later writers, not a database trigger, maintain `updated_at`.
 
-Foreign keys use the default `NO ACTION` behavior. The unique foreign keys
-enforce no orphan child and at most one child, but they cannot require a parent
-to have a child. [KAN-72](https://kawashreh.atlassian.net/browse/KAN-72) must
-create Account, User, and an empty ProfessionalProfile in one transaction to
-enforce the intended exactly-one lifecycle. User is the business ownership
-root: `operational.match.user_id` and future domain ownership keys reference
-User, never Account.
+Unique foreign keys enforce at most one child; application transactions create
+the required aggregate. Owner provisioning creates Account, User, the personal
+ProfessionalProfile, Business and default recommendation preferences in one
+transaction. Credential-only Accounts do not require fabricated Users. User
+creation atomically creates its sole Business and preferences.
+
+Business owns service offerings, ICPs, strategies, repeat preferences and digest
+subscriptions. Public commands resolve it from the authenticated User rather
+than accepting a client-selected owner. Configuration and digest references
+remain restrictive. Deleting a blank User cascades only to its empty Business
+and default preferences; populated configuration or delivery history prevents
+deletion. The legacy `operational.match.user_id` remains a User reference until
+the shared-workflow cutover. See [ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md).
+
+## Business profile and repeat preferences
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/v1/me/business` | Read the authenticated User's sole Business |
+| `PATCH /api/v1/me/business` | Update supplied Business profile fields |
+| `GET /api/v1/me/business/recommendation-preferences` | Read its positive repeat interval |
+| `PATCH /api/v1/me/business/recommendation-preferences` | Update `repeat_interval_days` |
+
+Business profile fields are `name`, `tagline`, `website`, `location`,
+`description` and `capabilities`. They start unset. Capabilities use named
+objects, separately from the personal profile's skills. Personal name,
+residence, professional summary and collections are preserved on User and
+ProfessionalProfile. Configuration response ownership is `business_id`.
+
+These endpoints use existing cookie authentication, CSRF protection for PATCH,
+and private no-store responses. Request bodies cannot choose Business or User
+ownership. Consult the generated OpenAPI schemas for field validation.
+
+For an existing management database, follow the explicit ownership setup in
+[`db/schema/README.md`](../db/schema/README.md). Setup preserves configuration
+IDs, associations, timestamps and consent, and repeated execution preserves
+provided Business fields and configured intervals. It is not performed by
+startup or reads.
 
 ## Professional collections
 
@@ -339,3 +372,19 @@ disposable database created above, remove it by its explicit name:
 ```bash
 rtk proxy dropdb huginn_management_crud_local_kan78
 ```
+
+## Recommendation/prospect workflow setup
+
+The earlier isolated CRUD examples above establish account/configuration behavior.
+The current workflow additionally requires the guarded-evidence, shared
+recommendation/prospect and cycle-backed weekly schema before `/ready` succeeds.
+Use [the cutover procedure](recommendation-prospect-cutover.md) for an existing
+target; it preserves account/configuration/source/audit data and explicitly handles
+obsolete derived workflow rows. Fresh Compose/test bootstrap includes the new
+schema. Application startup applies no migrations or reconciliation.
+
+The workspace uses Recommendations and Prospects with configuration in Profile/Settings.
+Business ownership and exact historical attribution are described in
+[ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md) and
+[the API guide](research-recommendations.md). New work can be disabled independently
+while keeping retained history and explicit management commands available.

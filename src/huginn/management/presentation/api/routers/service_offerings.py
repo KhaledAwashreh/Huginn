@@ -10,7 +10,6 @@ from huginn.management.application.services.service_offerings import (
 )
 from huginn.management.domain.entities.service_offering import ServiceOffering
 from huginn.management.domain.value_objects.service_offering import (
-    NewServiceOffering,
     ServiceOfferingChanges,
 )
 from huginn.management.presentation.api.dependencies.authentication import (
@@ -46,7 +45,7 @@ OfferingService = Annotated[
 def _response(offering: ServiceOffering) -> ServiceOfferingResponse:
     return ServiceOfferingResponse(
         id=offering.id,
-        user_id=offering.user_id,
+        business_id=offering.business_id,
         name=offering.name,
         description=offering.description,
         created_at=offering.created_at,
@@ -67,11 +66,8 @@ def create_offering(
 ) -> ServiceOfferingResponse:
     offering = service.create(
         authenticated.principal,
-        NewServiceOffering(
-            user_id=authenticated.principal.user_id,
-            name=body.name,
-            description=body.description,
-        ),
+        name=body.name,
+        description=body.description,
     )
     return _response(offering)
 

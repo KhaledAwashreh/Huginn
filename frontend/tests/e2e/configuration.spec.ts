@@ -6,7 +6,7 @@ async function login(page: Page, username: string): Promise<void> {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
 }
 async function csrf(page: Page): Promise<string> {
   const response = await page.request.get('/api/v1/sessions/current');
@@ -112,7 +112,7 @@ test('live owner CRUD, explicit clears, nested shape, bounded references, delete
   expect((await profilePatch).postDataJSON()).toEqual({ headline: null, skills: [] });
   await page.getByLabel('Headline', { exact: true }).fill('Dirty local draft');
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('link', { name: 'Matches', exact: true }).click();
+  await page.getByRole('link', { name: 'Recommendations', exact: true }).click();
   await expect(page.getByLabel('Headline', { exact: true })).toHaveValue('Dirty local draft');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const other = await browser.newContext(baseURL ? { baseURL } : {});

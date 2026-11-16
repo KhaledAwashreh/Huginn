@@ -3,7 +3,7 @@ import { matchmakingRoutes } from '../features/matchmaking/routes';
 import { pipelineRoutes } from '../features/pipeline/routes';
 import { accountLifecycleRoutes } from '../features/account-lifecycle/routes';
 import { recommendationRoutes } from '../features/recommendations/routes';
-import { matchesRoutes } from '../features/matches/routes';
+import { prospectRoutes } from '../features/prospects/routes';
 import { profileRoutes } from '../features/profile/routes';
 import { createRouter, createWebHistory } from 'vue-router';
 import { useSession } from '../features/session/composables/useSession';
@@ -12,16 +12,17 @@ import AdministrationLayout from './components/AdministrationLayout.vue';
 import AdministrationPage from './pages/AdministrationPage.vue';
 import PageHeader from '../shared/ui/PageHeader.vue';
 import { validateReturnPath } from '../shared/navigation/validateReturnPath';
+import { workspaceLandingPath } from '../shared/navigation/workspaceLanding';
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // Matches is home; recovery email enrollment now lives in the Security settings.
-    { path: '/', name: 'workspace', redirect: '/matches' },
+    { path: '/', name: 'workspace', redirect: workspaceLandingPath },
     { path: '/login', name: 'login', component: LoginPage },
     ...accountLifecycleRoutes,
-    ...matchesRoutes,
+    { path: '/matches', redirect: workspaceLandingPath },
     ...recommendationRoutes,
+    ...prospectRoutes,
     ...profileRoutes,
     ...configurationRoutes,
     {

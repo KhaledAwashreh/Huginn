@@ -9,7 +9,6 @@ from huginn.management.domain.value_objects.common import (
     Page,
     Principal,
 )
-from huginn.management.domain.value_objects.service_offering import NewServiceOffering
 
 
 class UnitOfWork:
@@ -42,22 +41,33 @@ class Offerings:
         return Page((self.value,), offset, limit, False)
 
 
+class Businesses:
+    def __init__(self, owner_user_id, business_id):
+        self.owner_user_id, self.business_id = owner_user_id, business_id
+
+    def get_by_owner_user_id(self, owner_user_id):
+        if owner_user_id != self.owner_user_id:
+            return None
+        return type("BusinessRef", (), {"id": self.business_id})()
+
+
 def test_domain_service_accepts_commands_and_returns_entities_and_pages():
     now = datetime.now(UTC)
-    user_id = uuid4()
-    value = ServiceOffering(uuid4(), user_id, "Consulting", "Audit", now, now)
+    user_id, business_id = uuid4(), uuid4()
+    value = ServiceOffering(uuid4(), business_id, "Consulting", "Audit", now, now)
     uow, repo = UnitOfWork(), Offerings(value)
-    service = ServiceOfferingService(lambda: uow, offerings_factory=lambda _: repo)
+    service = ServiceOfferingService(
+        lambda: uow,
+        businesses_factory=lambda _: Businesses(user_id, business_id),
+        offerings_factory=lambda _: repo,
+    )
     principal = Principal(uuid4(), user_id)
 
-    created = service.create(
-        principal,
-        NewServiceOffering(uuid4(), "Consulting", "Audit"),
-    )
+    created = service.create(principal, name="Consulting", description="Audit")
     page = service.list(principal, limit=5, offset=2)
 
     assert created is value
-    assert repo.created.user_id == user_id
+    assert repo.created.business_id == business_id
     assert isinstance(page, Page)
     assert page.items == (value,)
     assert uow.commits == 1

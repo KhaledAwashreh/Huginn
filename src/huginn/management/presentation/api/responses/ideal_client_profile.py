@@ -47,7 +47,7 @@ ExclusionResponse = Annotated[
 
 class IdealClientProfileResponse(ResponseModel):
     id: UUID
-    user_id: UUID
+    business_id: UUID
     name: NonBlank
     industries: list[IndustryResponse]
     company_sizes: list[CompanySizeResponse]

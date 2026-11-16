@@ -95,7 +95,7 @@ def test_request_mapping_creates_domain_values_and_tracks_patch_fields():
     create = ServiceOfferingCreateRequest.model_validate(
         {"name": "Consulting", "description": "Research"}
     )
-    command = request_to_domain(create, NewServiceOffering, user_id=owner_id)
+    command = request_to_domain(create, NewServiceOffering, business_id=owner_id)
     assert command == NewServiceOffering(owner_id, "Consulting", "Research")
 
     patch = ServiceOfferingUpdateRequest.model_validate({"description": "New"})
@@ -111,7 +111,7 @@ def test_icp_company_exclusion_uuids_are_json_values_for_create_and_patch():
         "exclusions": [{"kind": "company", "company_id": str(company_id)}],
     }
     create = IdealClientProfileCreateRequest.model_validate(body)
-    created = request_to_domain(create, NewIdealClientProfile, user_id=uuid4())
+    created = request_to_domain(create, NewIdealClientProfile, business_id=uuid4())
     assert created.exclusions == ({"kind": "company", "company_id": str(company_id)},)
 
     patch = IdealClientProfileUpdateRequest.model_validate(
@@ -132,7 +132,9 @@ def test_typed_strategy_uuid_references_remain_uuid_values():
             "ideal_client_profile_id": str(profile_id),
         }
     )
-    command = request_to_domain(request, NewClientDiscoveryStrategy, user_id=owner_id)
+    command = request_to_domain(
+        request, NewClientDiscoveryStrategy, business_id=owner_id
+    )
     assert command.service_offering_id == offering_id
     assert command.ideal_client_profile_id == profile_id
 
@@ -142,8 +144,8 @@ def test_response_models_filter_private_and_undeclared_values():
     now = datetime.now(UTC)
     domain = ServiceOffering(resource_id, owner_id, "Consulting", "Research", now, now)
     response = response_from_domain(domain, ServiceOfferingResponse)
-    assert response.user_id == owner_id
-    assert "user_id" in response.model_dump()
+    assert response.business_id == owner_id
+    assert "business_id" in response.model_dump()
     filtered = ServiceOfferingResponse.model_validate(
         {**response.model_dump(), "password_hash": "must-not-escape"}
     )
@@ -164,7 +166,7 @@ def test_page_mapping_validates_and_filters_every_domain_item():
     )
     response = response_from_domain(page, PageResponse[ServiceOfferingResponse])
     assert len(response.items) == 2
-    assert all(item.user_id == owner_id for item in response.items)
+    assert all(item.business_id == owner_id for item in response.items)
     assert all("password_hash" not in item.model_dump() for item in response.items)
 
 

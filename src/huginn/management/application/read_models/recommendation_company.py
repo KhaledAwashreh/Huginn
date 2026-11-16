@@ -17,3 +17,4 @@ class RecommendationCompany:
     observations: tuple[RankingObservation, ...]
     source_countries: tuple[tuple[UUID, str], ...] = ()
     country_evidence_id: UUID | None = None
+    source_country_value: str | None = None

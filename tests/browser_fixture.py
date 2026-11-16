@@ -124,17 +124,25 @@ def _seed_matching_history(connection, account_id: UUID) -> None:
             (user_account, f"target-{index}@example.test"),
         ).fetchone()[0]
         user_ids.append(user_id)
-        offering_id = connection.execute(
-            "INSERT INTO operational.service_offerings(user_id,name,description) VALUES (%s,'Saved offering','Fixture only') RETURNING id",
-            (user_id,),
-        ).fetchone()[0]
-        icp_id = connection.execute(
-            "INSERT INTO operational.ideal_client_profiles(user_id,name) VALUES (%s,'Saved profile') RETURNING id",
+        business_id = connection.execute(
+            "INSERT INTO operational.businesses(owner_user_id) VALUES (%s) RETURNING id",
             (user_id,),
         ).fetchone()[0]
         connection.execute(
-            "INSERT INTO operational.client_discovery_strategies(user_id,name,service_offering_id,ideal_client_profile_id,is_active) VALUES (%s,'Saved strategy',%s,%s,true)",
-            (user_id, offering_id, icp_id),
+            "INSERT INTO operational.business_recommendation_preferences(business_id) VALUES (%s)",
+            (business_id,),
+        )
+        offering_id = connection.execute(
+            "INSERT INTO operational.service_offerings(business_id,name,description) VALUES (%s,'Saved offering','Fixture only') RETURNING id",
+            (business_id,),
+        ).fetchone()[0]
+        icp_id = connection.execute(
+            "INSERT INTO operational.ideal_client_profiles(business_id,name) VALUES (%s,'Saved profile') RETURNING id",
+            (business_id,),
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO operational.client_discovery_strategies(business_id,name,service_offering_id,ideal_client_profile_id,is_active) VALUES (%s,'Saved strategy',%s,%s,true)",
+            (business_id, offering_id, icp_id),
         )
     for index, state in enumerate(("completed_with_errors", "interrupted")):
         run_id = UUID(int=9101 + index)
@@ -306,12 +314,16 @@ def main() -> None:
             _seed_admin_history(connection, identities["browser-admin"].account_id)
             _seed_matching_history(connection, identities["browser-admin"].account_id)
             _seed_owner_matches(connection, identities["browser-matches"].user_id)
+            icp_business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identities["browser-icp-conflicts"].user_id,),
+            ).fetchone()[0]
             connection.execute(
-                """INSERT INTO operational.ideal_client_profiles(id,user_id,name,industries,geographies,exclusions)
+                """INSERT INTO operational.ideal_client_profiles(id,business_id,name,industries,geographies,exclusions)
                 VALUES ('00000000-0000-0000-0000-000000000333',%s,'Legacy conflicting ICP',
                 '[{"name":"Analytics"}]','[{"kind":"country","value":"USA"}]',
                 '[{"kind":"industry","name":"Analytics"},{"kind":"geography","geography":{"kind":"country","value":"United States"}}]')""",
-                (identities["browser-icp-conflicts"].user_id,),
+                (icp_business_id,),
             )
             for label, country, sectors, size in (
                 ("Collected Health", "USA", ["Healthcare", "B2B"], "11-100"),

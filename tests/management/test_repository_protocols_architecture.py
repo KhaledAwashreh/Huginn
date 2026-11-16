@@ -5,6 +5,8 @@ from pathlib import Path
 
 PROTOCOL_MODULES = (
     "account",
+    "business",
+    "business_recommendation_preferences",
     "user",
     "professional_profile",
     "session",

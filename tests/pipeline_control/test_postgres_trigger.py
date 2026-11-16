@@ -87,7 +87,7 @@ def test_concurrent_triggers_are_atomic_and_do_not_wait_for_shared_execution_loc
             assert (events[0].sequence, events[0].kind) == (1, "invocation_queued")
             detail = reader.get(accepted[0].id)
             assert detail is not None
-            assert len(detail.stages) == 9
+            assert len(detail.stages) == 12
             assert {stage.state for stage in detail.stages} == {"pending"}
             with psycopg.connect(integration_database_url) as connection:
                 assert connection.execute(

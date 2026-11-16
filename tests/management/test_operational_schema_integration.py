@@ -84,6 +84,18 @@ def _insert_user(conn: psycopg.Connection, account_id: UUID) -> UUID:
     ).fetchone()[0]
 
 
+def _insert_business(conn: psycopg.Connection, user_id: UUID) -> UUID:
+    business_id = conn.execute(
+        "INSERT INTO operational.businesses(owner_user_id) VALUES (%s) RETURNING id",
+        (user_id,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO operational.business_recommendation_preferences(business_id) VALUES (%s)",
+        (business_id,),
+    )
+    return business_id
+
+
 def _insert_profile(conn: psycopg.Connection, user_id: UUID) -> UUID:
     return conn.execute(
         "INSERT INTO operational.professional_profiles (user_id) "
@@ -569,7 +581,7 @@ def test_management_resource_tables_have_expected_columns(management_database_ur
         },
         "service_offerings": {
             "id",
-            "user_id",
+            "business_id",
             "name",
             "description",
             "created_at",
@@ -577,7 +589,7 @@ def test_management_resource_tables_have_expected_columns(management_database_ur
         },
         "ideal_client_profiles": {
             "id",
-            "user_id",
+            "business_id",
             "name",
             "industries",
             "company_sizes",
@@ -588,7 +600,7 @@ def test_management_resource_tables_have_expected_columns(management_database_ur
         },
         "client_discovery_strategies": {
             "id",
-            "user_id",
+            "business_id",
             "name",
             "service_offering_id",
             "ideal_client_profile_id",
@@ -620,12 +632,12 @@ def test_management_resource_indexes_support_lookups_and_owner_references(
     expected_indexes = {
         "sessions_token_digest_key",
         "sessions_account_id_idx",
-        "service_offerings_user_id_id_key",
-        "ideal_client_profiles_user_id_id_key",
-        "service_offerings_user_created_idx",
-        "ideal_client_profiles_user_created_idx",
-        "client_discovery_strategies_user_created_idx",
-        "client_discovery_strategies_user_active_created_idx",
+        "service_offerings_business_id_id_key",
+        "ideal_client_profiles_business_id_id_key",
+        "service_offerings_business_created_idx",
+        "ideal_client_profiles_business_created_idx",
+        "client_discovery_strategies_business_created_idx",
+        "client_discovery_strategies_business_active_created_idx",
     }
     with psycopg.connect(management_database_url) as conn:
         indexes = {
@@ -678,18 +690,19 @@ def test_offerings_and_icps_have_defaults_and_jsonb_outer_shapes(
 ):
     with _connection(management_database_url) as conn:
         user_id = _insert_user(conn, _insert_account(conn))
+        business_id = _insert_business(conn, user_id)
         offering = conn.execute(
-            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "INSERT INTO operational.service_offerings (business_id, name, description) "
             "VALUES (%s, 'Consulting', 'Service description') "
             "RETURNING id, created_at, updated_at",
-            (user_id,),
+            (business_id,),
         ).fetchone()
         _assert_uuid_and_aware_timestamps(offering)
         profile = conn.execute(
-            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "INSERT INTO operational.ideal_client_profiles (business_id, name) "
             "VALUES (%s, 'Target clients') "
             "RETURNING industries, company_sizes, geographies, exclusions",
-            (user_id,),
+            (business_id,),
         ).fetchone()
         assert profile == ([], [], [], [])
 
@@ -706,14 +719,14 @@ def test_offerings_and_icps_have_defaults_and_jsonb_outer_shapes(
             values[column] = None if invalid_json is None else Jsonb(invalid_json)
             query = sql.SQL(
                 "INSERT INTO operational.ideal_client_profiles "
-                "(user_id, name, industries, company_sizes, geographies, exclusions) "
+                "(business_id, name, industries, company_sizes, geographies, exclusions) "
                 "VALUES (%s, 'Invalid', %s, %s, %s, %s)"
             )
             with pytest.raises(psycopg.IntegrityError), conn.transaction():
                 conn.execute(
                     query,
                     (
-                        user_id,
+                        business_id,
                         *(
                             values[field]
                             for field in (
@@ -729,8 +742,8 @@ def test_offerings_and_icps_have_defaults_and_jsonb_outer_shapes(
         with pytest.raises(psycopg.IntegrityError), conn.transaction():
             conn.execute(
                 "INSERT INTO operational.ideal_client_profiles "
-                "(user_id, name, company_sizes) VALUES (%s, 'Bad band', %s)",
-                (user_id, Jsonb([{"band": "unsupported"}])),
+                "(business_id, name, company_sizes) VALUES (%s, 'Bad band', %s)",
+                (business_id, Jsonb([{"band": "unsupported"}])),
             )
 
 
@@ -739,22 +752,30 @@ def test_strategy_defaults_inactive_and_allows_multiple_shared_references(
 ):
     with _connection(management_database_url) as conn:
         user_id = _insert_user(conn, _insert_account(conn))
+        business_id = _insert_business(conn, user_id)
         offering_id = conn.execute(
-            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "INSERT INTO operational.service_offerings (business_id, name, description) "
             "VALUES (%s, 'Consulting', 'Service description') RETURNING id",
-            (user_id,),
+            (business_id,),
         ).fetchone()[0]
         profile_id = conn.execute(
-            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "INSERT INTO operational.ideal_client_profiles (business_id, name) "
             "VALUES (%s, 'Target clients') RETURNING id",
-            (user_id,),
+            (business_id,),
         ).fetchone()[0]
         rows = conn.execute(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id, name, service_offering_id, ideal_client_profile_id) "
+            "(business_id, name, service_offering_id, ideal_client_profile_id) "
             "VALUES (%s, 'One', %s, %s), (%s, 'Two', %s, %s) "
             "RETURNING id, is_active, created_at, updated_at",
-            (user_id, offering_id, profile_id, user_id, offering_id, profile_id),
+            (
+                business_id,
+                offering_id,
+                profile_id,
+                business_id,
+                offering_id,
+                profile_id,
+            ),
         ).fetchall()
 
         assert len(rows) == 2
@@ -771,31 +792,33 @@ def test_strategy_rejects_cross_user_references_and_referenced_deletes(
     with _connection(management_database_url) as conn:
         first_user = _insert_user(conn, _insert_account(conn))
         second_user = _insert_user(conn, _insert_account(conn))
+        first_business = _insert_business(conn, first_user)
+        second_business = _insert_business(conn, second_user)
         first_offering = conn.execute(
-            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "INSERT INTO operational.service_offerings (business_id, name, description) "
             "VALUES (%s, 'First', 'First service') RETURNING id",
-            (first_user,),
+            (first_business,),
         ).fetchone()[0]
         second_offering = conn.execute(
-            "INSERT INTO operational.service_offerings (user_id, name, description) "
+            "INSERT INTO operational.service_offerings (business_id, name, description) "
             "VALUES (%s, 'Second', 'Second service') RETURNING id",
-            (second_user,),
+            (second_business,),
         ).fetchone()[0]
         first_profile = conn.execute(
-            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "INSERT INTO operational.ideal_client_profiles (business_id, name) "
             "VALUES (%s, 'First') RETURNING id",
-            (first_user,),
+            (first_business,),
         ).fetchone()[0]
         second_profile = conn.execute(
-            "INSERT INTO operational.ideal_client_profiles (user_id, name) "
+            "INSERT INTO operational.ideal_client_profiles (business_id, name) "
             "VALUES (%s, 'Second') RETURNING id",
-            (second_user,),
+            (second_business,),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id, name, service_offering_id, ideal_client_profile_id) "
+            "(business_id, name, service_offering_id, ideal_client_profile_id) "
             "VALUES (%s, 'Valid', %s, %s)",
-            (first_user, first_offering, first_profile),
+            (first_business, first_offering, first_profile),
         )
 
         for offering_id, profile_id in (
@@ -805,9 +828,9 @@ def test_strategy_rejects_cross_user_references_and_referenced_deletes(
             with pytest.raises(psycopg.IntegrityError), conn.transaction():
                 conn.execute(
                     "INSERT INTO operational.client_discovery_strategies "
-                    "(user_id, name, service_offering_id, ideal_client_profile_id) "
+                    "(business_id, name, service_offering_id, ideal_client_profile_id) "
                     "VALUES (%s, 'Invalid', %s, %s)",
-                    (first_user, offering_id, profile_id),
+                    (first_business, offering_id, profile_id),
                 )
 
         with pytest.raises(psycopg.IntegrityError), conn.transaction():

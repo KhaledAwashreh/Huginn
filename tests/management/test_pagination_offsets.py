@@ -32,9 +32,16 @@ def test_list_services_return_empty_page_before_repository_query(
     service_type, list_kwargs
 ):
     factories = {
-        ServiceOfferingService: {"offerings_factory": lambda _uow: fail_if_called()},
-        IdealClientProfileService: {"profiles_factory": lambda _uow: fail_if_called()},
+        ServiceOfferingService: {
+            "businesses_factory": lambda _uow: fail_if_called(),
+            "offerings_factory": lambda _uow: fail_if_called(),
+        },
+        IdealClientProfileService: {
+            "businesses_factory": lambda _uow: fail_if_called(),
+            "profiles_factory": lambda _uow: fail_if_called(),
+        },
         ClientDiscoveryStrategyService: {
+            "businesses_factory": lambda _uow: fail_if_called(),
             "strategies_factory": lambda _uow: fail_if_called(),
             "offerings_factory": lambda _uow: fail_if_called(),
             "profiles_factory": lambda _uow: fail_if_called(),

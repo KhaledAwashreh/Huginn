@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { ApiError } from '@/api/apiError';
 import ProfilePage from '@/features/profile/pages/ProfilePage.vue';
+import { openSettingsKey } from '@/shared/navigation/settingsSections';
 
 type Query = {
   data: { value: unknown };
@@ -29,10 +30,24 @@ const profileData = {
   skills: [],
   updated_at: '2026-10-09T12:00:00Z',
 };
+const businessProfileData = {
+  id: 'business-1',
+  owner_user_id: 'user-1',
+  name: null,
+  tagline: null,
+  website: null,
+  location: null,
+  description: null,
+  capabilities: null,
+  created_at: '2026-10-09T12:00:00Z',
+  updated_at: '2026-10-09T12:00:00Z',
+};
 
 const state = vi.hoisted(() => ({
   profile: undefined as unknown,
   saveProfile: vi.fn(),
+  business: undefined as unknown,
+  saveBusiness: vi.fn(),
   offerings: undefined as unknown,
   servicePage: vi.fn(),
   icps: undefined as unknown,
@@ -52,6 +67,12 @@ vi.mock('@/features/configuration/professional-profile/composables/useProfession
     save: { mutateAsync: state.saveProfile },
   }),
 }));
+vi.mock('@/features/profile/composables/useBusinessProfile', () => ({
+  useBusinessProfile: () => ({
+    business: state.business,
+    save: { mutateAsync: state.saveBusiness, isPending: { value: false } },
+  }),
+}));
 vi.mock('@/features/configuration/offerings/composables/useServiceOffering', () => ({
   useServiceOffering: (_id: undefined, offset: MaybeRefOrGetter<number> = 0, limit = 100) => ({
     list: state.servicePage(offset, limit) ?? state.offerings,
@@ -68,6 +89,7 @@ const global = {
   plugins: [PrimeVue],
   stubs: {
     Dialog: { props: ['visible'], template: '<div v-if="visible"><slot /></div>' },
+    RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
   },
 };
 const button = (wrapper: VueWrapper, label: string) => {
@@ -80,7 +102,9 @@ const button = (wrapper: VueWrapper, label: string) => {
 
 beforeEach(() => {
   state.profile = query(profileData);
+  state.business = query(businessProfileData);
   state.saveProfile.mockReset();
+  state.saveBusiness.mockReset();
   state.offerings = query(page([service]));
   state.servicePage.mockReset();
   state.icps = query(page([]));
@@ -101,11 +125,52 @@ it('preserves an existing skill containing a comma when adding another skill', a
   });
 });
 
+it('enables editing for Business fields now backed by the Business API', () => {
+  const wrapper = mount(ProfilePage, { global });
+  expect(button(wrapper, 'Edit business details').attributes('disabled')).toBeUndefined();
+});
+
+it('keeps the personal professional summary separate from Business description', () => {
+  state.business = query({
+    ...businessProfileData,
+    name: 'Independent product studio',
+    description: 'Business description from the Business API.',
+  });
+  state.profile = query({
+    ...profileData,
+    professional_summary: 'Personal professional summary from the User profile.',
+  });
+  const wrapper = mount(ProfilePage, { global });
+
+  expect(wrapper.get('[aria-label="Your business"]').text()).toContain(
+    'Independent product studio',
+  );
+  expect(wrapper.text()).toContain('Business description from the Business API.');
+  expect(wrapper.text()).toContain('Personal professional summary from the User profile.');
+  expect(button(wrapper, 'Edit business description').attributes('disabled')).toBeUndefined();
+  expect(button(wrapper, 'Edit professional summary').attributes('disabled')).toBeUndefined();
+});
+
+it('labels the User professional-profile timestamp instead of the Business timestamp', () => {
+  const userUpdatedAt = '2025-04-03T00:00:00Z';
+  const businessUpdatedAt = '2026-10-11T00:00:00Z';
+  state.profile = query({ ...profileData, updated_at: userUpdatedAt });
+  state.business = query({ ...businessProfileData, updated_at: businessUpdatedAt });
+  const wrapper = mount(ProfilePage, { global });
+
+  expect(wrapper.get('.last-edited').text()).toBe(
+    `Professional profile updated ${new Date(userUpdatedAt).toLocaleDateString()}`,
+  );
+  expect(wrapper.get('.last-edited').text()).not.toContain(
+    new Date(businessUpdatedAt).toLocaleDateString(),
+  );
+});
+
 it('does not write an untouched About draft over a refreshed summary', async () => {
   const data = ref(profileData);
   state.profile = { ...query(profileData), data };
   const wrapper = mount(ProfilePage, { global });
-  await button(wrapper, 'Edit about your business').trigger('click');
+  await button(wrapper, 'Edit professional summary').trigger('click');
   data.value = { ...profileData, professional_summary: 'A newer saved summary.' };
   await wrapper.get('form').trigger('submit');
   expect(state.saveProfile).not.toHaveBeenCalled();
@@ -116,13 +181,13 @@ it('keeps an edited About draft until replacing a newer summary is confirmed', a
   state.profile = { ...query(profileData), data };
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   const wrapper = mount(ProfilePage, { global });
-  await button(wrapper, 'Edit about your business').trigger('click');
-  await wrapper.get('#about-summary').setValue('My edited summary');
+  await button(wrapper, 'Edit professional summary').trigger('click');
+  await wrapper.get('#personal-summary').setValue('My edited summary');
   data.value = { ...profileData, professional_summary: 'A newer saved summary.' };
   await wrapper.get('form').trigger('submit');
   expect(confirm).toHaveBeenCalled();
   expect(state.saveProfile).not.toHaveBeenCalled();
-  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+  expect((wrapper.get('#personal-summary').element as HTMLTextAreaElement).value).toBe(
     'My edited summary',
   );
   confirm.mockReturnValue(true);
@@ -162,8 +227,8 @@ it('keeps an About draft and requires a refresh after an uncertain save', async 
   state.saveProfile.mockRejectedValueOnce(new TypeError('Failed to fetch'));
   profile.refetch.mockResolvedValue({ isError: false, data: profileData });
   const wrapper = mount(ProfilePage, { global });
-  await button(wrapper, 'Edit about your business').trigger('click');
-  await wrapper.get('#about-summary').setValue('An updated summary');
+  await button(wrapper, 'Edit professional summary').trigger('click');
+  await wrapper.get('#personal-summary').setValue('An updated summary');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
   expect(wrapper.text()).toContain('The save outcome is unknown.');
@@ -174,7 +239,7 @@ it('keeps an About draft and requires a refresh after an uncertain save', async 
   await button(wrapper, 'Refresh saved profile').trigger('click');
   await flushPromises();
   expect(profile.refetch).toHaveBeenCalledOnce();
-  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+  expect((wrapper.get('#personal-summary').element as HTMLTextAreaElement).value).toBe(
     'An updated summary',
   );
   await wrapper.get('form').trigger('submit');
@@ -219,6 +284,84 @@ describe('profile load failures', () => {
     expect(wrapper.text()).toContain('Add what you sell');
     expect(wrapper.text()).toContain('Describe the clients you want');
   });
+});
+
+it('explains disabled profile actions with visible descriptions referenced by the controls', () => {
+  const wrapper = mount(ProfilePage, { global });
+  const gated = wrapper.findAll('button[disabled]');
+  const profileActions = gated.filter((control) =>
+    ['Edit business details', 'Add a leader', 'Add a client', 'Add a link'].includes(
+      control.attributes('aria-label') ?? '',
+    ),
+  );
+  expect(profileActions.length).toBeGreaterThan(0);
+  for (const control of profileActions) {
+    const descriptionId = control.attributes('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    const description = wrapper.find(`#${descriptionId}`);
+    expect(description.exists()).toBe(true);
+    expect(description.text().trim()).not.toBe('');
+  }
+});
+
+it('keeps availability explanation IDs unique across Profile instances', () => {
+  const wrapper = mount(
+    {
+      components: { ProfilePage },
+      template: '<main><ProfilePage /><ProfilePage /></main>',
+    },
+    { global },
+  );
+  const reasonIds = wrapper
+    .findAll('.availability-reason')
+    .map((reason) => reason.attributes('id'));
+  expect(new Set(reasonIds).size).toBe(reasonIds.length);
+  for (const control of wrapper.findAll('[aria-describedby]')) {
+    const id = control.attributes('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(wrapper.findAll(`#${id}`)).toHaveLength(1);
+  }
+});
+
+it('opens Settings for the chosen ICP without adding standalone Profile routes', async () => {
+  state.icps = query(
+    page([
+      {
+        id: 'first',
+        name: 'First ICP',
+        industries: [],
+        company_sizes: [],
+        geographies: [],
+        exclusions: [],
+      },
+      {
+        id: 'second',
+        name: 'Second ICP',
+        industries: [],
+        company_sizes: [],
+        geographies: [],
+        exclusions: [],
+      },
+    ]),
+  );
+  const openSettings = vi.fn();
+  const wrapper = mount(ProfilePage, {
+    global: {
+      ...global,
+      provide: { [openSettingsKey as symbol]: openSettings },
+    },
+  });
+
+  expect(wrapper.find('a[href="/icps"]').exists()).toBe(false);
+  expect(wrapper.find('a[href="/strategies"]').exists()).toBe(false);
+  expect(wrapper.findAll('h2').map((heading) => heading.text())).not.toContain(
+    'Discovery strategies',
+  );
+  expect(wrapper.text()).not.toContain(
+    'Choose which services and ICP definitions to use for future discovery runs.',
+  );
+  await wrapper.findAll('.icp-tile')[1]?.trigger('click');
+  expect(openSettings).toHaveBeenCalledWith('icp', 'second');
 });
 
 describe('service changes', () => {
@@ -367,8 +510,8 @@ it('keeps an unsaved About draft when the user declines to leave Profile', async
   await router.push('/profile');
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   const wrapper = mount(RouterView, { global: { ...global, plugins: [PrimeVue, router] } });
-  await button(wrapper, 'Edit about your business').trigger('click');
-  await wrapper.get('#about-summary').setValue('Unsaved summary');
+  await button(wrapper, 'Edit professional summary').trigger('click');
+  await wrapper.get('#personal-summary').setValue('Unsaved summary');
 
   const unload = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(unload);
@@ -378,7 +521,7 @@ it('keeps an unsaved About draft when the user declines to leave Profile', async
 
   expect(confirm).toHaveBeenCalledOnce();
   expect(router.currentRoute.value.path).toBe('/profile');
-  expect((wrapper.get('#about-summary').element as HTMLTextAreaElement).value).toBe(
+  expect((wrapper.get('#personal-summary').element as HTMLTextAreaElement).value).toBe(
     'Unsaved summary',
   );
 
@@ -387,30 +530,92 @@ it('keeps an unsaved About draft when the user declines to leave Profile', async
   expect(router.currentRoute.value.path).toBe('/matches');
 });
 
+it('delegates Profile navigation and unload guards to a Business details draft', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/profile', component: ProfilePage },
+      { path: '/matches', component: { template: '<div>Matches</div>' } },
+    ],
+  });
+  await router.push('/profile');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const wrapper = mount(RouterView, { global: { ...global, plugins: [PrimeVue, router] } });
+  await button(wrapper, 'Edit business details').trigger('click');
+  await wrapper.get('#business-description').setValue('Unsaved Business draft');
+
+  const unload = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+
+  await router.push('/matches');
+  await flushPromises();
+  expect(router.currentRoute.value.path).toBe('/profile');
+  expect((wrapper.get('#business-description').element as HTMLTextAreaElement).value).toBe(
+    'Unsaved Business draft',
+  );
+  expect(confirm).toHaveBeenCalledOnce();
+
+  confirm.mockReturnValue(true);
+  await router.push('/matches');
+  await flushPromises();
+  expect(router.currentRoute.value.path).toBe('/matches');
+});
+
+it('keeps Business draft values when the Profile route guard rejects navigation', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/profile', component: ProfilePage },
+      { path: '/matches', component: { template: '<div>Matches</div>' } },
+    ],
+  });
+  await router.push('/profile');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const wrapper = mount(RouterView, { global: { ...global, plugins: [PrimeVue, router] } });
+  await button(wrapper, 'Edit business details').trigger('click');
+  await wrapper.get('#business-description').setValue('Retained business draft');
+  await router.push('/matches');
+  await flushPromises();
+
+  expect(router.currentRoute.value.path).toBe('/profile');
+  expect((wrapper.get('#business-description').element as HTMLTextAreaElement).value).toBe(
+    'Retained business draft',
+  );
+  expect(confirm).toHaveBeenCalledOnce();
+});
+
 describe('features awaiting a backend', () => {
   it('disables them with honest copy and leaves API-backed items working', async () => {
     const wrapper = mount(ProfilePage, { global });
     expect(wrapper.text()).toContain('Your business');
-    expect(wrapper.text()).toContain('Business details are coming soon');
+    expect(wrapper.text()).toContain('Add a short description of your business.');
     expect(wrapper.text()).toContain('About your business');
+    expect(wrapper.text()).toContain('Professional summary');
     expect(wrapper.text()).toContain('Client list is coming soon.');
     expect(wrapper.text()).toContain('Links are coming soon.');
     expect(wrapper.text()).not.toContain('Links and files');
     expect(wrapper.find('input[type="file"]').exists()).toBe(false);
     const leader = wrapper.findAll('button').find((item) => item.text().includes('Bob Browser'));
     for (const control of [
-      button(wrapper, 'Edit business details'),
       button(wrapper, 'Add a leader'),
       button(wrapper, 'Add a client'),
       button(wrapper, 'Add a link'),
       leader,
     ]) {
       expect(control?.attributes('disabled')).toBeDefined();
-      expect(control?.attributes('title')).toBe('Coming soon');
+      expect(control?.attributes('aria-describedby')).toBeTruthy();
     }
-    expect(leader?.text()).toContain('Founder');
+    expect(leader?.text()).toContain('Bob Browser');
+    expect(leader?.text()).not.toContain('Founder');
 
-    for (const label of ['Edit about your business', 'Edit skills', 'Add a service']) {
+    expect(button(wrapper, 'Edit business details').attributes('disabled')).toBeUndefined();
+    for (const label of [
+      'Edit business description',
+      'Edit professional summary',
+      'Edit skills',
+      'Add a service',
+    ]) {
       expect(button(wrapper, label).attributes('disabled')).toBeUndefined();
     }
     await button(wrapper, 'Add a service').trigger('click');

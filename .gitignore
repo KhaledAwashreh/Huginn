@@ -17,6 +17,9 @@ frontend/test-results/
 # Private local launch state, backups, logs and captured lifecycle mail.
 .local-runtime/
 
+# Approved local planning and acceptance artifacts stay out of product commits.
+/openspec/changes/recommendation-prospect-workflow/
+
 # Private Docker Compose runtime configuration.
 .env.compose
 

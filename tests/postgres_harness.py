@@ -77,6 +77,10 @@ SCHEMA_FILES = (
     "ops-matchmaking-control.sql",
     "silver-source-currentness.sql",
     "gold-current-source-evidence.sql",
+    "operational-prospecting.sql",
+    "operational-recommendations.sql",
+    "operational-weekly-digest.sql",
+    "operational-weekly-digest-content.sql",
 )
 """Full fresh bootstrap, including migrations that depend on all base tables.
 

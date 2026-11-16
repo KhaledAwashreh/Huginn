@@ -27,8 +27,8 @@ class PostgresTargetUserQuery:
         rows = self._connection.execute(
             "SELECT eligible.total,page.id,page.username,page.first_name,page.last_name,page.has_active_strategies "
             "FROM (SELECT count(*) AS total FROM operational.users eu JOIN operational.accounts ea ON ea.id=eu.account_id "
-            "WHERE ea.status='active' AND EXISTS (SELECT 1 FROM operational.client_discovery_strategies es WHERE es.user_id=eu.id AND es.is_active)) eligible "
-            "LEFT JOIN LATERAL (SELECT u.id,a.username,u.first_name,u.last_name,EXISTS (SELECT 1 FROM operational.client_discovery_strategies s WHERE s.user_id=u.id AND s.is_active) AS has_active_strategies "
+            "WHERE ea.status='active' AND EXISTS (SELECT 1 FROM operational.client_discovery_strategies es JOIN operational.businesses eb ON eb.id=es.business_id WHERE eb.owner_user_id=eu.id AND es.is_active)) eligible "
+            "LEFT JOIN LATERAL (SELECT u.id,a.username,u.first_name,u.last_name,EXISTS (SELECT 1 FROM operational.client_discovery_strategies s JOIN operational.businesses b ON b.id=s.business_id WHERE b.owner_user_id=u.id AND s.is_active) AS has_active_strategies "
             "FROM operational.users u JOIN operational.accounts a ON a.id=u.account_id WHERE a.status='active' AND "
             + filter_sql
             + " ORDER BY a.username,u.id LIMIT %s OFFSET %s) page ON TRUE",

@@ -65,6 +65,10 @@ def test_owner_provisioning_creates_trusted_recovery_identity(
         assert recovery_identity == (False, None, None, None)
     finally:
         with psycopg.connect(management_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             connection.execute(
                 "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
                 (identity.account_id,),
@@ -72,6 +76,13 @@ def test_owner_provisioning_creates_trusted_recovery_identity(
             connection.execute(
                 "DELETE FROM operational.professional_profiles WHERE user_id = %s",
                 (identity.user_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences WHERE business_id=%s",
+                (business_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.businesses WHERE id=%s", (business_id,)
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE id = %s", (identity.user_id,)

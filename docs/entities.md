@@ -14,10 +14,11 @@ personal, professional, targeting, or matching data.
 
 ## User
 
-Mandatory personal and contact information. `AccountId` is the unique
-ownership key to Account. `User.Id`, not Account.Id, is the ownership key for
-professional and business-domain data. The existing `Match.UserId` therefore
-continues to reference User.
+Personal and contact information. `AccountId` is the unique ownership key to
+Account. `User.Id` owns the personal ProfessionalProfile and identifies the
+person acting on Business-owned configuration. Credential-only Accounts can
+exist before a User is created. The existing legacy `Match.UserId` still
+references User while its writer awaits the shared-workflow cutover.
 
 - Id: GUID
 - AccountId: GUID (unique foreign key to Account)
@@ -29,6 +30,40 @@ continues to reference User.
 - Timezone: String (nullable)
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
+
+## Business
+
+One Business per User, with one owning User. New User creation creates its
+Business atomically; explicit repeatable setup attaches existing Users and
+their configuration. The owning Business is distinct from a target Company
+in the shared Gold pool. Profile fields remain unset until supplied and are
+not inferred from personal information. See [ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md).
+
+- Id: GUID
+- OwnerUserId: GUID (unique foreign key to User)
+- Name: String (nullable)
+- Tagline: String (nullable)
+- Website: String (nullable)
+- Location: String (nullable)
+- Description: String (nullable)
+- Capabilities: JSON array of named objects (nullable)
+- CreatedOn: DateTimeOffset
+- UpdatedOn: DateTimeOffset
+
+Offerings, ICP definitions and manual discovery strategies use Business as
+their canonical owner. A strategy pairs one offering with one ICP belonging
+to that same Business; multiple definitions and pairings remain supported.
+Their IDs, values and associations survive ownership setup.
+
+## BusinessRecommendationPreferences
+
+- BusinessId: GUID (primary key and foreign key to Business)
+- RepeatIntervalDays: positive Integer (default 30)
+- UpdatedOn: DateTimeOffset
+
+The Business also owns digest subscription state. Delivery records retain
+the recipient User separately and enforce that the recipient owns that
+Business. Personal ProfessionalProfile data remains on User.
 
 ## ProfessionalProfile
 
@@ -48,6 +83,38 @@ the [management foundation](management-foundation.md).
 - PreviousProjects: JSON array
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
+
+## Recommendation and assessment history
+
+- Recommendation (`operational.recommendations`): Business/Company identity,
+  lifecycle status, current revision, original first presentation and optimistic
+  version. At most one open occurrence exists for the pair.
+- AssessmentRevision (`operational.assessment_revisions`): immutable numbered
+  strategy/offering/ICP/profile snapshots, assessments, policy versions and exact
+  source-evidence lineage for one occurrence.
+- OfferCycle and OfferCycleEvent: selected exact revision, retry identity,
+  bounded Preparing claim, Sending/Unknown protection and attributed settlement.
+  Actual presentation and observation timestamps are separate.
+- SuppressionBlock: independent Business/Company rejection, pause or cooldown,
+  with preserved replacement/clearing history.
+- Prospect: one Business/Company relationship, explicit stage/version, current
+  memo and optional reminder. Closed retains its last active stage.
+- ProspectOrigin: immutable exact recommendation and assessment revision used
+  by Save. Existing pursuit state is preserved when another origin is linked.
+- ProspectActivity: append-only attributed action, occurred/recorded timestamps
+  and correction linkage. Proposal drafts and reminders do not imply outreach.
+- CommandReceipt and RecommendationAssessmentFeedback: immutable retry results
+  and report-only judgments attributed to the exact assessment shown.
+- WeeklyDigestDelivery: one owner/week reservation, state/version, content pointer,
+  authorization, settlement and actual acceptance times.
+- WeeklyDigestContent/WeeklyDigestMember/WeeklyDigestDeliveryEvent: immutable mail
+  versions, at most seven distinct Company entries with exact revision/cycle
+  membership, accepted consent version and attributable outcome/recovery history.
+
+The exact columns and constraints are in
+[`operational-prospecting.sql`](../db/schema/operational-prospecting.sql) and
+[`operational-weekly-digest-content.sql`](../db/schema/operational-weekly-digest-content.sql).
+See [ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md).
 
 # Gold
 
@@ -105,28 +172,14 @@ One row per superseded version. Written only when a Type 2 tracked field on Comp
 - CreatedOn: DateTimeOffset
 - UpdatedOn: DateTimeOffset
 
-## Match
-`operational.match` is the durable User–Company identity. The current
-matchmaking slice inserts only new rows and leaves every existing row,
-including dismissed or contacted rows, unchanged. The database enforces one
-row per `(user_id, company_id)` with `match_user_company_unique`.
+## Legacy Match storage
 
-- `id`: UUID primary key
-- `user_id`: UUID foreign key to `operational.users`
-- `company_id`: UUID foreign key to `gold.company`
-- `status`: text (`new`, `contacted`, `responded`, `dismissed`, or `converted`), defaults to `new`
-- `notes`: nullable text
-- `created_at`: timezone-aware timestamp, database default
-- `updated_at`: timezone-aware timestamp, database default
-
-The matchmaking service does not write `match_score`, `match_feedback`,
-evidence, digest, or delivery records. Scoring, sent snapshots, and
-resurfacing remain future design work.
-
-`huginn.matchmaking` owns Match creation independently of management CRUD.
-Its Request/Response APIs return committed creations; `StrategyConfiguration`,
-`UserAvailability`, and `CompanyCandidate` are application read projections,
-not additional persisted domain entities.
+`operational.match` and the following MatchScore/MatchFeedback/Activity/
+Communication tables are obsolete workflow storage retained in schema history for
+explicit inspection and cleanup. The creation-only writer, CLI, queued worker and
+administrator admission are retired. These rows are not migrated into prospects.
+See [the cutover procedure](recommendation-prospect-cutover.md). Company and source
+identities remain shared and are preserved.
 
 ## MatchScore
 - Id: GUID

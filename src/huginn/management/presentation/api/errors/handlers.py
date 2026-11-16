@@ -78,6 +78,11 @@ def _private_headers(request: Request) -> dict[str, str] | None:
         or request.url.path.startswith("/api/v1/matches/")
         or request.url.path == "/api/v1/recommendations"
         or request.url.path.startswith("/api/v1/recommendations/")
+        or request.url.path == "/api/v1/prospects"
+        or request.url.path.startswith("/api/v1/prospects/")
+        or request.url.path == "/api/v1/suppressions"
+        or request.url.path.startswith("/api/v1/suppressions/")
+        or request.url.path.startswith("/api/v1/weekly-digests/")
         or request.url.path.startswith("/weekly-digest/")
         or request.url.path == "/api/v1/sessions/current"
         or (
@@ -99,7 +104,10 @@ def register_exception_handlers(app: FastAPI) -> None:
             return JSONResponse(
                 status_code=shape.status_code,
                 content=shape.body,
-                headers={"Cache-Control": "no-store"},
+                headers={
+                    "Cache-Control": "no-store",
+                    **(_private_headers(request) or {}),
+                },
             )
         response = await http_exception_handler(request, error)
         response.headers.update(_private_headers(request) or {})
@@ -113,6 +121,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         headers = _private_headers(request)
         if isinstance(error, RateLimitError) and error.retry_after_seconds is not None:
             headers = {
+                **(headers or {}),
                 "Retry-After": str(error.retry_after_seconds),
                 "Cache-Control": "no-store",
             }

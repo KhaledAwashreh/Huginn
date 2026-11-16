@@ -177,8 +177,9 @@ class PostgresMatchesQuery:
     def overview_for(self, user_id: UUID) -> MatchesOverview:
         row = self._connection.execute(
             """SELECT EXISTS(SELECT 1 FROM operational.match WHERE user_id=%s),
-                      EXISTS(SELECT 1 FROM operational.client_discovery_strategies
-                             WHERE user_id=%s AND is_active),
+                      EXISTS(SELECT 1 FROM operational.client_discovery_strategies s
+                             JOIN operational.businesses b ON b.id=s.business_id
+                             WHERE b.owner_user_id=%s AND s.is_active),
                       latest.state,latest.requested_at,latest.started_at,latest.finished_at,
                       latest.cutoff,latest.as_of,latest.tracking_stale,
                       latest.strategies_evaluated,latest.strategies_skipped,

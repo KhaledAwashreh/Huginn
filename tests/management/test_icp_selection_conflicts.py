@@ -5,15 +5,17 @@ from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
 from huginn.management.config import ManagementConfig
+from tests.management.persistence.digest_subscription_fixtures import (
+    seed_digest_subscriber,
+)
 from tests.management.test_matches_read_router import SESSION_TOKEN, FakeAuthentication
-from tests.management.test_weekly_digest_repository import _subscriber
 
 
 def test_icp_api_rejects_overlapping_create_and_merged_partial_patch(
     management_database_url,
 ):
     with psycopg.connect(management_database_url) as conn:
-        user, _, strategy = _subscriber(conn, "icp-conflicts")
+        user, _, strategy = seed_digest_subscriber(conn, "icp-conflicts")
         profile = conn.execute(
             "SELECT ideal_client_profile_id FROM operational.client_discovery_strategies WHERE id=%s",
             (strategy,),
@@ -83,7 +85,7 @@ def test_concurrent_partial_patches_cannot_commit_a_selection_exclusion_conflict
     management_database_url,
 ):
     with psycopg.connect(management_database_url) as conn:
-        user, _, strategy = _subscriber(conn, "icp-concurrent-conflicts")
+        user, _, strategy = seed_digest_subscriber(conn, "icp-concurrent-conflicts")
         profile = conn.execute(
             "SELECT ideal_client_profile_id FROM operational.client_discovery_strategies WHERE id=%s",
             (strategy,),

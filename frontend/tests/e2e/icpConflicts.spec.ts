@@ -14,7 +14,7 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   await page.getByLabel('Username').fill('browser-icp-conflicts');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Matches', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
   const browserPrompts: string[] = [];
   page.on('dialog', (prompt) => {
     browserPrompts.push(prompt.message());
@@ -72,16 +72,16 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   );
   await countries.press('Escape');
   // The button is also disabled while saving, so wait for the save itself before reading it back.
+  const selectedProfileId = '00000000-0000-0000-0000-000000000333';
   const saveResponse = page.waitForResponse(
     (response) =>
-      response.request().method() === 'PATCH' && response.url().includes('/ideal-client-profiles/'),
+      response.request().method() === 'PATCH' &&
+      response.url().endsWith(`/ideal-client-profiles/${selectedProfileId}`),
   );
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   expect((await saveResponse).status()).toBe(200);
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
-  const saved = await page.request.get(
-    '/api/v1/ideal-client-profiles/00000000-0000-0000-0000-000000000333',
-  );
+  const saved = await page.request.get(`/api/v1/ideal-client-profiles/${selectedProfileId}`);
   expect(saved.status()).toBe(200);
   const value = await saved.json();
   expect(value.industries).toEqual([]);

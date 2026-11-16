@@ -233,7 +233,7 @@ def _fixture_stages(
     return [stage_for(descriptor) for descriptor in SUPPORTED_STAGE_PLAN.stages]
 
 
-def test_supported_nine_stage_graph_preserves_hn_yc_eu_lineage_and_failure_policy(
+def test_supported_twelve_stage_graph_preserves_hn_yc_eu_lineage_and_failure_policy(
     integration_database_url: str,
 ) -> None:
     expected_names = tuple(stage.name for stage in SUPPORTED_STAGE_PLAN.stages)
@@ -247,6 +247,9 @@ def test_supported_nine_stage_graph_preserves_hn_yc_eu_lineage_and_failure_polic
         "silver.manual_review",
         "gold.company",
         "gold.company_signal",
+        "silver.source_currentness.hn",
+        "silver.source_currentness.yc",
+        "silver.source_currentness.eu_startups",
     )
     success_account_id, success_id = _create_invocation(
         integration_database_url, state="running"

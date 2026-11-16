@@ -1,9 +1,11 @@
 """Strict primitives shared by request models."""
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -35,3 +37,15 @@ def _parse_uuid_string(value: object) -> object:
 
 
 RequestUUID = Annotated[UUID, BeforeValidator(_parse_uuid_string), Field(strict=True)]
+
+
+def _parse_timestamp(value: object) -> object:
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    return value
+
+
+RequestTimestamp = Annotated[AwareDatetime, BeforeValidator(_parse_timestamp)]

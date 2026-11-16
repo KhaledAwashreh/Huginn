@@ -1,4 +1,4 @@
-"""Shared filtering, multi-offering weekly selection, delivery and immutable history."""
+"""Weekly email selects shared recommendation revisions without legacy batches."""
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -6,210 +6,456 @@ from uuid import UUID
 
 import psycopg
 import pytest
-from fastapi.testclient import TestClient
 
-from huginn.management.app import create_app
-from huginn.management.application.services.recommendations import RecommendationService
+from huginn.management.application.services.recommendation_generation import (
+    RecommendationGenerationService,
+)
 from huginn.management.application.services.weekly_digest import WeeklyDigestService
-from huginn.management.config import ManagementConfig
+from huginn.management.delivery.templates.weekly_digest import (
+    PlainTextWeeklyDigestRenderer,
+)
+from huginn.management.domain.entities.suppression_block import SuppressionBlock
+from huginn.management.domain.value_objects.suppression_kind import SuppressionKind
 from huginn.management.persistence.database.client import (
     ManagementConnectionFactory,
     PsycopgDatabaseSession,
 )
-from huginn.management.persistence.database.unit_of_work import UnitOfWork
-from huginn.management.persistence.repositories.recommendations import (
-    PostgresRecommendationRepository,
+from huginn.management.persistence.database.prospecting_unit_of_work import (
+    PostgresProspectingUnitOfWork,
 )
-from huginn.management.persistence.repositories.weekly_digest import (
-    PostgresWeeklyDigestRepository,
+from huginn.management.persistence.repositories.digest_subscription_access import (
+    PostgresDigestSubscriptionAccess,
 )
-from tests.management.test_matches_read_router import SESSION_TOKEN, FakeAuthentication
-from tests.management.test_weekly_digest_repository import _subscriber
-from tests.matchmaking.test_evidence_integration import _reconcile, _seed_company
+from huginn.management.persistence.repositories.recommendation_generation import (
+    PostgresRecommendationGenerationSource,
+)
+from huginn.management.persistence.repositories.suppression_block import (
+    PostgresSuppressionBlockRepository,
+)
+from huginn.management.persistence.repositories.weekly_digest_content import (
+    PostgresWeeklyDigestContentRepository,
+)
+from huginn.management.persistence.repositories.weekly_digest_delivery import (
+    PostgresWeeklyDigestDeliveryRepository,
+)
+from tests.management.persistence.digest_subscription_fixtures import (
+    seed_digest_subscriber,
+)
+from tests.matchmaking.evidence_fixtures import (
+    reconcile as _reconcile,
+)
+from tests.matchmaking.evidence_fixtures import (
+    seed_company as _seed_company,
+)
 from tests.postgres_harness import provisioned_postgres
 
 
 @pytest.fixture
 def weekly_matching_database_url():
     with provisioned_postgres("weekly_matching_integration") as url:
+        with psycopg.connect(url, autocommit=True) as connection:
+            for filename in (
+                "operational-recommendations.sql",
+                "operational-weekly-digest.sql",
+                "operational-weekly-digest-content.sql",
+            ):
+                connection.execute(
+                    (Path("db/schema") / filename).read_text(encoding="utf-8")
+                )
         yield url
 
 
-def test_seven_weekly_matches_use_shared_icp_rules_and_keep_exact_email_selection(
+def _weekly_service(factory, generation, sender, clock):
+    return WeeklyDigestService(
+        lambda: PostgresProspectingUnitOfWork(factory),
+        subscription_access_factory=lambda work: PostgresDigestSubscriptionAccess(
+            work.connection
+        ),
+        delivery_repository_factory=lambda work: PostgresWeeklyDigestDeliveryRepository(
+            work.connection
+        ),
+        content_repository_factory=lambda work: PostgresWeeklyDigestContentRepository(
+            work.connection
+        ),
+        source_factory=PostgresRecommendationGenerationSource,
+        generation=generation,
+        renderer=PlainTextWeeklyDigestRenderer(
+            "https://huginn.example", "integration-signing-key", "huginn.example"
+        ),
+        sender=sender,
+        sender_address="weekly@huginn.example",
+        clock=clock,
+    )
+
+
+def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companies(
     weekly_matching_database_url,
 ):
-    management_database_url = weekly_matching_database_url
-    now = datetime.now(UTC)
-    with psycopg.connect(management_database_url) as conn:
-        conn.execute(Path("db/schema/operational-recommendations.sql").read_text())
-        conn.execute(Path("db/schema/operational-weekly-digest.sql").read_text())
-        user, _, first = _subscriber(conn, "weekly-integration")
-        conn.execute(
-            "UPDATE operational.service_offerings SET name='Directory research',description='Understand directory records' WHERE user_id=%s",
-            (user,),
+    url = weekly_matching_database_url
+    now = datetime.now(UTC) + timedelta(seconds=1)
+    with psycopg.connect(url) as connection:
+        user, _, first_strategy = seed_digest_subscriber(
+            connection, "weekly-integration"
         )
-        conn.execute(
-            'UPDATE operational.ideal_client_profiles SET industries=\'[{"name":"SaaS"}]\',company_sizes=\'[{"band":"0-10"}]\',geographies=\'[{"kind":"country","value":"Germany"}]\' WHERE user_id=%s',
-            (user,),
+        business_id = connection.execute(
+            "SELECT id FROM operational.businesses WHERE owner_user_id=%s", (user,)
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE operational.service_offerings SET name='Directory research',"
+            "description='Understand directory records' WHERE business_id=%s",
+            (business_id,),
         )
-        second_offering = conn.execute(
-            "INSERT INTO operational.service_offerings(user_id,name,description) VALUES (%s,'Record research','Review directory records') RETURNING id",
-            (user,),
+        connection.execute(
+            'UPDATE operational.ideal_client_profiles SET industries=\'[{"name":"SaaS"}]\','
+            'company_sizes=\'[{"band":"0-10"}]\','
+            'geographies=\'[{"kind":"country","value":"Germany"}]\' '
+            "WHERE business_id=%s",
+            (business_id,),
+        )
+        second_offering = connection.execute(
+            "INSERT INTO operational.service_offerings(business_id,name,description) "
+            "VALUES (%s,'Record research','Review directory records') RETURNING id",
+            (business_id,),
         ).fetchone()[0]
-        second_icp = conn.execute(
-            'INSERT INTO operational.ideal_client_profiles(user_id,name,industries,company_sizes,geographies) VALUES (%s,\'UK targets\',\'[{"name":"SaaS"}]\',\'[{"band":"0-10"}]\',\'[{"kind":"country","value":"UK"}]\') RETURNING id',
-            (user,),
+        second_icp = connection.execute(
+            "INSERT INTO operational.ideal_client_profiles"
+            "(business_id,name,industries,company_sizes,geographies) "
+            "VALUES (%s,'UK targets','[{\"name\":\"SaaS\"}]',"
+            '\'[{"band":"0-10"}]\',\'[{"kind":"country","value":"UK"}]\') RETURNING id',
+            (business_id,),
         ).fetchone()[0]
-        second = conn.execute(
-            "INSERT INTO operational.client_discovery_strategies(user_id,name,service_offering_id,ideal_client_profile_id,is_active) VALUES (%s,'UK strategy',%s,%s,true) RETURNING id",
-            (user, second_offering, second_icp),
-        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO operational.client_discovery_strategies"
+            "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+            "VALUES (%s,'UK strategy',%s,%s,true)",
+            (business_id, second_offering, second_icp),
+        )
         companies = []
         for country in ("DE", "DE", "DE", "UK", "UK", "UK", None, "US"):
-            company, _ = _seed_company(conn, event_at=now - timedelta(days=1))
-            conn.execute(
+            company, _ = _seed_company(connection, event_at=now - timedelta(days=1))
+            connection.execute(
                 "UPDATE gold.company SET country=%s WHERE id=%s", (country, company)
             )
             companies.append(company)
-        legacy = conn.execute(
-            "INSERT INTO operational.match(user_id,company_id,status,notes) VALUES (%s,%s,'contacted','Keep original notes') RETURNING id",
-            (user, companies[-1]),
-        ).fetchone()[0]
-        conn.commit()
-    _reconcile(management_database_url)
+        connection.commit()
+    _reconcile(url)
 
-    def clock():
-        return datetime.now(UTC) + timedelta(seconds=1)
-
-    factory = ManagementConnectionFactory(management_database_url)
-
-    def make_work():
-        return UnitOfWork(factory)
-
-    recommendations = RecommendationService(
-        make_work,
-        repository_factory=lambda work: PostgresRecommendationRepository(
-            work.connection
-        ),
-        clock=clock,
+    factory = ManagementConnectionFactory(url)
+    generation = RecommendationGenerationService(
+        lambda: PostgresProspectingUnitOfWork(factory),
+        source_factory=PostgresRecommendationGenerationSource,
+        clock=lambda: now,
     )
-    direct = recommendations.generate(user, first)
-    assert {UUID(item["company"]["id"]) for item in direct["items"]} == set(
-        companies[:3] + companies[6:7]
-    )
+    with PostgresProspectingUnitOfWork(factory) as work:
+        PostgresDigestSubscriptionAccess(work.connection).subscribe(
+            user, business_id, now
+        )
+        work.commit()
     messages = []
+    service_time = [now]
 
     class Sender:
         def send(self, message):
             messages.append(message)
+            return service_time[0]
 
-    with make_work() as work:
-        PostgresWeeklyDigestRepository(work.connection).subscribe(user, clock())
-        work.commit()
-    digest = WeeklyDigestService(
-        make_work,
-        repository_factory=lambda work: PostgresWeeklyDigestRepository(work.connection),
-        recommendations=recommendations,
-        sender=Sender(),
-        web_origin="https://huginn.example",
-        sender_address="weekly@huginn.example",
-        signing_key="test-key",
-        clock=clock,
+    class CaptureWeeklyGeneration:
+        company_order = ()
+
+        def execute_weekly(self, business_id):
+            response = generation.execute_weekly(business_id)
+            with psycopg.connect(url) as connection:
+                self.company_order = tuple(
+                    connection.execute(
+                        "SELECT company_id FROM operational.assessment_revisions "
+                        "WHERE id=%s",
+                        (reference.revision_id,),
+                    ).fetchone()[0]
+                    for reference in response.references
+                )
+            return response
+
+    weekly_generation = CaptureWeeklyGeneration()
+    base_renderer = PlainTextWeeklyDigestRenderer(
+        "https://huginn.example", "integration-signing-key", "huginn.example"
     )
-    assert digest.run()["sent"] == 1
-    assert len(messages) == 1
-    weekly = recommendations.weekly(user)
-    assert len(weekly) == 1 and len(weekly[0]["items"]) == 7
-    batch = weekly[0]
-    assert {UUID(item["company"]["id"]) for item in batch["items"]} == set(
-        companies[:7]
-    )
-    assert {entry["id"] for item in batch["items"] for entry in item["strategies"]} == {
-        str(first),
-        str(second),
-    }
-    unknown = next(
-        item for item in batch["items"] if item["company"]["country"] is None
-    )
-    assert unknown["icp_fit"]["country"] == "unknown"
-    assert "country is unverified" in " ".join(unknown["unknowns"])
-    assert f"batch={batch['id']}" in messages[0].body
-    assert "7. Evidence fixture" in messages[0].body
-    recommendations.generate(user, second)
-    assert recommendations.weekly(user)[0] == batch
-    assert recommendations.latest(user, first)["id"] == direct["id"]
-    assert digest.run()["skipped"] == 1 and len(messages) == 1
-    app = create_app(
-        ManagementConfig(management_database_url, environment="test"),
-        authentication_service=FakeAuthentication(user),
-    )
-    with TestClient(app) as client:
-        client.cookies.set("huginn_management_session", SESSION_TOKEN)
-        response = client.get("/api/v1/recommendations/weekly")
-        assert response.status_code == 200 and response.json()[0]["id"] == batch["id"]
-        assert len(response.json()[0]["items"]) == 7
-    with psycopg.connect(management_database_url) as conn:
-        conn.execute(
-            "UPDATE operational.client_discovery_strategies SET is_active=false WHERE user_id=%s",
-            (user,),
-        )
-        assert conn.execute(
-            "SELECT status,notes FROM operational.match WHERE id=%s", (legacy,)
-        ).fetchone() == ("contacted", "Keep original notes")
-    assert recommendations.weekly(user)[0] == batch
 
+    class DecisionDuringRender:
+        target_company_id = None
 
-def test_invalid_profile_can_be_corrected_without_losing_weekly_slot(
-    weekly_matching_database_url,
-):
-    url = weekly_matching_database_url
-    with psycopg.connect(url) as conn:
-        conn.execute(Path("db/schema/operational-recommendations.sql").read_text())
-        conn.execute(Path("db/schema/operational-weekly-digest.sql").read_text())
-        user, _, _ = _subscriber(conn, "invalid-slot")
-        conn.execute(
-            'UPDATE operational.ideal_client_profiles SET geographies=\'[{"kind":"region","value":"Europe"}]\' WHERE user_id=%s',
-            (user,),
-        )
-        PostgresWeeklyDigestRepository(PsycopgDatabaseSession(conn)).subscribe(
-            user, datetime.now(UTC)
-        )
-    factory = ManagementConnectionFactory(url)
+        def render(self, subscription, week_start, content_id, revisions):
+            message = base_renderer.render(
+                subscription, week_start, content_id, revisions
+            )
+            if self.target_company_id is None:
+                self.target_company_id = revisions[0].company_id
+                decided_at = now + timedelta(seconds=1)
+                with psycopg.connect(url) as connection:
+                    PostgresSuppressionBlockRepository(
+                        PsycopgDatabaseSession(connection)
+                    ).append(
+                        SuppressionBlock(
+                            UUID(int=1),
+                            business_id,
+                            self.target_company_id,
+                            SuppressionKind("rejection"),
+                            decided_at,
+                            created_by_user_id=user,
+                            reason="Intervening decision before email authorization",
+                        )
+                    )
+                    connection.commit()
+                service_time[0] = now + timedelta(seconds=2)
+            return message
 
-    def make_work():
-        return UnitOfWork(factory)
-
-    recommendations = RecommendationService(
-        make_work,
-        repository_factory=lambda work: PostgresRecommendationRepository(
+    renderer = DecisionDuringRender()
+    service = WeeklyDigestService(
+        lambda: PostgresProspectingUnitOfWork(factory),
+        subscription_access_factory=lambda work: PostgresDigestSubscriptionAccess(
             work.connection
         ),
-    )
-
-    class Sender:
-        def send(self, message):
-            raise AssertionError("No source candidates; no email should be sent")
-
-    digest = WeeklyDigestService(
-        make_work,
-        repository_factory=lambda work: PostgresWeeklyDigestRepository(work.connection),
-        recommendations=recommendations,
+        delivery_repository_factory=lambda work: PostgresWeeklyDigestDeliveryRepository(
+            work.connection
+        ),
+        content_repository_factory=lambda work: PostgresWeeklyDigestContentRepository(
+            work.connection
+        ),
+        source_factory=PostgresRecommendationGenerationSource,
+        generation=weekly_generation,
+        renderer=renderer,
         sender=Sender(),
-        web_origin="https://example.test",
-        sender_address="weekly@example.test",
-        signing_key="test-key",
+        sender_address="weekly@huginn.example",
+        clock=lambda: service_time[0],
     )
-    assert digest.run()["skipped"] == 1
-    with psycopg.connect(url) as conn:
+    with PostgresProspectingUnitOfWork(factory) as work:
+        subscription = PostgresDigestSubscriptionAccess(work.connection).list_eligible(
+            1
+        )[0]
+    week_start = now.date() - timedelta(days=now.weekday())
+    assert service._deliver(subscription, week_start, 100) == "sent"
+    assert len(messages) == 1
+    assert "/recommendations?recommendation_id=" in messages[0].body
+    assert "batch=" not in messages[0].body
+
+    with psycopg.connect(url) as connection:
+        delivery, content_id = connection.execute(
+            "SELECT id,current_content_id FROM operational.weekly_digest_deliveries "
+            "WHERE business_id=%s",
+            (business_id,),
+        ).fetchone()
+        members = connection.execute(
+            "SELECT company_id,recommendation_id,assessment_revision_id,offer_cycle_id "
+            "FROM operational.weekly_digest_members WHERE content_id=%s ORDER BY position",
+            (content_id,),
+        ).fetchall()
+        assert len(members) == 6
+        assert len({member[0] for member in members}) == 6
+        assert {member[0] for member in members} == set(companies[:7]) - {
+            renderer.target_company_id
+        }
+        assert tuple(member[0] for member in members) == tuple(
+            company_id
+            for company_id in weekly_generation.company_order
+            if company_id != renderer.target_company_id
+        )
+        content_versions = connection.execute(
+            "SELECT c.version,c.id,count(m.position) FROM operational.weekly_digest_contents c "
+            "LEFT JOIN operational.weekly_digest_members m ON m.content_id=c.id "
+            "WHERE c.delivery_id=%s GROUP BY c.version,c.id ORDER BY c.version",
+            (delivery,),
+        ).fetchall()
+        assert [(version, count) for version, _, count in content_versions] == [
+            (1, 7),
+            (2, 6),
+        ]
+        assert content_id == content_versions[-1][1]
+        old_member_count = connection.execute(
+            "SELECT count(*) FROM operational.weekly_digest_members WHERE content_id=%s",
+            (content_versions[0][1],),
+        ).fetchone()[0]
+        assert old_member_count == 7
         assert (
-            conn.execute(
-                "SELECT count(*) FROM operational.weekly_digest_deliveries WHERE user_id=%s",
+            connection.execute(
+                "SELECT count(*) FROM operational.recommendation_batches WHERE user_id=%s",
                 (user,),
             ).fetchone()[0]
             == 0
         )
-        conn.execute(
-            "UPDATE operational.ideal_client_profiles SET geographies='[]' WHERE user_id=%s",
-            (user,),
+        for _, recommendation_id, revision_id, cycle_id in members:
+            assert (
+                connection.execute(
+                    "SELECT current_revision_id FROM operational.recommendations WHERE id=%s",
+                    (recommendation_id,),
+                ).fetchone()[0]
+                == revision_id
+            )
+            associations = connection.execute(
+                "SELECT item->>'strategy_id',item->'assessment_snapshot'->>'score' "
+                "FROM operational.assessment_revisions revision, "
+                "jsonb_array_elements(revision.strategy_assessments) item "
+                "WHERE revision.recommendation_id=%s AND revision.id=%s",
+                (recommendation_id, revision_id),
+            ).fetchall()
+            assert 1 <= len(associations) <= 2
+            scores = {int(score) for _, score in associations}
+            assert all(0 <= score <= 100 for score in scores)
+            assert all(
+                f"Strategy relevance: {score}/100;" in messages[0].body
+                for score in scores
+            )
+            assert (
+                connection.execute(
+                    "SELECT status FROM operational.offer_cycles WHERE id=%s",
+                    (cycle_id,),
+                ).fetchone()[0]
+                == "confirmed"
+            )
+        assert (
+            connection.execute(
+                "SELECT state FROM operational.weekly_digest_deliveries WHERE id=%s",
+                (delivery,),
+            ).fetchone()[0]
+            == "sent"
         )
-    assert digest.run()["empty"] == 1
+
+    # A failure authorizing the second Company rolls back the first Company's
+    # Sending transition and delivery authorization before safe claim cleanup.
+    with psycopg.connect(url) as connection:
+        owner2, _, _ = seed_digest_subscriber(
+            connection, "weekly-authorization-rollback"
+        )
+        business2 = connection.execute(
+            "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+            (owner2,),
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE operational.service_offerings SET name='Directory research',"
+            "description='Understand directory records' WHERE business_id=%s",
+            (business2,),
+        )
+        connection.execute(
+            'UPDATE operational.ideal_client_profiles SET industries=\'[{"name":"SaaS"}]\','
+            "company_sizes='[]',geographies='[]' WHERE business_id=%s",
+            (business2,),
+        )
+        connection.commit()
+    with PostgresProspectingUnitOfWork(factory) as work:
+        PostgresDigestSubscriptionAccess(work.connection).subscribe(
+            owner2, business2, now
+        )
+        work.commit()
+
+    class AuthorizationFailure:
+        mark_calls = 0
+
+        class OfferCycles:
+            def __init__(self, repository):
+                self._repository = repository
+
+            def __getattr__(self, name):
+                return getattr(self._repository, name)
+
+            def mark_sending(self, *args, **kwargs):
+                AuthorizationFailure.mark_calls += 1
+                if AuthorizationFailure.mark_calls == 2:
+                    raise RuntimeError("Synthetic second-company authorization failure")
+                return self._repository.mark_sending(*args, **kwargs)
+
+        class Work:
+            def __init__(self):
+                self._work = PostgresProspectingUnitOfWork(factory)
+
+            def __enter__(self):
+                self._work.__enter__()
+                self._work.offer_cycles = AuthorizationFailure.OfferCycles(
+                    self._work.offer_cycles
+                )
+                return self
+
+            def __exit__(self, *args):
+                return self._work.__exit__(*args)
+
+            def __getattr__(self, name):
+                return getattr(self._work, name)
+
+    generation2 = RecommendationGenerationService(
+        lambda: PostgresProspectingUnitOfWork(factory),
+        source_factory=PostgresRecommendationGenerationSource,
+        clock=lambda: now + timedelta(seconds=3),
+    )
+
+    class MustNotSend:
+        def send(self, message):
+            raise AssertionError("Authorization failure cannot call SMTP")
+
+    rollback_service = WeeklyDigestService(
+        AuthorizationFailure.Work,
+        subscription_access_factory=lambda work: PostgresDigestSubscriptionAccess(
+            work.connection
+        ),
+        delivery_repository_factory=lambda work: PostgresWeeklyDigestDeliveryRepository(
+            work.connection
+        ),
+        content_repository_factory=lambda work: PostgresWeeklyDigestContentRepository(
+            work.connection
+        ),
+        source_factory=PostgresRecommendationGenerationSource,
+        generation=generation2,
+        renderer=base_renderer,
+        sender=MustNotSend(),
+        sender_address="weekly@huginn.example",
+        clock=lambda: now + timedelta(seconds=3),
+    )
+    rollback_result = rollback_service.run()
+    assert rollback_result["failed"] == 1
+    assert AuthorizationFailure.mark_calls == 2
+    with psycopg.connect(url) as connection:
+        failed_delivery, selected_content = connection.execute(
+            "SELECT id,current_content_id FROM operational.weekly_digest_deliveries "
+            "WHERE business_id=%s",
+            (business2,),
+        ).fetchone()
+        assert (
+            connection.execute(
+                "SELECT state FROM operational.weekly_digest_deliveries WHERE id=%s",
+                (failed_delivery,),
+            ).fetchone()[0]
+            == "failed"
+        )
+        selected_count = connection.execute(
+            "SELECT count(*) FROM operational.weekly_digest_members WHERE content_id=%s",
+            (selected_content,),
+        ).fetchone()[0]
+        assert selected_count >= 2
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.offer_cycles "
+                "WHERE business_id=%s AND status='sending'",
+                (business2,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.offer_cycle_events "
+                "WHERE business_id=%s AND event_kind='sending_authorized'",
+                (business2,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.offer_cycles "
+                "WHERE business_id=%s AND status='abandoned'",
+                (business2,),
+            ).fetchone()[0]
+            == selected_count
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.suppression_blocks "
+                "WHERE business_id=%s AND kind='cooldown'",
+                (business2,),
+            ).fetchone()[0]
+            == 0
+        )

@@ -21,11 +21,29 @@ def _document(config: ManagementConfig | None = None) -> dict:
 def test_openapi_covers_registered_paths_methods_models_and_errors():
     document = _document()
     expected = {
-        "/api/v1/recommendations": {"post"},
-        "/api/v1/recommendations/latest": {"get"},
-        "/api/v1/recommendations/weekly": {"get"},
-        "/api/v1/recommendations/{batch_id}": {"get"},
-        "/api/v1/recommendations/{batch_id}/feedback": {"get", "post"},
+        "/api/v1/recommendations": {"get", "post"},
+        "/api/v1/recommendations/{recommendation_id}": {"get"},
+        "/api/v1/recommendations/{recommendation_id}/assessments": {"get"},
+        "/api/v1/recommendations/{recommendation_id}/feedback": {"post"},
+        "/api/v1/recommendations/{recommendation_id}/save": {"post"},
+        "/api/v1/recommendations/{recommendation_id}/not-relevant": {"post"},
+        "/api/v1/recommendations/{recommendation_id}/later": {"post"},
+        "/api/v1/recommendations/{recommendation_id}/offer-preparations": {"post"},
+        "/api/v1/recommendations/offer-preparations/{offer_cycle_id}/confirm": {"post"},
+        "/api/v1/prospects": {"get"},
+        "/api/v1/prospects/{prospect_id}": {"get"},
+        "/api/v1/prospects/{prospect_id}/stage": {"post"},
+        "/api/v1/prospects/{prospect_id}/close": {"post"},
+        "/api/v1/prospects/{prospect_id}/reopen": {"post"},
+        "/api/v1/prospects/{prospect_id}/notes": {"post"},
+        "/api/v1/prospects/{prospect_id}/follow-up": {"post"},
+        "/api/v1/prospects/{prospect_id}/clear-follow-up": {"post"},
+        "/api/v1/prospects/{prospect_id}/proposal-drafts": {"post"},
+        "/api/v1/prospects/{prospect_id}/activity-time-corrections": {"post"},
+        "/api/v1/suppressions": {"get"},
+        "/api/v1/suppressions/{suppression_block_id}/reverse-rejection": {"post"},
+        "/api/v1/suppressions/{suppression_block_id}/cancel-pause": {"post"},
+        "/api/v1/weekly-digests/{delivery_id}/recovery": {"post"},
         "/api/v1/matches": {"get"},
         "/api/v1/matches/overview": {"get"},
         "/api/v1/matches/{match_id}": {"get"},
@@ -58,6 +76,8 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
         "/api/v1/me": {"get", "patch"},
         "/api/v1/me/password": {"patch"},
         "/api/v1/me/professional-profile": {"get", "patch"},
+        "/api/v1/me/business": {"get", "patch"},
+        "/api/v1/me/business/recommendation-preferences": {"get", "patch"},
         "/api/v1/offerings": {"get", "post"},
         "/api/v1/offerings/{offering_id}": {"delete", "get", "patch"},
         "/api/v1/ideal-client-profiles": {"get", "post"},
@@ -99,10 +119,15 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
                         and parameter.get("in") == "header"
                         for parameter in operation.get("parameters", [])
                     )
-            if method in {"post", "patch"} and path not in {
-                "/api/v1/sessions",
-                "/api/v1/sessions/current",
-            }:
+            if (
+                method in {"post", "patch"}
+                and path
+                not in {
+                    "/api/v1/sessions",
+                    "/api/v1/sessions/current",
+                    "/api/v1/admin/matchmaking/runs",  # Retired admission has no command body.
+                }
+            ):
                 assert "requestBody" in operation
                 ref = operation["requestBody"]["content"]["application/json"]["schema"][
                     "$ref"

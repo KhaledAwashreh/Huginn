@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import type { components } from '../../../../api/generated/schema';
 import ErrorState from '../../../../shared/ui/ErrorState.vue';
 import LoadingState from '../../../../shared/ui/LoadingState.vue';
 import { useIdealClientProfile } from '../composables/useIdealClientProfile';
@@ -12,12 +13,35 @@ const props = defineProps<{
   reactions: IcpFeedbackAnnotation[];
   selectedIcpId?: string | undefined;
 }>();
-const { list, detail, create, update } = useIdealClientProfile(() => props.selectedIcpId);
+const pinnedIcpId = ref(props.selectedIcpId);
+const creating = ref(false);
+const { list, detail, create, update } = useIdealClientProfile(() => pinnedIcpId.value);
 const form = ref<InstanceType<typeof IdealClientProfileForm> | null>(null);
 
 const items = computed(() => list.data.value?.items ?? []);
-const query = computed(() => (props.selectedIcpId ? detail : list));
-const icp = computed(() => (props.selectedIcpId ? detail.data.value : items.value[0]));
+if (!props.selectedIcpId && list.data.value?.items.length === 0) creating.value = true;
+watch(
+  [() => props.selectedIcpId, () => list.data.value],
+  ([requestedId, page], previous) => {
+    const previousId = previous?.[0];
+    if (requestedId !== previousId) {
+      pinnedIcpId.value = requestedId ?? page?.items[0]?.id;
+      creating.value = !requestedId && page !== undefined && page.items.length === 0;
+      return;
+    }
+    if (requestedId) {
+      pinnedIcpId.value = requestedId;
+      creating.value = false;
+      return;
+    }
+    if (pinnedIcpId.value || creating.value || !page) return;
+    if (page.items[0]) pinnedIcpId.value = page.items[0].id;
+    else creating.value = true;
+  },
+  { immediate: true },
+);
+const query = computed(() => (pinnedIcpId.value && !creating.value ? detail : list));
+const icp = computed(() => (creating.value ? undefined : detail.data.value));
 const initial = computed<IdealClientProfileDraft>(() => {
   const current = icp.value;
   if (!current) {
@@ -42,23 +66,37 @@ const initial = computed<IdealClientProfileDraft>(() => {
 });
 
 async function refreshSaved() {
-  if (props.selectedIcpId) {
+  if (creating.value) {
+    const result = await list.refetch();
+    if (result.isError || !result.data) throw new Error('List refresh failed');
+    // A list refresh cannot identify which row was committed by an uncertain
+    // create, so keep the new-draft identity and require explicit recovery.
+    return null;
+  }
+  if (pinnedIcpId.value) {
     const result = await detail.refetch();
     if (result.isError || !result.data) throw new Error('ICP refresh failed');
     return result.data;
   }
   const result = await list.refetch();
   if (result.isError || !result.data) throw new Error('List refresh failed');
-  return result.data.items[0] ?? null;
+  return null;
 }
 async function save(
   draft: IdealClientProfileDraft,
   patch: Parameters<typeof update.mutateAsync>[0]['body'] | null,
 ) {
-  const id = props.selectedIcpId ?? icp.value?.id;
-  if (!id) return create.mutateAsync(draft);
+  if (creating.value) return create.mutateAsync(draft);
+  const id = pinnedIcpId.value;
+  if (!id) throw new Error('No ICP is selected for editing.');
   if (!patch) throw new Error('There are no changes to save.');
   return update.mutateAsync({ id, body: patch });
+}
+
+function afterSave(saved: components['schemas']['IdealClientProfileResponse']): void {
+  if (!creating.value) return;
+  creating.value = false;
+  pinnedIcpId.value = saved.id;
 }
 
 defineExpose({ canClose: () => form.value?.canClose() ?? true });
@@ -72,17 +110,17 @@ defineExpose({ canClose: () => form.value?.canClose() ?? true });
       message="Your ICP definition could not be loaded."
     />
     <template v-else>
-      <p v-if="!selectedIcpId && items.length > 1" class="annotations-empty">
+      <p v-if="!props.selectedIcpId && items.length > 1 && !creating" class="annotations-empty">
         Editing {{ icp?.name }}. Choose a different ICP from Profile.
       </p>
       <IdealClientProfileForm
         ref="form"
-        :key="icp?.id ?? 'new-icp'"
+        :key="creating ? 'new-icp' : (pinnedIcpId ?? 'unselected-icp')"
         :initial="initial"
-        :existing="Boolean(icp)"
+        :existing="!creating && Boolean(icp)"
         :save="save"
         :refresh-saved="refreshSaved"
-        :after-save="() => undefined"
+        :after-save="afterSave"
       />
     </template>
     <section v-if="clients.length" class="annotations" aria-labelledby="client-signals-heading">

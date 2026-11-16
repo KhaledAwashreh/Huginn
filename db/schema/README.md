@@ -49,14 +49,31 @@ are absent, back up the database and explicitly apply:
 rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/operational-management-configuration.sql
 ```
 
-This transaction creates only `sessions`, `service_offerings`,
-`ideal_client_profiles`, and `client_discovery_strategies`, including their
-indexes and foreign keys. It preserves existing account/profile, ELT, matching,
-and workflow tables. Inspect schema compatibility first; this file does not
-repair incompatible existing account columns or infer ownership. Apply it once
-before the lifecycle upgrade below. Reapplying it after the new tables exist
-fails and rolls back. Fresh databases already receive these tables from the
-bootstrap. Normal runtime startup never applies either upgrade.
+This transaction creates the sole Business for each existing User with
+unset Business fields, initializes the 30-day repeat interval, then creates
+Business-owned `service_offerings`, `ideal_client_profiles`, and
+`client_discovery_strategies`. Account credentials, User personal data and
+professional profile values remain unchanged. Inspect schema compatibility
+first. It can be rerun safely and also leaves an already bootstrapped schema
+unchanged. Fresh databases already receive these tables from the bootstrap.
+Normal runtime startup never applies schema changes.
+
+## Existing management configuration ownership upgrade
+
+For a database that already has User-owned configuration or weekly digest
+tables, inspect and back up the target, then explicitly apply
+`operational-business-ownership.sql` after `operational-weekly-digest.sql` and
+`operational-recommendations.sql` are present. The transaction attaches one
+empty Business to each existing User, moves offering, ICP, strategy and digest
+ownership to the generated Business IDs, and initializes a 30-day repeat
+preference only where one is missing. Existing Business IDs, fields and
+preferences are preserved. It can be rerun after upgrade and on an already
+fresh schema. It preserves configuration IDs, values, strategy references,
+digest consent/opt-out, verified-recipient rules, delivery IDs and delivery
+history. It does not alter accounts, personal User fields, professional
+profile JSON, source/company data, or pipeline lineage. Read those rows back
+before enabling application writers. This is explicit setup, never startup
+migration or cleanup.
 
 See the [local runtime runbook](../../docs/local-management-runtime.md) for the
 existing local database connection and restart commands.
@@ -195,26 +212,59 @@ Three need a word of warning, because idempotent does not mean unconditional:
 
 The matchmaking-control migration runs after Gold, operational, role, and pipeline-control setup. It creates durable fixed-target matching receipts and result journals and adds the fixed `pipeline`/`matchmaking` resource discriminator to the existing guard. It preserves active pipeline owner identities and leaves existing Match status and notes unchanged. Run compatible additive upgrades with `ON_ERROR_STOP`; do not reset the base tables.
 
-## Recommendation history
+## Legacy recommendation container prerequisites
 
-Reapply `gold-current-source-evidence.sql` after source-currentness setup so the
-view includes `source_country`. Then apply `operational-recommendations.sql` and
-`operational-weekly-digest.sql` after the operational schema before enabling the
-recommendation and Weekly Matches routes. Weekly history reads digest delivery
-storage even before any subscription or scheduler is enabled. The additive
-migration creates immutable owner-scoped recommendation batch snapshots and
-append-only feedback.
-Batch snapshots retain the original strategy identifier and source context after
-configuration changes or strategy deletion. Feedback references an occurrence
-inside its owned saved batch. No existing Match or source records are changed.
-Application startup applies no DDL. The same file supports fresh installs and
-existing databases, and can be reapplied without changing saved history.
-# Weekly digest
+`operational-recommendations.sql` defines the historical batch/feedback containers
+needed when inspecting and upgrading older targets. It is not an active runtime
+writer or a separate weekly lifecycle. Keep raw old rows intact through ownership
+setup and target inspection; only the explicitly authorized cleanup procedure
+removes obsolete workflow data. See the cutover guide below for the complete order.
+Application startup applies no DDL.
 
-After the recommendation migration, explicitly apply
-`operational-weekly-digest.sql` to enable operator-managed subscriptions and
-weekly delivery reservations. See [the digest runbook](../../docs/weekly-digest.md).
-Application startup performs no DDL.
+## Recommendation and prospect workflow
+
+After the seven base schema files, `operational-business-ownership.sql`, and
+`gold-current-source-evidence.sql`, explicitly apply
+`operational-prospecting.sql`. Complete the cycle-backed weekly setup described below
+before starting the full application:
+
+```sh
+rtk proxy psql "$HUGINN_MANAGEMENT_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f db/schema/operational-prospecting.sql
+```
+
+This additive setup creates stable recommendation identities, immutable
+assessment revisions, offer cycles and append-only offer-cycle events, unique
+Business/Company prospects, exact assessment origins, prospect activities,
+independent suppression blocks, immutable command receipts and
+revision-attributed feedback. Composite foreign keys retain Business,
+Company, recommendation and exact revision membership. Preparing claims have a
+finite lease; Sending and Unknown have no lease expiry or automatic release.
+The schema leaves legacy recommendation batches and Match storage unchanged.
+Application startup and reads apply no DDL. Fresh disposable databases receive
+this file through `tests/postgres_harness.py`; existing deployments must apply
+it explicitly after reviewing their deployment and rollback procedure.
+## Weekly digest content and explicit workflow cutover
+
+Apply `operational-weekly-digest.sql` for the subscription/reservation prerequisites,
+then `operational-prospecting.sql` and `operational-weekly-digest-content.sql` for the
+shared recommendation and cycle-backed immutable delivery layout. An existing old
+delivery table must be empty before the content setup removes batch-based columns.
+The upgrade does not synthesize new history from old mail.
+
+For a specifically authorized existing target, follow
+[the cutover and rollback guide](../../docs/recommendation-prospect-cutover.md).
+`operational-obsolete-prospecting-cleanup.sql` enumerates obsolete workflow rows,
+checks quiescence/new history/uncertain delivery, handles known legacy immutable
+triggers within one transaction and preserves source/configuration/audit data.
+Cleanup is never part of fresh bootstrap, application startup or a GET request.
+It refuses replay after new activity, including a reservation without content.
+
+Fresh empty-volume Compose and the disposable test harness apply the new schema
+in dependency order. Existing volumes require explicit reviewed setup. `/ready`
+uses read-only schema and guarded-evidence probes and rejects the old weekly
+layout; it does not reconcile source observations. See the
+[weekly delivery guide](../../docs/weekly-digest.md) for consent, scheduling and recovery.
 
 ## Founder administrator data seed
 

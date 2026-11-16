@@ -16,6 +16,42 @@ LAYERS = {
     "delivery",
 }
 
+# The concrete UOW is an adapter composition boundary; application code still
+# consumes its Protocol. Other database modules may not construct repositories.
+ADAPTER_EDGES = {
+    "persistence/database/prospecting_unit_of_work.py": frozenset(
+        f"huginn.management.persistence.repositories.{module}"
+        for module in (
+            "assessment_revision",
+            "business",
+            "business_recommendation_preferences",
+            "command_receipt",
+            "offer_cycle",
+            "prospect",
+            "prospect_activity",
+            "prospect_origin",
+            "recommendation",
+            "recommendation_assessment_feedback",
+            "suppression_block",
+        )
+    ),
+    "delivery/smtp_transport.py": frozenset(
+        {"huginn.management.application.errors.mail_pre_transport"}
+    ),
+    "delivery/smtp_digest_mail_sender.py": frozenset(
+        {"huginn.management.application.errors.mail_pre_transport"}
+    ),
+    "persistence/queries/prospecting_query.py": frozenset(
+        {"huginn.management.application.requests.list_prospecting_request"}
+    ),
+    "delivery/templates/weekly_digest.py": frozenset(
+        {
+            "huginn.management.domain.entities.assessment_revision",
+            "huginn.management.security.digest_unsubscribe",
+        }
+    ),
+}
+
 
 def _imports(path, root=ROOT):
     module = "huginn.management." + ".".join(
@@ -53,6 +89,8 @@ def _within(module, packages):
 
 
 def _allowed_import(relative, imported):
+    if imported in ADAPTER_EDGES.get(relative.as_posix(), ()):
+        return True
     layer = relative.parts[0]
     root = imported.split(".")[0]
     local = imported.removeprefix("huginn.management.")
@@ -218,6 +256,30 @@ def test_management_import_graph_points_downward():
             "delivery/smtp_lifecycle_mail_sender.py",
             "huginn.management.presentation.api.requests.signup",
         ),
+        (
+            "persistence/database/another_uow.py",
+            "huginn.management.persistence.repositories.business",
+        ),
+        (
+            "persistence/database/prospecting_unit_of_work.py",
+            "huginn.management.presentation.api.routers.prospects",
+        ),
+        (
+            "application/services/recommendation_generation.py",
+            "huginn.management.persistence.database.prospecting_unit_of_work",
+        ),
+        (
+            "delivery/templates/weekly_digest.py",
+            "huginn.management.application.services.weekly_digest",
+        ),
+        (
+            "delivery/smtp_transport.py",
+            "huginn.management.persistence.repositories.offer_cycle",
+        ),
+        (
+            "domain/entities/assessment_revision.py",
+            "huginn.management.security.digest_unsubscribe",
+        ),
     ),
 )
 def test_import_graph_rejects_forbidden_edges(tmp_path, path, imported):
@@ -225,6 +287,40 @@ def test_import_graph_rejects_forbidden_edges(tmp_path, path, imported):
     source.parent.mkdir(parents=True)
     source.write_text(f"import {imported}\n")
     assert _graph_violations(tmp_path) == [f"{path}: {imported}"]
+
+
+@pytest.mark.parametrize(
+    ("path", "imported"),
+    [
+        (
+            "persistence/database/prospecting_unit_of_work.py",
+            "huginn.management.persistence.repositories.business",
+        ),
+        (
+            "delivery/smtp_transport.py",
+            "huginn.management.application.errors.mail_pre_transport",
+        ),
+        (
+            "persistence/queries/prospecting_query.py",
+            "huginn.management.application.requests.list_prospecting_request",
+        ),
+        (
+            "delivery/templates/weekly_digest.py",
+            "huginn.management.domain.entities.assessment_revision",
+        ),
+        (
+            "delivery/templates/weekly_digest.py",
+            "huginn.management.security.digest_unsubscribe",
+        ),
+    ],
+)
+def test_import_graph_allows_focused_composition_and_adapter_contracts(
+    tmp_path, path, imported
+):
+    source = tmp_path / path
+    source.parent.mkdir(parents=True)
+    source.write_text(f"import {imported}\n")
+    assert _graph_violations(tmp_path) == []
 
 
 def test_package_initializers_do_not_reexport_surfaces():

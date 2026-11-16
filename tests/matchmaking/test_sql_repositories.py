@@ -5,10 +5,8 @@ from __future__ import annotations
 import contextlib
 import json
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
 from uuid import UUID, uuid4
 
 import psycopg
@@ -21,14 +19,12 @@ from huginn.elt.silver.policies.source_context import canonical_payload_sha256
 from huginn.matchmaking.application.read_models.user_availability import (
     UserAvailability,
 )
-from huginn.matchmaking.domain.entities.match import MatchStatus
 from huginn.matchmaking.domain.errors.criteria import CriteriaIssue, CriteriaIssueReason
 from huginn.matchmaking.domain.services.icp_evaluator import compile_icp
 from huginn.matchmaking.domain.value_objects.compiled_criteria import CompiledCriteria
 from huginn.matchmaking.domain.value_objects.signal_window import SignalWindow
 from huginn.matchmaking.persistence.errors.database import (
     DataIntegrityError,
-    RetryableTransactionError,
 )
 from huginn.matchmaking.persistence.repositories.sql.candidates import (
     SqlCandidateRepository,
@@ -36,7 +32,6 @@ from huginn.matchmaking.persistence.repositories.sql.candidates import (
 from huginn.matchmaking.persistence.repositories.sql.configuration import (
     SqlConfigurationRepository,
 )
-from huginn.matchmaking.persistence.unit_of_work.sql import SqlMatchmakingUnitOfWork
 from tests.postgres_harness import SCHEMA_DIR, SCHEMA_FILES
 
 
@@ -115,7 +110,16 @@ def _user(conn: psycopg.Connection, *, active: bool = True) -> tuple:
         "VALUES (%s, %s, 'First', 'Last', %s, '1', 'US')",
         (user_id, account_id, f"{user_id}@example.test"),
     )
+    conn.execute(
+        "INSERT INTO operational.businesses(owner_user_id) VALUES (%s)", (user_id,)
+    )
     return user_id, account_id
+
+
+def _business(conn: psycopg.Connection, user_id: UUID) -> UUID:
+    return conn.execute(
+        "SELECT id FROM operational.businesses WHERE owner_user_id=%s", (user_id,)
+    ).fetchone()[0]
 
 
 def _company(
@@ -227,45 +231,55 @@ def test_configuration_queries_are_user_scoped_and_validate_active_strategy_rows
         disabled_user_id, _ = _user(conn, active=False)
         offering_id, icp_id = uuid4(), uuid4()
         conn.execute(
-            "INSERT INTO operational.service_offerings (id,user_id,name,description) "
+            "INSERT INTO operational.service_offerings (id,business_id,name,description) "
             "VALUES (%s,%s,'Offer','Description')",
-            (offering_id, user_id),
+            (offering_id, _business(conn, user_id)),
         )
         conn.execute(
             "INSERT INTO operational.ideal_client_profiles "
-            "(id,user_id,name,industries,company_sizes,geographies,exclusions) "
+            "(id,business_id,name,industries,company_sizes,geographies,exclusions) "
             "VALUES (%s,%s,'Profile','[{\"name\":\"SaaS\"}]',"
             '\'[{"band":"0-10"}]\',\'[{"kind":"country","value":"Germany"}]\',\'[]\')',
-            (icp_id, user_id),
+            (icp_id, _business(conn, user_id)),
         )
         conn.execute(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+            "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
             "VALUES (%s,'Active strategy',%s,%s,TRUE),(%s,'Inactive strategy',%s,%s,FALSE)",
-            (user_id, offering_id, icp_id, user_id, offering_id, icp_id),
+            (
+                _business(conn, user_id),
+                offering_id,
+                icp_id,
+                _business(conn, user_id),
+                offering_id,
+                icp_id,
+            ),
         )
         conn.cursor().executemany(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+            "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
             "VALUES (%s,%s,%s,%s,TRUE)",
-            [(user_id, f"Target {index}", offering_id, icp_id) for index in range(101)],
+            [
+                (_business(conn, user_id), f"Target {index}", offering_id, icp_id)
+                for index in range(101)
+            ],
         )
         other_offering, other_icp = uuid4(), uuid4()
         conn.execute(
-            "INSERT INTO operational.service_offerings (id,user_id,name,description) "
+            "INSERT INTO operational.service_offerings (id,business_id,name,description) "
             "VALUES (%s,%s,'Offer','Description')",
-            (other_offering, other_user_id),
+            (other_offering, _business(conn, other_user_id)),
         )
         conn.execute(
-            "INSERT INTO operational.ideal_client_profiles (id,user_id,name) "
+            "INSERT INTO operational.ideal_client_profiles (id,business_id,name) "
             "VALUES (%s,%s,'Profile')",
-            (other_icp, other_user_id),
+            (other_icp, _business(conn, other_user_id)),
         )
         conn.execute(
             "INSERT INTO operational.client_discovery_strategies "
-            "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+            "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
             "VALUES (%s,'Other user strategy',%s,%s,TRUE)",
-            (other_user_id, other_offering, other_icp),
+            (_business(conn, other_user_id), other_offering, other_icp),
         )
         conn.commit()
 
@@ -293,9 +307,9 @@ def test_configuration_preserves_malformed_icp_json_for_safe_compiler_skips(
             user_id, _ = _user(conn)
             offering_id = uuid4()
             conn.execute(
-                "INSERT INTO operational.service_offerings (id,user_id,name,description) "
+                "INSERT INTO operational.service_offerings (id,business_id,name,description) "
                 "VALUES (%s,%s,'Offer','Description')",
-                (offering_id, user_id),
+                (offering_id, _business(conn, user_id)),
             )
             malformed_icps = (
                 (
@@ -312,16 +326,16 @@ def test_configuration_preserves_malformed_icp_json_for_safe_compiler_skips(
             for icp_id, industries, sizes in malformed_icps:
                 conn.execute(
                     "INSERT INTO operational.ideal_client_profiles "
-                    "(id,user_id,name,industries,company_sizes,geographies,exclusions) "
+                    "(id,business_id,name,industries,company_sizes,geographies,exclusions) "
                     "VALUES (%s,%s,'Profile',%s::jsonb,%s::jsonb,"
                     '\'[{"kind":"country","value":"Germany"}]\',\'[]\')',
-                    (icp_id, user_id, industries, sizes),
+                    (icp_id, _business(conn, user_id), industries, sizes),
                 )
                 conn.execute(
                     "INSERT INTO operational.client_discovery_strategies "
-                    "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+                    "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
                     "VALUES (%s,'Malformed ICP',%s,%s,TRUE)",
-                    (user_id, offering_id, icp_id),
+                    (_business(conn, user_id), offering_id, icp_id),
                 )
             conn.commit()
 
@@ -359,28 +373,28 @@ def test_configuration_rejects_cross_owner_left_join_sentinels(
             for user_id in (first_user, second_user):
                 offering_id, icp_id = uuid4(), uuid4()
                 conn.execute(
-                    "INSERT INTO operational.service_offerings (id,user_id,name,description) "
+                    "INSERT INTO operational.service_offerings (id,business_id,name,description) "
                     "VALUES (%s,%s,'Offer','Description')",
-                    (offering_id, user_id),
+                    (offering_id, _business(conn, user_id)),
                 )
                 conn.execute(
-                    "INSERT INTO operational.ideal_client_profiles (id,user_id,name) "
+                    "INSERT INTO operational.ideal_client_profiles (id,business_id,name) "
                     "VALUES (%s,%s,'Profile')",
-                    (icp_id, user_id),
+                    (icp_id, _business(conn, user_id)),
                 )
                 refs.append((offering_id, icp_id))
             first_offering, first_icp = refs[0]
             second_offering, second_icp = refs[1]
             conn.execute(
                 "INSERT INTO operational.client_discovery_strategies "
-                "(user_id,name,service_offering_id,ideal_client_profile_id,is_active) "
+                "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
                 "VALUES (%s,'Foreign offering',%s,%s,TRUE),"
                 "(%s,'Foreign ICP',%s,%s,TRUE)",
                 (
-                    first_user,
+                    _business(conn, first_user),
                     second_offering,
                     first_icp,
-                    first_user,
+                    _business(conn, first_user),
                     first_offering,
                     second_icp,
                 ),
@@ -536,154 +550,3 @@ def test_candidate_query_rejects_unknown_attributes_and_country_aliases(
     assert not set(missing_attributes) & {
         candidate.company_id for candidate in candidates
     }
-
-
-def test_insert_if_absent_preserves_existing_workflow_state_and_timestamps(
-    integration_database_url: str,
-):
-    statuses = tuple(MatchStatus)
-    user_ids = []
-    expected: dict[UUID, tuple] = {}
-    with psycopg.connect(integration_database_url) as conn:
-        for status in statuses:
-            user_id, _ = _user(conn)
-            company_id = _company(conn, sectors=None)
-            _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
-            match_id = uuid4()
-            created_at = datetime(
-                2025, 1, status is MatchStatus.NEW and 1 or 2, 3, tzinfo=UTC
-            )
-            updated_at = created_at + timedelta(days=1)
-            conn.execute(
-                "INSERT INTO operational.match "
-                "(id,user_id,company_id,status,notes,created_at,updated_at) "
-                "VALUES (%s,%s,%s,%s,'existing note',%s,%s)",
-                (match_id, user_id, company_id, status.value, created_at, updated_at),
-            )
-            user_ids.append((user_id, company_id))
-            expected[company_id] = (
-                match_id,
-                status.value,
-                "existing note",
-                created_at,
-                updated_at,
-            )
-        conn.commit()
-
-    for user_id, company_id in user_ids:
-        with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
-            assert (
-                uow.matches.insert_if_absent(
-                    user_id,
-                    company_id,
-                    observation_ids=(uuid4(),),
-                    window=SignalWindow(
-                        datetime(2025, 1, 1, tzinfo=UTC),
-                        datetime(2026, 1, 1, tzinfo=UTC),
-                    ),
-                )
-                is None
-            )
-            uow.commit()
-
-    with psycopg.connect(integration_database_url) as conn:
-        for user_id, company_id in user_ids:
-            row = conn.execute(
-                "SELECT id,status,notes,created_at,updated_at FROM operational.match "
-                "WHERE user_id=%s AND company_id=%s",
-                (user_id, company_id),
-            ).fetchone()
-            assert row == expected[company_id]
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM operational.match_source_evidence"
-            ).fetchone()[0]
-            == 0
-        )
-
-
-def test_same_company_can_be_created_for_distinct_users(integration_database_url: str):
-    with psycopg.connect(integration_database_url) as conn:
-        first_user, _ = _user(conn)
-        second_user, _ = _user(conn)
-        company_id = _company(conn, sectors=None)
-        _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
-        evidence_id = _evidence_id(conn, company_id)
-        conn.commit()
-
-    created = []
-    for user_id in (first_user, second_user):
-        with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
-            match = uow.matches.insert_if_absent(
-                user_id,
-                company_id,
-                observation_ids=(evidence_id,),
-                window=SignalWindow(
-                    datetime(2025, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
-                ),
-            )
-            assert match is not None
-            assert match.user_id == user_id
-            created.append(match.id)
-            uow.commit()
-    assert created[0] != created[1]
-    with psycopg.connect(integration_database_url) as conn:
-        evidence = conn.execute(
-            "SELECT observation_id,cutoff,as_of FROM operational.match_source_evidence WHERE match_id=%s",
-            (created[0],),
-        ).fetchall()
-    assert evidence == [
-        (
-            evidence_id,
-            datetime(2025, 1, 1, tzinfo=UTC),
-            datetime(2026, 1, 1, tzinfo=UTC),
-        )
-    ]
-
-
-def test_concurrent_insert_if_absent_claims_one_match_across_connections(
-    integration_database_url: str,
-):
-    with psycopg.connect(integration_database_url) as conn:
-        user_id, _ = _user(conn)
-        company_id = _company(conn, sectors=None)
-        _signal(conn, company_id, "other", datetime(2025, 1, 1, tzinfo=UTC))
-        evidence_id = _evidence_id(conn, company_id)
-        conn.commit()
-
-    barrier = Barrier(2)
-
-    def insert_once() -> bool:
-        attempts = 0
-        while True:
-            attempts += 1
-            try:
-                with SqlMatchmakingUnitOfWork(integration_database_url) as uow:
-                    barrier.wait(timeout=5) if attempts == 1 else None
-                    result = uow.matches.insert_if_absent(
-                        user_id,
-                        company_id,
-                        observation_ids=(evidence_id,),
-                        window=SignalWindow(
-                            datetime(2025, 1, 1, tzinfo=UTC),
-                            datetime(2026, 1, 1, tzinfo=UTC),
-                        ),
-                    )
-                    uow.commit()
-                    return result is not None
-            except RetryableTransactionError:
-                if attempts >= 3:
-                    raise
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(insert_once)
-        second = pool.submit(insert_once)
-        claims = (first.result(timeout=10), second.result(timeout=10))
-    assert sorted(claims) == [False, True]
-
-    with psycopg.connect(integration_database_url) as conn:
-        count = conn.execute(
-            "SELECT count(*) FROM operational.match WHERE user_id=%s AND company_id=%s",
-            (user_id, company_id),
-        ).fetchone()[0]
-    assert count == 1

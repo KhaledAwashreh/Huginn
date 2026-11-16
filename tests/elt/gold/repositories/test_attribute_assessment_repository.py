@@ -18,12 +18,20 @@ from huginn.matchmaking.domain.value_objects.signal_window import SignalWindow
 from huginn.matchmaking.persistence.repositories.sql.candidates import (
     SqlCandidateRepository,
 )
-from tests.matchmaking.test_evidence_integration import (
+from tests.matchmaking.evidence_fixtures import (
     NOW,
-    _criteria,
-    _reconcile,
-    _scratch_database,
-    _seed_company,
+)
+from tests.matchmaking.evidence_fixtures import (
+    criteria as _criteria,
+)
+from tests.matchmaking.evidence_fixtures import (
+    reconcile as _reconcile,
+)
+from tests.matchmaking.evidence_fixtures import (
+    scratch_database as _scratch_database,
+)
+from tests.matchmaking.evidence_fixtures import (
+    seed_company as _seed_company,
 )
 from tests.postgres_harness import provisioned_postgres
 

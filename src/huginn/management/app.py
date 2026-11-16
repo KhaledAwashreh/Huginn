@@ -16,6 +16,30 @@ from huginn.management.application.services.assign_account_role_service import (
     AssignAccountRoleService,
 )
 from huginn.management.application.services.authentication import AuthenticationService
+from huginn.management.application.services.business_profile import (
+    BusinessProfileService,
+)
+from huginn.management.application.services.business_recommendation_preferences import (
+    BusinessRecommendationPreferencesService,
+)
+from huginn.management.application.services.cancel_recommendation_pause_service import (
+    CancelRecommendationPauseService,
+)
+from huginn.management.application.services.change_prospect_stage_service import (
+    ChangeProspectStageService,
+)
+from huginn.management.application.services.clear_prospect_follow_up_service import (
+    ClearProspectFollowUpService,
+)
+from huginn.management.application.services.close_prospect_service import (
+    CloseProspectService,
+)
+from huginn.management.application.services.confirm_recommendation_offer_service import (
+    ConfirmRecommendationOfferService,
+)
+from huginn.management.application.services.correct_prospect_activity_time_service import (
+    CorrectProspectActivityTimeService,
+)
 from huginn.management.application.services.current_session_service import (
     CurrentSessionService,
 )
@@ -47,6 +71,9 @@ from huginn.management.application.services.get_matches_overview_service import 
 from huginn.management.application.services.ideal_client_profiles import (
     IdealClientProfileService,
 )
+from huginn.management.application.services.later_recommendation_service import (
+    LaterRecommendationService,
+)
 from huginn.management.application.services.list_company_options_service import (
     ListCompanyOptionsService,
 )
@@ -56,20 +83,55 @@ from huginn.management.application.services.list_match_signals_service import (
 from huginn.management.application.services.list_matches_service import (
     ListMatchesService,
 )
+from huginn.management.application.services.mark_recommendation_not_relevant_service import (
+    MarkRecommendationNotRelevantService,
+)
+from huginn.management.application.services.prepare_recommendation_offer_service import (
+    PrepareRecommendationOfferService,
+)
+from huginn.management.application.services.prospecting_read_service import (
+    ProspectingReadService,
+)
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
 )
-from huginn.management.application.services.recommendations import RecommendationService
+from huginn.management.application.services.recommendation_generation import (
+    RecommendationGenerationService,
+)
+from huginn.management.application.services.record_proposal_draft_service import (
+    RecordProposalDraftService,
+)
+from huginn.management.application.services.record_recommendation_feedback_service import (
+    RecordRecommendationFeedbackService,
+)
+from huginn.management.application.services.recover_weekly_digest_service import (
+    RecoverWeeklyDigestService,
+)
+from huginn.management.application.services.reopen_prospect_service import (
+    ReopenProspectService,
+)
 from huginn.management.application.services.resend_verification_service import (
     ResendVerificationService,
 )
 from huginn.management.application.services.reset_password_service import (
     ResetPasswordService,
 )
+from huginn.management.application.services.reverse_recommendation_rejection_service import (
+    ReverseRecommendationRejectionService,
+)
+from huginn.management.application.services.save_recommendation_service import (
+    SaveRecommendationService,
+)
 from huginn.management.application.services.service_offerings import (
     ServiceOfferingService,
 )
+from huginn.management.application.services.set_prospect_follow_up_service import (
+    SetProspectFollowUpService,
+)
 from huginn.management.application.services.signup_service import SignupService
+from huginn.management.application.services.update_prospect_notes_service import (
+    UpdateProspectNotesService,
+)
 from huginn.management.application.services.user_profile import UserProfileService
 from huginn.management.application.services.verify_email_service import (
     VerifyEmailService,
@@ -80,8 +142,14 @@ from huginn.management.persistence.database.client import (
     ManagementConnectionFactory,
     PostgresReadiness,
 )
+from huginn.management.persistence.database.prospecting_unit_of_work import (
+    PostgresProspectingUnitOfWork,
+)
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.queries.matches_query import PostgresMatchesQuery
+from huginn.management.persistence.queries.prospecting_query import (
+    PostgresProspectingQuery,
+)
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
 from huginn.management.persistence.repositories.account_lifecycle_proof import (
     PostgresAccountLifecycleProofRepository,
@@ -89,8 +157,17 @@ from huginn.management.persistence.repositories.account_lifecycle_proof import (
 from huginn.management.persistence.repositories.account_recovery_identity import (
     PostgresAccountRecoveryIdentityRepository,
 )
+from huginn.management.persistence.repositories.business import (
+    PostgresBusinessRepository,
+)
+from huginn.management.persistence.repositories.business_recommendation_preferences import (
+    PostgresBusinessRecommendationPreferencesRepository,
+)
 from huginn.management.persistence.repositories.configuration_options_query import (
     PostgresConfigurationOptionsQuery,
+)
+from huginn.management.persistence.repositories.digest_subscription_access import (
+    PostgresDigestSubscriptionAccess,
 )
 from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
@@ -107,16 +184,19 @@ from huginn.management.persistence.repositories.lifecycle_throttle import (
 from huginn.management.persistence.repositories.professional_profile import (
     PostgresProfessionalProfileRepository,
 )
-from huginn.management.persistence.repositories.recommendations import (
-    PostgresRecommendationRepository,
+from huginn.management.persistence.repositories.recommendation_generation import (
+    PostgresRecommendationGenerationSource,
 )
 from huginn.management.persistence.repositories.service_offering import (
     PostgresServiceOfferingRepository,
 )
 from huginn.management.persistence.repositories.session import PostgresSessionRepository
 from huginn.management.persistence.repositories.user import PostgresUserRepository
-from huginn.management.persistence.repositories.weekly_digest import (
-    PostgresWeeklyDigestRepository,
+from huginn.management.persistence.repositories.weekly_digest_content import (
+    PostgresWeeklyDigestContentRepository,
+)
+from huginn.management.persistence.repositories.weekly_digest_delivery import (
+    PostgresWeeklyDigestDeliveryRepository,
 )
 from huginn.management.presentation.api.errors.handlers import (
     register_exception_handlers,
@@ -129,6 +209,9 @@ from huginn.management.presentation.api.routers.account_lifecycle import (
 )
 from huginn.management.presentation.api.routers.account_security import (
     router as account_security_router,
+)
+from huginn.management.presentation.api.routers.business_profile import (
+    router as business_profile_router,
 )
 from huginn.management.presentation.api.routers.configuration_options import (
     router as configuration_options_router,
@@ -147,6 +230,9 @@ from huginn.management.presentation.api.routers.ideal_client_profiles import (
     router as ideal_client_profiles_router,
 )
 from huginn.management.presentation.api.routers.matches import router as matches_router
+from huginn.management.presentation.api.routers.prospects import (
+    router as prospects_router,
+)
 from huginn.management.presentation.api.routers.recommendations import (
     router as recommendations_router,
 )
@@ -155,6 +241,12 @@ from huginn.management.presentation.api.routers.service_offerings import (
 )
 from huginn.management.presentation.api.routers.sessions import (
     router as sessions_router,
+)
+from huginn.management.presentation.api.routers.suppressions import (
+    router as suppressions_router,
+)
+from huginn.management.presentation.api.routers.weekly_digest_recovery import (
+    router as weekly_digest_recovery_router,
 )
 from huginn.management.presentation.api.static_assets import mount_frontend_assets
 from huginn.management.security.encrypted_proof_cipher import EncryptedProofCipher
@@ -189,6 +281,7 @@ class ManagementDependencies:
     authentication_service: Any
     password_change_service: Any
     user_profile_service: Any
+    business_profile_service: Any
     service_offering_service: Any
     ideal_client_profile_service: Any
     discovery_strategy_service: Any
@@ -207,11 +300,31 @@ class ManagementDependencies:
     get_match_service: Any = None
     list_match_signals_service: Any = None
     get_matches_overview_service: Any = None
-    recommendation_service: Any = None
+    later_recommendation_service: Any = None
+    mark_recommendation_not_relevant_service: Any = None
+    reverse_recommendation_rejection_service: Any = None
+    cancel_recommendation_pause_service: Any = None
+    change_prospect_stage_service: Any = None
+    close_prospect_service: Any = None
+    reopen_prospect_service: Any = None
+    update_prospect_notes_service: Any = None
+    set_prospect_follow_up_service: Any = None
+    clear_prospect_follow_up_service: Any = None
+    record_proposal_draft_service: Any = None
+    correct_prospect_activity_time_service: Any = None
+    record_recommendation_feedback_service: Any = None
+    prepare_recommendation_offer_service: Any = None
+    confirm_recommendation_offer_service: Any = None
+    save_recommendation_service: Any = None
+    recommendation_generation_service: Any = None
+    prospecting_read_service: Any = None
     digest_subscriptions_service: Any = None
+    recover_weekly_digest_service: Any = None
+    business_recommendation_preferences_service: Any = None
     pipeline_services: Any = None
     matchmaking_services: Any = None
     clock: Callable[[], datetime] | None = None
+    discovery_new_work_enabled: bool = True
 
 
 def create_account_administration_services(
@@ -267,8 +380,28 @@ def create_app(
     get_match_service: Any | None = None,
     list_match_signals_service: Any | None = None,
     get_matches_overview_service: Any | None = None,
-    recommendation_service: Any | None = None,
+    later_recommendation_service: Any | None = None,
+    mark_recommendation_not_relevant_service: Any | None = None,
+    reverse_recommendation_rejection_service: Any | None = None,
+    cancel_recommendation_pause_service: Any | None = None,
+    change_prospect_stage_service: Any | None = None,
+    close_prospect_service: Any | None = None,
+    reopen_prospect_service: Any | None = None,
+    update_prospect_notes_service: Any | None = None,
+    set_prospect_follow_up_service: Any | None = None,
+    clear_prospect_follow_up_service: Any | None = None,
+    record_proposal_draft_service: Any | None = None,
+    correct_prospect_activity_time_service: Any | None = None,
+    record_recommendation_feedback_service: Any | None = None,
+    prepare_recommendation_offer_service: Any | None = None,
+    confirm_recommendation_offer_service: Any | None = None,
+    save_recommendation_service: Any | None = None,
+    recommendation_generation_service: Any | None = None,
+    prospecting_read_service: Any | None = None,
     digest_subscriptions_service: Any | None = None,
+    recover_weekly_digest_service: Any | None = None,
+    business_recommendation_preferences_service: Any | None = None,
+    business_profile_service: Any | None = None,
     current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     pipeline_services: Any | None = None,
@@ -340,6 +473,158 @@ def create_app(
         "clock": clock,
     }
     dependencies = ManagementDependencies(
+        discovery_new_work_enabled=resolved_config.discovery_new_work_enabled,
+        confirm_recommendation_offer_service=confirm_recommendation_offer_service
+        if confirm_recommendation_offer_service is not None
+        else ConfirmRecommendationOfferService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            source_factory=PostgresRecommendationGenerationSource,
+            clock=clock,
+        ),
+        prepare_recommendation_offer_service=prepare_recommendation_offer_service
+        if prepare_recommendation_offer_service is not None
+        else PrepareRecommendationOfferService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            source_factory=PostgresRecommendationGenerationSource,
+            clock=clock,
+        ),
+        record_recommendation_feedback_service=record_recommendation_feedback_service
+        if record_recommendation_feedback_service is not None
+        else RecordRecommendationFeedbackService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        correct_prospect_activity_time_service=correct_prospect_activity_time_service
+        if correct_prospect_activity_time_service is not None
+        else CorrectProspectActivityTimeService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        record_proposal_draft_service=record_proposal_draft_service
+        if record_proposal_draft_service is not None
+        else RecordProposalDraftService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        clear_prospect_follow_up_service=clear_prospect_follow_up_service
+        if clear_prospect_follow_up_service is not None
+        else ClearProspectFollowUpService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        set_prospect_follow_up_service=set_prospect_follow_up_service
+        if set_prospect_follow_up_service is not None
+        else SetProspectFollowUpService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        update_prospect_notes_service=update_prospect_notes_service
+        if update_prospect_notes_service is not None
+        else UpdateProspectNotesService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        reopen_prospect_service=reopen_prospect_service
+        if reopen_prospect_service is not None
+        else ReopenProspectService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        close_prospect_service=close_prospect_service
+        if close_prospect_service is not None
+        else CloseProspectService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        change_prospect_stage_service=change_prospect_stage_service
+        if change_prospect_stage_service is not None
+        else ChangeProspectStageService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        cancel_recommendation_pause_service=cancel_recommendation_pause_service
+        if cancel_recommendation_pause_service is not None
+        else CancelRecommendationPauseService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        reverse_recommendation_rejection_service=reverse_recommendation_rejection_service
+        if reverse_recommendation_rejection_service is not None
+        else ReverseRecommendationRejectionService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        mark_recommendation_not_relevant_service=mark_recommendation_not_relevant_service
+        if mark_recommendation_not_relevant_service is not None
+        else MarkRecommendationNotRelevantService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        later_recommendation_service=later_recommendation_service
+        if later_recommendation_service is not None
+        else LaterRecommendationService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        save_recommendation_service=save_recommendation_service
+        if save_recommendation_service is not None
+        else SaveRecommendationService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            clock=clock,
+        ),
+        recommendation_generation_service=recommendation_generation_service
+        if recommendation_generation_service is not None
+        else RecommendationGenerationService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            source_factory=PostgresRecommendationGenerationSource,
+            clock=clock,
+        ),
+        prospecting_read_service=prospecting_read_service
+        if prospecting_read_service is not None
+        else ProspectingReadService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url),
+                read_only=True,
+            ),
+            query_factory=lambda work: PostgresProspectingQuery(
+                work, PostgresRecommendationGenerationSource(work.connection)
+            ),
+            clock=clock,
+        ),
         get_configuration_options_service=GetConfigurationOptionsService(
             make_uow,
             query_factory=lambda work: PostgresConfigurationOptionsQuery(
@@ -361,15 +646,23 @@ def create_app(
         digest_subscriptions_service=digest_subscriptions_service
         or DigestSubscriptionService(
             make_uow,
-            repository_factory=lambda work: PostgresWeeklyDigestRepository(
+            access_factory=lambda work: PostgresDigestSubscriptionAccess(
                 work.connection
             ),
+            businesses_factory=lambda work: PostgresBusinessRepository(work.connection),
+            clock=clock,
         ),
-        recommendation_service=recommendation_service
-        or RecommendationService(
-            make_uow,
-            repository_factory=lambda work: PostgresRecommendationRepository(
-                work.connection
+        recover_weekly_digest_service=recover_weekly_digest_service
+        if recover_weekly_digest_service is not None
+        else RecoverWeeklyDigestService(
+            lambda: PostgresProspectingUnitOfWork(
+                ManagementConnectionFactory(resolved_config.database_url)
+            ),
+            delivery_repository_factory=lambda work: (
+                PostgresWeeklyDigestDeliveryRepository(work.connection)
+            ),
+            content_repository_factory=lambda work: (
+                PostgresWeeklyDigestContentRepository(work.connection)
             ),
             clock=clock,
         ),
@@ -441,6 +734,7 @@ def create_app(
         if service_offering_service is not None
         else ServiceOfferingService(
             make_uow,
+            businesses_factory=lambda uow: PostgresBusinessRepository(uow.connection),
             offerings_factory=lambda uow: PostgresServiceOfferingRepository(
                 uow.connection
             ),
@@ -449,6 +743,7 @@ def create_app(
         if ideal_client_profile_service is not None
         else IdealClientProfileService(
             make_uow,
+            businesses_factory=lambda uow: PostgresBusinessRepository(uow.connection),
             profiles_factory=lambda uow: PostgresIdealClientProfileRepository(
                 uow.connection
             ),
@@ -457,6 +752,7 @@ def create_app(
         if discovery_strategy_service is not None
         else ClientDiscoveryStrategyService(
             make_uow,
+            businesses_factory=lambda uow: PostgresBusinessRepository(uow.connection),
             strategies_factory=lambda uow: PostgresClientDiscoveryStrategyRepository(
                 uow.connection
             ),
@@ -466,6 +762,29 @@ def create_app(
             profiles_factory=lambda uow: PostgresIdealClientProfileRepository(
                 uow.connection
             ),
+        ),
+        business_recommendation_preferences_service=(
+            business_recommendation_preferences_service
+            if business_recommendation_preferences_service is not None
+            else BusinessRecommendationPreferencesService(
+                make_uow,
+                businesses_factory=lambda uow: PostgresBusinessRepository(
+                    uow.connection
+                ),
+                preferences_factory=lambda uow: (
+                    PostgresBusinessRecommendationPreferencesRepository(uow.connection)
+                ),
+            )
+        ),
+        business_profile_service=(
+            business_profile_service
+            if business_profile_service is not None
+            else BusinessProfileService(
+                make_uow,
+                businesses_factory=lambda uow: PostgresBusinessRepository(
+                    uow.connection
+                ),
+            )
         ),
         clock=clock,
     )
@@ -482,6 +801,9 @@ def create_app(
             or request.url.path == "/api/v1/matches"
             or request.url.path.startswith("/api/v1/matches/")
         ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Vary"] = "Cookie"
+        if request.url.path.startswith("/api/v1/me/"):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Vary"] = "Cookie"
         return response
@@ -513,6 +835,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(sessions_router)
     app.include_router(current_user_router)
+    app.include_router(business_profile_router)
     app.include_router(service_offerings_router)
     app.include_router(ideal_client_profiles_router)
     app.include_router(discovery_strategies_router)
@@ -521,7 +844,10 @@ def create_app(
     app.include_router(configuration_options_router)
     app.include_router(matches_router)
     app.include_router(recommendations_router)
+    app.include_router(prospects_router)
+    app.include_router(suppressions_router)
     app.include_router(digest_unsubscribe_router)
+    app.include_router(weekly_digest_recovery_router)
     mount_frontend_assets(app, resolved_config.frontend_assets_path)
     suppress_handled_server_error_tracebacks(app)
     return app

@@ -29,13 +29,31 @@ def test_ready_detects_missing_required_column(empty_management_database_url):
     assert readiness.is_ready() is False
 
 
-def test_ready_requires_guarded_context_view_and_match_evidence_table(
+def test_ready_requires_guarded_context_view(
     empty_management_database_url,
 ):
     with psycopg.connect(empty_management_database_url, autocommit=True) as conn:
         for filename in SCHEMA_FILES:
             conn.execute((SCHEMA_DIR / filename).read_text())
         conn.execute("DROP VIEW gold.current_source_evidence")
-        conn.execute("DROP TABLE operational.match_source_evidence")
 
     assert PostgresReadiness(empty_management_database_url).is_ready() is False
+
+
+def test_ready_rejects_legacy_weekly_layout_until_explicit_content_setup(
+    empty_management_database_url,
+):
+    with psycopg.connect(empty_management_database_url, autocommit=True) as conn:
+        for filename in SCHEMA_FILES:
+            if filename != "operational-weekly-digest-content.sql":
+                conn.execute((SCHEMA_DIR / filename).read_text())
+        for filename in (
+            "operational-recommendations.sql",
+            "operational-weekly-digest.sql",
+        ):
+            conn.execute((SCHEMA_DIR / filename).read_text())
+    readiness = PostgresReadiness(empty_management_database_url)
+    assert readiness.is_ready() is False
+    with psycopg.connect(empty_management_database_url, autocommit=True) as conn:
+        conn.execute((SCHEMA_DIR / "operational-weekly-digest-content.sql").read_text())
+    assert readiness.is_ready() is True
