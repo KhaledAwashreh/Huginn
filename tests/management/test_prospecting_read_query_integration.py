@@ -300,6 +300,55 @@ def test_unsaved_hidden_suppressions_have_company_identity_and_independent_block
     )
 
 
+def test_list_hides_companies_with_an_active_pause_until_it_is_cleared(
+    management_database_url,
+):
+    with psycopg.connect(management_database_url) as connection:
+        muted_identity, _, _ = _seed(connection, "Muted company")
+        visible_identity, _, _ = _seed(connection, "Visible company", muted_identity)
+    now = datetime.now(UTC)
+    with _work(management_database_url) as work:
+        pause = work.suppression_blocks.append(
+            SuppressionBlock(
+                uuid4(),
+                muted_identity.business_id,
+                muted_identity.company_id,
+                SuppressionKind("pause"),
+                now,
+                created_by_user_id=muted_identity.owner_user_id,
+                expires_at=now + timedelta(days=30),
+            )
+        )
+        work.commit()
+    service = _service(management_database_url)
+    visible_names = {
+        view.company.name
+        for view in service.list_recommendations(
+            _principal(muted_identity), ListProspectingRequest()
+        ).items
+    }
+    assert "Muted company" not in visible_names
+    assert "Visible company" in visible_names
+
+    with _work(management_database_url) as work:
+        work.suppression_blocks.clear_one(
+            muted_identity.business_id,
+            muted_identity.company_id,
+            pause.id,
+            pause.version,
+            muted_identity.owner_user_id,
+            now,
+        )
+        work.commit()
+    restored_names = {
+        view.company.name
+        for view in service.list_recommendations(
+            _principal(visible_identity), ListProspectingRequest()
+        ).items
+    }
+    assert restored_names == {"Muted company", "Visible company"}
+
+
 def test_routine_reads_preserve_all_history_with_unavailable_current_evidence(
     management_database_url,
 ):

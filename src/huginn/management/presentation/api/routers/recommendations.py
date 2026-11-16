@@ -277,6 +277,7 @@ def later(
         body.expected_pause_id,
         body.expected_pause_version,
         body.request_key,
+        body.reason,
     )
     return response_from_domain(
         dependencies.recommendation_decision_service.later(

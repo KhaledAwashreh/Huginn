@@ -49,10 +49,6 @@ const nextSteps: RecommendationCommandDraft['feedback']['next_step'][] = [
 function key(): string {
   return crypto.randomUUID();
 }
-function openForm(): void {
-  commandDraft.value.snapshot ??= props.recommendation;
-  feedbackDraft.value.open = true;
-}
 function discard(): void {
   const form = feedbackDraft.value;
   form.open = false;
@@ -147,21 +143,12 @@ async function retry(): Promise<void> {
 
 <template>
   <section class="quality-feedback" :aria-labelledby="titleId">
-    <h3 :id="titleId">Assessment quality</h3>
+    <h3 :id="titleId">Recommendation feedback</h3>
     <p :id="helpId" class="disclosure">
-      Report what you learned about this exact assessment. This report does not change the
+      Tell us what you learned about this recommendation. Feedback does not change the
       recommendation, company blocks, configuration, eligibility, or ranking.
     </p>
-    <Button
-      v-if="!feedbackDraft.open && feedbackDraft.status !== 'uncertain'"
-      label="Report assessment quality"
-      severity="secondary"
-      @click="openForm"
-    />
-    <form
-      v-if="feedbackDraft.open || feedbackDraft.status === 'uncertain'"
-      @submit.prevent="submit"
-    >
+    <form @submit.prevent="submit">
       <label>
         How useful was this assessment?
         <select v-model="feedbackDraft.usefulness" :disabled="locked" :aria-describedby="helpId">

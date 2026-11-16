@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { components } from '../../../api/generated/schema';
 import { safeSourceUrl } from '../../../shared/lib/externalCompanyUrl';
-import { list, record, retainedEvidence, strategyName, text } from '../models/assessmentEvidence';
+import { record, retainedEvidence, strategyName, text } from '../models/assessmentEvidence';
 
 defineProps<{
   assessment: components['schemas']['AssessmentRevisionResponse'] | null;
@@ -19,13 +19,6 @@ const evidenceLabels: Record<
     'Current source evidence is unavailable. This assessment’s evidence remains available below.',
   not_assessed: 'Current source evidence has not been reassessed.',
 };
-function unknowns(
-  item: components['schemas']['AssessmentRevisionResponse']['strategy_assessments'][number],
-): string[] {
-  return list(record(item.assessment_snapshot).unknowns).filter(
-    (value): value is string => typeof value === 'string',
-  );
-}
 function utc(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 }
@@ -41,11 +34,7 @@ function safeSource(value: unknown): string | null {
     :data-assessment-revision-id="assessment?.id"
   >
     <h3>{{ heading ?? 'Why this recommendation appeared' }}</h3>
-    <p v-if="assessment">
-      Assessment {{ assessment.revision_number }} recorded
-      <time :datetime="assessment.assessed_at">{{ utc(assessment.assessed_at) }}</time>
-    </p>
-    <p v-else>No assessment revision is available for this record.</p>
+    <p v-if="!assessment">No assessment revision is available for this record.</p>
     <p v-if="evidenceState" class="evidence-state">{{ evidenceLabels[evidenceState] }}</p>
 
     <template v-if="assessment">
@@ -54,22 +43,13 @@ function safeSource(value: unknown): string | null {
         :key="item.strategy_id"
         class="strategy-assessment"
       >
-        <h4>{{ strategyName(item) }}</h4>
-        <p v-if="text(record(item.offering_snapshot).name)" class="offering">
-          Offering: {{ text(record(item.offering_snapshot).name) }}
-        </p>
+        <h4 v-if="assessment.strategy_assessments.length > 1">{{ strategyName(item) }}</h4>
         <p>
           {{
             text(record(item.assessment_snapshot).rationale) ||
             'No rationale text was retained for this strategy assessment.'
           }}
         </p>
-        <div v-if="unknowns(item).length" class="unknowns">
-          <h5>What remains unknown</h5>
-          <ul>
-            <li v-for="unknown in unknowns(item)" :key="unknown">{{ unknown }}</li>
-          </ul>
-        </div>
         <section class="source-evidence" :aria-label="`Evidence for ${strategyName(item)}`">
           <h5>Assessment-time source evidence</h5>
           <p v-if="!retainedEvidence(assessment, item).length">No source excerpts were retained.</p>

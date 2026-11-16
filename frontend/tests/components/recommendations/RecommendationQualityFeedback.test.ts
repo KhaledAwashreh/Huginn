@@ -39,7 +39,6 @@ beforeEach(() => {
 it('submits a report for the exact shown assessment without changing decision state', async () => {
   mocks.record.mockResolvedValue({ id: 'feedback-1', assessment_revision_id: 'revision-1' });
   const wrapper = setup();
-  await button(wrapper, 'Report assessment quality').trigger('click');
   await wrapper.get('select').setValue('not_useful');
   await wrapper.get('input[value="evidence_wrong"]').setValue(true);
   const textareas = wrapper.findAll('textarea');
@@ -72,7 +71,6 @@ it('retries an uncertain report against its original recommendation and exact re
     .mockRejectedValueOnce(new TypeError('network interrupted'))
     .mockResolvedValue({ id: 'feedback-1' });
   const wrapper = setup();
-  await button(wrapper, 'Report assessment quality').trigger('click');
   await wrapper.get('select').setValue('useful');
   await wrapper.get('form').trigger('submit');
   await flushPromises();

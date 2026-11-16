@@ -1,12 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { reactive } from 'vue';
 import PrimeVue from 'primevue/config';
-import Select from 'primevue/select';
 import { ApiError } from '../../../src/api/apiError';
 import RecommendationCommandActions from '../../../src/features/recommendations/components/RecommendationCommandActions.vue';
-import { createRecommendationCommandDraft } from '../../../src/features/recommendations/models/recommendationCommandDraft';
 import type {
   RecommendationView,
   RecommendationPreferences,
@@ -14,7 +11,6 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
-  notRelevant: vi.fn(),
   later: vi.fn(),
   refreshPreferences: vi.fn(),
 }));
@@ -22,7 +18,7 @@ vi.mock('../../../src/features/recommendations/api/saveRecommendation', () => ({
   saveRecommendation: mocks.save,
 }));
 vi.mock('../../../src/features/recommendations/api/markRecommendationNotRelevant', () => ({
-  markRecommendationNotRelevant: mocks.notRelevant,
+  markRecommendationNotRelevant: vi.fn(),
 }));
 vi.mock('../../../src/features/recommendations/api/laterRecommendation', () => ({
   laterRecommendation: mocks.later,
@@ -102,7 +98,6 @@ function buttonWithText(wrapper: ReturnType<typeof setup>, text: string) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.refreshPreferences.mockResolvedValue(preferences);
   vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'same-request-key') });
   vi.stubGlobal(
     'matchMedia',
@@ -117,155 +112,25 @@ beforeEach(() => {
   );
 });
 
-it('preserves a rejected decision draft and retries only the exact same idempotent request after an uncertain response', async () => {
-  mocks.notRelevant.mockRejectedValueOnce(new TypeError('network interrupted')).mockResolvedValue({
-    recommendation_id: 'rec-1',
-    recommendation_status: 'rejected',
-    recommendation_version: 8,
-    resolved_at: '2026-11-14T11:00:00Z',
-    suppression_block_id: 'block-1',
-    reason: 'Wrong buyer',
-    remaining_blockers: ['rejected'],
-  });
+it('opens a mute panel instead of permanently rejecting the recommendation', async () => {
   const wrapper = setup();
-  const reason = wrapper.get('textarea');
-  await reason.setValue('Wrong buyer');
   await buttonWithText(wrapper, 'Not relevant').trigger('click');
-  await flushPromises();
-  expect(reason.element.value).toBe('Wrong buyer');
-  expect((reason.element as HTMLTextAreaElement).disabled).toBe(true);
-  expect(wrapper.text()).toContain('Retry the same update safely.');
-  expect(wrapper.text()).not.toContain('request key');
-  expect(wrapper.text()).not.toContain('receipt');
-  const firstRequest = mocks.notRelevant.mock.calls[0];
-  expect(firstRequest).toEqual([
-    'rec-1',
-    expect.objectContaining({
-      assessment_revision_id: 'revision-1',
-      expected_recommendation_version: 7,
-      reason: 'Wrong buyer',
-      request_key: 'same-request-key',
-    }),
-  ]);
-  await buttonWithText(wrapper, 'Retry the same request').trigger('click');
-  await flushPromises();
-  expect(mocks.notRelevant).toHaveBeenCalledTimes(2);
-  expect(mocks.notRelevant.mock.calls[1]).toEqual(firstRequest);
-  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({ kind: 'not_relevant' });
-  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({
-    message: expect.stringContaining('persistent Company block'),
-  });
-});
-
-it('retries an uncertain decision against its original recommendation target after a row prop changes', async () => {
-  mocks.notRelevant.mockRejectedValueOnce(new TypeError('network interrupted')).mockResolvedValue({
-    recommendation_id: 'rec-1',
-    recommendation_status: 'rejected',
-    recommendation_version: 8,
-    resolved_at: '2026-11-14T11:00:00Z',
-    suppression_block_id: 'block-1',
-    reason: 'Wrong buyer',
-    remaining_blockers: ['rejected'],
-  });
-  const wrapper = setup();
-  await wrapper.get('textarea').setValue('Wrong buyer');
-  await buttonWithText(wrapper, 'Not relevant').trigger('click');
-  await flushPromises();
-
-  const changedRecommendation = model();
-  changedRecommendation.id = 'rec-2';
-  const changedAssessment = changedRecommendation.assessment;
-  if (!changedAssessment) throw new Error('Test recommendation needs an assessment');
-  changedAssessment.id = 'revision-2';
-  await wrapper.setProps({ recommendation: changedRecommendation });
-  await buttonWithText(wrapper, 'Retry the same request').trigger('click');
-  await flushPromises();
-
-  expect(mocks.notRelevant.mock.calls[1]).toEqual(mocks.notRelevant.mock.calls[0]);
-  expect(mocks.notRelevant.mock.calls[1]?.[0]).toBe('rec-1');
-});
-
-it('preserves Save recovery when an earlier Later preference refresh finishes during the request', async () => {
-  let finishPreferences!: (value: RecommendationPreferences) => void;
-  mocks.refreshPreferences.mockResolvedValueOnce(preferences).mockReturnValueOnce(
-    new Promise<RecommendationPreferences>((resolve) => {
-      finishPreferences = resolve;
-    }),
-  );
-  let failSave!: (reason: ApiError) => void;
-  mocks.save
-    .mockReturnValueOnce(
-      new Promise<never>((_resolve, reject) => {
-        failSave = reject;
-      }),
-    )
-    .mockResolvedValue({
-      recommendation_id: 'rec-1',
-      company_id: 'company-1',
-      assessment_revision_id: 'revision-1',
-      prospect_id: 'prospect-1',
-      prospect_stage: 'saved',
-      prospect_version: 1,
-      origin_id: 'origin-1',
-    });
-  vi.stubGlobal('crypto', {
-    randomUUID: vi
-      .fn()
-      .mockReturnValueOnce('save-request-key')
-      .mockReturnValueOnce('later-request-key'),
-  });
-  const draft = reactive(createRecommendationCommandDraft('rec-1'));
-  const wrapper = setup();
-  await wrapper.setProps({ draftState: draft });
-  await buttonWithText(wrapper, 'Review Later').trigger('click');
-  await flushPromises();
-  await buttonWithText(wrapper, 'Confirm Later').trigger('click');
-  await buttonWithText(wrapper, 'Save as prospect').trigger('click');
-  await flushPromises();
-  const saveIntent = draft.intent;
-  expect(saveIntent).toMatchObject({
-    kind: 'saved',
-    request: { assessment_revision_id: 'revision-1', request_key: 'save-request-key' },
-  });
-
-  finishPreferences(preferences);
-  await flushPromises();
-
+  expect(wrapper.text()).toContain('How long should this company be muted?');
+  expect(wrapper.text()).toContain('Until I turn it back on');
   expect(mocks.later).not.toHaveBeenCalled();
-  expect(draft.intent).toBe(saveIntent);
-  expect(draft.status).toBe('pending');
-  failSave(new ApiError(503, 'unavailable', 'Save result unknown'));
-  await flushPromises();
-
-  expect(draft.intent).toBe(saveIntent);
-  expect(draft.status).toBe('uncertain');
-  expect(wrapper.text()).toContain('Retry the same update safely.');
-  await buttonWithText(wrapper, 'Retry the same request').trigger('click');
-  await flushPromises();
-
-  expect(mocks.save).toHaveBeenCalledTimes(2);
-  expect(mocks.save.mock.calls[1]).toEqual([
-    'rec-1',
-    { assessment_revision_id: 'revision-1', request_key: 'save-request-key' },
-  ]);
-  expect(mocks.later).not.toHaveBeenCalled();
-  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({ kind: 'saved' });
-  wrapper.unmount();
 });
 
-it('previews the Business cadence and explicitly confirms replacement of only the active pause', async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-11-14T10:00:00.000Z'));
+it('mutes for the chosen number of days with an optional reason and replaces the active pause', async () => {
   mocks.later.mockResolvedValue({
     recommendation_id: 'rec-1',
     recommendation_version: 8,
-    pause_choice: 'x3',
+    pause_choice: 'd90',
     repeat_interval_days: 30,
     selected_at: '2026-11-14T10:00:00Z',
     expires_at: '2027-02-12T10:00:00Z',
     suppression_block_id: 'new-pause',
     replaced_pause_id: 'old-pause',
-    remaining_blockers: ['rejected'],
+    remaining_blockers: [],
   });
   const recommendation = model();
   recommendation.active_blocks = [
@@ -285,23 +150,12 @@ it('previews the Business cadence and explicitly confirms replacement of only th
     },
   ];
   const wrapper = setup(recommendation);
-  wrapper.getComponent(Select).vm.$emit('update:modelValue', 'x3');
+  await buttonWithText(wrapper, 'Not relevant').trigger('click');
+  await wrapper.get('textarea').setValue('Wrong buyer');
+  await wrapper.get('input[type="number"]').setValue(90);
+  await buttonWithText(wrapper, 'Confirm').trigger('click');
   await flushPromises();
-  expect(wrapper.text()).toContain('3 × 30-day repeat interval (90 days)');
-  expect(wrapper.text()).toContain('replaces the current pause');
-  await buttonWithText(wrapper, 'Review Later').trigger('click');
-  await flushPromises();
-  expect(mocks.refreshPreferences).toHaveBeenCalledTimes(1);
-  expect(mocks.later).not.toHaveBeenCalled();
-  expect(wrapper.text()).toContain('If you pause now');
-  expect(wrapper.text()).toContain('UTC');
-  const preview = wrapper.get('[data-testid="later-expiry-preview"]').text();
-  await vi.advanceTimersByTimeAsync(1000);
-  await flushPromises();
-  expect(wrapper.get('[data-testid="later-expiry-preview"]').text()).not.toBe(preview);
-  await buttonWithText(wrapper, 'Confirm Later').trigger('click');
-  await flushPromises();
-  expect(mocks.refreshPreferences).toHaveBeenCalledTimes(2);
+
   expect(mocks.later).toHaveBeenCalledWith('rec-1', {
     assessment_revision_id: 'revision-1',
     expected_pause_id: 'old-pause',
@@ -309,58 +163,85 @@ it('previews the Business cadence and explicitly confirms replacement of only th
     expected_preference_updated_at: preferences.updated_at,
     expected_recommendation_version: 7,
     expected_repeat_interval_days: 30,
-    pause_choice: 'x3',
+    pause_choice: 'd90',
+    reason: 'Wrong buyer',
     request_key: 'same-request-key',
   });
   expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({
-    message: expect.stringContaining('Accepted at 2026-11-14 10:00:00.000 UTC'),
+    kind: 'later',
+    message: 'Muted until 2027-02-12 10:00:00.000 UTC.',
   });
-  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({ kind: 'later' });
-  vi.useRealTimers();
 });
 
-it('keeps the selected Later duration and requires a second confirmation after cadence changes', async () => {
-  mocks.refreshPreferences
-    .mockResolvedValueOnce(preferences)
-    .mockResolvedValueOnce({
-      business_id: 'business-1',
-      repeat_interval_days: 45,
-      updated_at: '2026-11-14T11:00:00Z',
-    })
-    .mockResolvedValue({
-      business_id: 'business-1',
-      repeat_interval_days: 45,
-      updated_at: '2026-11-14T11:00:00Z',
-    });
+it('mutes until the user turns it back on', async () => {
+  mocks.later.mockResolvedValue({
+    recommendation_id: 'rec-1',
+    recommendation_version: 8,
+    pause_choice: 'indefinite',
+    repeat_interval_days: 30,
+    selected_at: '2026-11-14T10:00:00Z',
+    expires_at: null,
+    suppression_block_id: 'new-pause',
+    replaced_pause_id: null,
+    remaining_blockers: [],
+  });
   const wrapper = setup();
-  wrapper.getComponent(Select).vm.$emit('update:modelValue', 'x2');
+  await buttonWithText(wrapper, 'Not relevant').trigger('click');
+  await wrapper.findAll('input[type="radio"]')[1]?.setValue(true);
+  await buttonWithText(wrapper, 'Confirm').trigger('click');
   await flushPromises();
-  await buttonWithText(wrapper, 'Review Later').trigger('click');
-  await flushPromises();
-  expect(wrapper.text()).toContain('2 × 30-day repeat interval (60 days)');
-  await buttonWithText(wrapper, 'Confirm Later').trigger('click');
-  await flushPromises();
-  expect(mocks.later).not.toHaveBeenCalled();
-  expect(wrapper.text()).toContain('Business repeat timing changed');
-  expect(wrapper.text()).toContain('2 × 45-day repeat interval (90 days)');
-  await buttonWithText(wrapper, 'Confirm Later').trigger('click');
-  await flushPromises();
+
   expect(mocks.later).toHaveBeenCalledWith(
     'rec-1',
-    expect.objectContaining({
-      expected_preference_updated_at: '2026-11-14T11:00:00Z',
-      expected_repeat_interval_days: 45,
-      pause_choice: 'x2',
-    }),
+    expect.objectContaining({ pause_choice: 'indefinite', reason: null }),
   );
+  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({
+    kind: 'later',
+    message: 'Muted until you turn it back on.',
+  });
 });
 
-it('retains an editable stale decision draft until the user refreshes server state', async () => {
-  mocks.notRelevant.mockRejectedValue(new ApiError(409, 'conflict', 'stale version'));
+it('retries an uncertain mute against its original recommendation target after a row prop changes', async () => {
+  mocks.later.mockRejectedValueOnce(new TypeError('network interrupted')).mockResolvedValue({
+    recommendation_id: 'rec-1',
+    recommendation_version: 8,
+    pause_choice: 'd30',
+    repeat_interval_days: 30,
+    selected_at: '2026-11-14T11:00:00Z',
+    expires_at: '2026-12-14T10:00:00Z',
+    suppression_block_id: 'block-1',
+    replaced_pause_id: null,
+    remaining_blockers: [],
+  });
   const wrapper = setup();
+  await buttonWithText(wrapper, 'Not relevant').trigger('click');
+  await wrapper.get('textarea').setValue('Wrong buyer');
+  await buttonWithText(wrapper, 'Confirm').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Retry the same update safely.');
+  const firstRequest = mocks.later.mock.calls[0];
+
+  const changedRecommendation = model();
+  changedRecommendation.id = 'rec-2';
+  const changedAssessment = changedRecommendation.assessment;
+  if (!changedAssessment) throw new Error('Test recommendation needs an assessment');
+  changedAssessment.id = 'revision-2';
+  await wrapper.setProps({ recommendation: changedRecommendation });
+  await buttonWithText(wrapper, 'Retry the same request').trigger('click');
+  await flushPromises();
+
+  expect(mocks.later).toHaveBeenCalledTimes(2);
+  expect(mocks.later.mock.calls[1]).toEqual(firstRequest);
+  expect(mocks.later.mock.calls[1]?.[0]).toBe('rec-1');
+});
+
+it('retains an editable stale mute draft until the user refreshes server state', async () => {
+  mocks.later.mockRejectedValue(new ApiError(409, 'conflict', 'stale version'));
+  const wrapper = setup();
+  await buttonWithText(wrapper, 'Not relevant').trigger('click');
   const reason = wrapper.get('textarea');
   await reason.setValue('Wrong buyer');
-  await buttonWithText(wrapper, 'Not relevant').trigger('click');
+  await buttonWithText(wrapper, 'Confirm').trigger('click');
   await flushPromises();
   expect(wrapper.text()).toContain('Refresh current state');
   expect(reason.element.value).toBe('Wrong buyer');

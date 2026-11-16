@@ -90,6 +90,7 @@ def _later_request(
     key,
     pause,
     choice="x2",
+    reason=None,
 ):
     return LaterRecommendationRequest(
         recommendation_id=recommendation.id,
@@ -101,6 +102,7 @@ def _later_request(
         expected_pause_id=pause.id if pause else None,
         expected_pause_version=pause.version if pause else None,
         request_key=key,
+        reason=reason,
     )
 
 
@@ -330,6 +332,60 @@ def test_later_replaces_one_pause_keeps_history_and_replays_exact_receipt(
                 (identity.business_id, identity.company_id),
             ).fetchone()[0]
             == 2
+        )
+
+
+def test_day_based_mute_records_reason_and_keeps_discovery_open(
+    management_database_url,
+):
+    identity, recommendation, revision = _setup(management_database_url)
+    service = RecommendationDecisionService(
+        lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
+        clock=lambda: NOW + timedelta(minutes=3),
+    )
+    with psycopg.connect(management_database_url) as connection:
+        repeat_interval_days, updated_at = connection.execute(
+            "SELECT repeat_interval_days,updated_at "
+            "FROM operational.business_recommendation_preferences "
+            "WHERE business_id=%s",
+            (identity.business_id,),
+        ).fetchone()
+    from huginn.management.domain.entities.business_recommendation_preferences import (
+        BusinessRecommendationPreferences,
+    )
+
+    preference = BusinessRecommendationPreferences(
+        identity.business_id, repeat_interval_days, updated_at
+    )
+    request = _later_request(
+        recommendation,
+        revision,
+        preference,
+        key="later-days",
+        pause=None,
+        choice="d45",
+        reason="Revisit next quarter.",
+    )
+    result = service.later(_principal(identity), request)
+    assert result.pause_choice == "d45"
+    assert result.expires_at == NOW + timedelta(minutes=3) + timedelta(days=45)
+
+    with psycopg.connect(management_database_url) as connection:
+        assert connection.execute(
+            "SELECT kind,reason,expires_at FROM operational.suppression_blocks "
+            "WHERE id=%s",
+            (result.suppression_block_id,),
+        ).fetchone() == (
+            "pause",
+            "Revisit next quarter.",
+            result.expires_at,
+        )
+        assert (
+            connection.execute(
+                "SELECT status FROM operational.recommendations WHERE id=%s",
+                (recommendation.id,),
+            ).fetchone()[0]
+            == "open"
         )
 
 

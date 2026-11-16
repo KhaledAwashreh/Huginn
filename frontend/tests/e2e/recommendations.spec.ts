@@ -290,13 +290,11 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     page.getByRole('heading', { name: 'Northstar Research', exact: true }),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Review Later' }).click();
-  const preview = page.getByTestId('later-expiry-preview');
-  await expect(preview).toContainText('If you pause now');
-  await expect(preview).toContainText('UTC');
-  await expect(preview).toContainText('30 days');
-  await page.getByRole('button', { name: 'Confirm Later' }).click();
-  await expect(page.getByRole('status')).toContainText('Accepted at');
+  await page.getByRole('button', { name: 'Not relevant' }).click();
+  await page.getByLabel('Reason (optional)').fill('Not a fit right now.');
+  await page.getByLabel('Mute days').fill('45');
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Muted until');
   expect(laterRequest).toMatchObject({
     assessment_revision_id: recommendation.assessment?.id,
     expected_pause_id: null,
@@ -304,7 +302,8 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     expected_preference_updated_at: '2026-11-14T10:00:00Z',
     expected_repeat_interval_days: 30,
     expected_recommendation_version: recommendation.version,
-    pause_choice: 'x1',
+    pause_choice: 'd45',
+    reason: 'Not a fit right now.',
   });
 
   await page.getByRole('button', { name: 'Manage suppressions' }).click();
@@ -316,7 +315,6 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     page.getByText(/Rejection reversed\. Independent blocks remain unchanged/),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Report assessment quality' }).click();
   await page.getByLabel('How useful was this assessment?').selectOption('not_useful');
   await page.getByLabel('Outcome').selectOption('not_relevant');
   await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');

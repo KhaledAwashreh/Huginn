@@ -2009,11 +2009,10 @@ export interface components {
             expected_recommendation_version: number;
             /** Expected Repeat Interval Days */
             expected_repeat_interval_days: number;
-            /**
-             * Pause Choice
-             * @enum {string}
-             */
-            pause_choice: "x1" | "x2" | "x3" | "x4" | "indefinite";
+            /** Pause Choice */
+            pause_choice: string;
+            /** Reason */
+            reason?: string | null;
             /** Request Key */
             request_key: string;
         };

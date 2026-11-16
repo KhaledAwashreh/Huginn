@@ -7,18 +7,6 @@ import { computed, useId } from 'vue';
 const props = defineProps<{ recommendation: RecommendationView }>();
 const recommendation = computed(() => props.recommendation);
 const headingId = useId();
-const eligibilityLabels: Record<RecommendationView['current_eligibility'], string> = {
-  historical: 'Resolved historical recommendation',
-  blocked: 'Currently blocked by an independent decision or relationship',
-  unavailable: 'Current evidence is unavailable',
-  not_reassessed: 'Current evidence has not been reassessed',
-};
-function label(value: string): string {
-  return value.replaceAll('_', ' ');
-}
-function utc(value: string): string {
-  return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
-}
 </script>
 
 <template>
@@ -36,7 +24,6 @@ function utc(value: string): string {
         </a>
         <span v-else>{{ recommendation.company.domain }}</span>
       </div>
-      <span class="eligibility">{{ eligibilityLabels[recommendation.current_eligibility] }}</span>
     </header>
 
     <section class="current-context" aria-label="Current company context">
@@ -69,28 +56,6 @@ function utc(value: string): string {
       :assessment="recommendation.assessment"
       :evidence-state="recommendation.evidence_state"
     />
-
-    <section
-      v-if="recommendation.selection_blockers.length || recommendation.active_blocks.length"
-      class="blockers"
-      aria-label="Current independent blockers"
-    >
-      <h3>Current independent blockers</h3>
-      <ul>
-        <li v-for="blocker in recommendation.selection_blockers" :key="blocker">
-          {{ label(blocker) }}
-        </li>
-      </ul>
-      <ul>
-        <li v-for="block in recommendation.active_blocks" :key="block.id">
-          {{ label(block.kind) }}<span v-if="block.reason">: {{ block.reason }}</span>
-          <time v-if="block.expires_at" :datetime="block.expires_at">
-            through {{ utc(block.expires_at) }}</time
-          >
-          <span v-else-if="block.kind === 'pause'"> indefinitely</span>
-        </li>
-      </ul>
-    </section>
   </section>
 </template>
 
@@ -132,11 +97,7 @@ a {
   color: var(--color-primary);
   overflow-wrap: anywhere;
 }
-.eligibility {
-  color: var(--color-text-muted);
-}
-.current-context,
-.blockers {
+.current-context {
   display: grid;
   gap: var(--space-2);
 }

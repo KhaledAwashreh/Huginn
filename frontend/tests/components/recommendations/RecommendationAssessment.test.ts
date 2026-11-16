@@ -57,7 +57,9 @@ it('renders the immutable origin assessment and joins source details by observat
     wrapper.get('[data-assessment-revision-id]').attributes('data-assessment-revision-id'),
   ).toBe('revision-1');
   expect(wrapper.text()).toContain('Current hiring suggests a research workflow review.');
-  expect(wrapper.text()).toContain('Buying role is unknown.');
+  expect(wrapper.text()).not.toContain('Buying role is unknown.');
+  expect(wrapper.text()).not.toContain('Product research');
+  expect(wrapper.text()).not.toContain('Research strategy');
   expect(wrapper.get('a').attributes('href')).toBe('https://northstar.example/careers');
   expect(wrapper.text()).toContain('Source date:');
   expect(wrapper.text()).not.toContain('Current source evidence differs');

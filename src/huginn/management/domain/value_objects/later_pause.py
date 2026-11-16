@@ -31,6 +31,12 @@ class LaterPause:
         if self.choice.value == "indefinite":
             if self.expires_at is not None:
                 raise ValidationDomainError("Indefinite pauses do not expire")
+        elif self.choice.days is not None:
+            expected = self.selected_at + timedelta(days=self.choice.days)
+            if self.expires_at != expected:
+                raise ValidationDomainError(
+                    "Pause expiry must preserve its selected duration"
+                )
         else:
             multiplier = int(self.choice.value[1:])
             expected = self.selected_at + timedelta(
