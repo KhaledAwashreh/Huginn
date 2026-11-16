@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -256,7 +257,7 @@ def test_response_schemas_constrain_current_eligibility_and_closed_last_active_s
         assert any(branch.get("type") == "null" for branch in property_schema["anyOf"])
 
 
-def test_prospect_command_mapper_preserves_fresh_and_replayed_http_output():
+def test_prospect_command_mapper_serializes_typed_state_and_original_activity():
     from huginn.management.application.responses.prospect_command_response import (
         ProspectCommandResponse as CommandResult,
     )
@@ -264,18 +265,18 @@ def test_prospect_command_mapper_preserves_fresh_and_replayed_http_output():
 
     identity, _, _, prospect, _ = _base()
     activity = valid_prospect_activity(identity, prospect)
+    prospect = replace(prospect, notes="Later memo", version=prospect.version + 1)
     result = CommandResult(prospect, activity)
     mapper = getattr(prospecting_mapping, "prospect_command_response", None)
     assert mapper is not None, "Commands need a typed presentation mapper"
-    replay = CommandResult.from_snapshot(result.snapshot())
-    import json
-
-    from huginn.management.presentation.api.responses.prospect_command import (
-        ProspectCommandResponse,
-    )
-
-    expected = ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    ).model_dump(mode="json")
-    assert mapper(result).model_dump(mode="json") == expected
-    assert mapper(replay).model_dump(mode="json") == expected
+    response = mapper(result)
+    assert response.prospect.id == prospect.id
+    assert response.prospect.stage == prospect.stage.value
+    assert response.prospect.version == prospect.version
+    assert response.prospect.notes == prospect.notes
+    assert response.activity.id == activity.id
+    assert response.activity.kind == activity.kind.value
+    assert response.activity.occurred_at == activity.occurred_at
+    assert response.activity.recorded_at == activity.recorded_at
+    assert response.activity.payload == activity.payload.to_json_object()
+    assert response.model_dump(mode="json")["activity"]["id"] == str(activity.id)

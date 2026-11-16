@@ -63,6 +63,7 @@ class MemoryProspectingUow:
             update_owned=self.update_prospect,
         )
         self.activities = SimpleNamespace(
+            get_owned=self.get_activity,
             list_owned=self.list_activities,
             append_once=self.append_activity,
         )
@@ -125,6 +126,16 @@ class MemoryProspectingUow:
             raise ConflictError("Prospect update must advance one version")
         self.store.prospect = prospect
         return prospect
+
+    def get_activity(self, business_id, prospect_id, activity_id):
+        return next(
+            (
+                activity
+                for activity in self.list_activities(business_id, prospect_id)
+                if activity.id == activity_id
+            ),
+            None,
+        )
 
     def list_activities(self, business_id, prospect_id):
         if self.get_prospect(business_id, prospect_id) is None:

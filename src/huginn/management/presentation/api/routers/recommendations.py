@@ -330,7 +330,7 @@ def prepare_offer(
     dependencies: Management,
 ):
     require_new_discovery_work(dependencies)
-    result = dependencies.prepare_recommendation_offer_service.execute(
+    result = dependencies.recommendation_offer_service.prepare(
         authenticated.principal,
         PrepareOfferCommand(
             recommendation_id, body.assessment_revision_id, body.request_key
@@ -360,7 +360,7 @@ def confirm_offer(
     dependencies: Management,
 ):
     require_new_discovery_work(dependencies)
-    result = dependencies.confirm_recommendation_offer_service.execute(
+    result = dependencies.recommendation_offer_service.confirm(
         authenticated.principal, ConfirmOfferCommand(offer_cycle_id, body.claim_token)
     )
     return response_from_domain(result, ConfirmedRecommendationOfferResponse)

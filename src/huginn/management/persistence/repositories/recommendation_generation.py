@@ -223,29 +223,6 @@ class PostgresRecommendationGenerationSource(RecommendationGenerationSource):
         }
         return actual == expected
 
-    def was_selected_in_generation(
-        self, business_id: UUID, recommendation_id: UUID, revision_id: UUID
-    ) -> bool:
-        return bool(
-            self.connection.execute(
-                """SELECT EXISTS (
-                    SELECT 1 FROM operational.command_receipts receipt
-                    CROSS JOIN LATERAL jsonb_array_elements(
-                        receipt.result_snapshot->'references'
-                    ) reference
-                    WHERE receipt.business_id=%s
-                      AND receipt.resource_kind='recommendation_generation_run'
-                      AND receipt.scope IN (
-                        'recommendation_generation:on_demand',
-                        'recommendation_generation:weekly'
-                      )
-                      AND reference->>'recommendation_id'=%s
-                      AND reference->>'revision_id'=%s
-                )""",
-                (business_id, str(recommendation_id), str(revision_id)),
-            ).fetchone()[0]
-        )
-
     def current_company_for_revision(
         self, revision: AssessmentRevision, as_of: datetime
     ) -> RecommendationCompany | None:

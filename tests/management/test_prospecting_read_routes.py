@@ -1,7 +1,7 @@
 """HTTP routing remains a scoped, private, side-effect-free read boundary."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -282,7 +282,7 @@ def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
     observed = []
 
     class Command:
-        def execute(self, actor, request):
+        def execute(self, actor, **request):
             observed.append((actor, request))
             raise NotFoundError("Prospect not found")
 
@@ -315,12 +315,31 @@ def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
         assert response.headers["cache-control"] == "no-store"
         assert response.headers["vary"] == "Cookie"
     assert observed[0][0] == principal
-    assert observed[0][1].prospect_id == prospect_id
-    assert observed[0][1].expected_version == 5
+    assert observed[0][1]["prospect_id"] == prospect_id
+    assert observed[0][1]["expected_version"] == 5
+    assert observed[0][1]["request_key"] == "unchanged-intent"
     if action == "stage":
-        assert observed[0][1].target_stage.value == "contacted"
+        assert observed[0][1]["target_stage"].value == "contacted"
     if action != "activity-time-corrections":
-        assert observed[0][1].occurred_at == now
+        assert observed[0][1]["occurred_at"] == now
+    if action == "close":
+        assert observed[0][1]["reason"] == "No longer active"
+    elif action == "notes":
+        assert observed[0][1]["replacement_notes"] == "Canonical memo"
+    elif action == "follow-up":
+        assert observed[0][1]["follow_up_at"] == datetime.fromisoformat(
+            extra["follow_up_at"]
+        )
+    elif action == "proposal-drafts":
+        assert observed[0][1]["summary"] == "Draft only"
+    elif action == "activity-time-corrections":
+        assert observed[0][1]["original_activity_id"] == UUID(
+            extra["original_activity_id"]
+        )
+        assert observed[0][1]["expected_correction_head_id"] is None
+        assert observed[0][1]["replacement_occurred_at"] == datetime.fromisoformat(
+            extra["replacement_occurred_at"]
+        )
 
 
 @pytest.mark.parametrize("action", ["prepare", "confirm"])
@@ -333,17 +352,15 @@ def test_offer_commands_require_explicit_csrf_and_scope_cycle_from_session(actio
     observed = []
 
     class Command:
-        def execute(self, actor, request):
+        def prepare(self, actor, request):
             observed.append((actor, request))
             raise NotFoundError("Offer not found")
 
-    name = (
-        "prepare_recommendation_offer_service"
-        if action == "prepare"
-        else "confirm_recommendation_offer_service"
-    )
+        confirm = prepare
+
     app = create_app(
-        ManagementConfig("unused", environment="test"), **{name: Command()}
+        ManagementConfig("unused", environment="test"),
+        recommendation_offer_service=Command(),
     )
     session = Session(
         uuid4(), principal.account_id, "digest", digest_token("csrf"), now, now, None

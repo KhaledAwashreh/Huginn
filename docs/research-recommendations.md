@@ -92,6 +92,11 @@ proposal drafts, and activity-time corrections. Read the exact route schemas in
 OpenAPI before building an API client; commands carry expected versions and
 idempotency data to protect against stale edits and retries.
 
+Retrying a prospect command with the same request key and payload returns its
+original activity together with the prospect's current state. It does not repeat
+the action or append history. A changed payload using the same key conflicts;
+a new command with a stale expected version also conflicts.
+
 ## Assessment limits
 
 The built-in ranker is a lexical research baseline, not a language model or a

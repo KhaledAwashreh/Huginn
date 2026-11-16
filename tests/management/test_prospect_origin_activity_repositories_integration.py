@@ -77,6 +77,16 @@ def test_exact_origin_and_activity_request_idempotency(management_database_url):
         )
         assert replay == activity
         assert activities.list_owned(identity.business_id, prospect.id) == (activity,)
+        assert (
+            activities.get_owned(identity.business_id, prospect.id, activity.id)
+            == activity
+        )
+        assert (
+            activities.get_owned(other_identity.business_id, prospect.id, activity.id)
+            is None
+        )
+        assert activities.get_owned(identity.business_id, uuid4(), activity.id) is None
+        assert activities.get_owned(identity.business_id, prospect.id, uuid4()) is None
 
         with pytest.raises(ConflictError):
             # Reused request identity is checked before exact-origin de-duplication.

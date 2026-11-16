@@ -2,11 +2,16 @@
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
 
 import psycopg
 import pytest
 
+from huginn.management.application.requests.mark_recommendation_not_relevant_request import (
+    MarkRecommendationNotRelevantRequest,
+)
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
+)
 from huginn.management.application.services.recommendation_generation import (
     RecommendationGenerationService,
 )
@@ -14,11 +19,9 @@ from huginn.management.application.services.weekly_digest import WeeklyDigestSer
 from huginn.management.delivery.templates.weekly_digest import (
     PlainTextWeeklyDigestRenderer,
 )
-from huginn.management.domain.entities.suppression_block import SuppressionBlock
-from huginn.management.domain.value_objects.suppression_kind import SuppressionKind
+from huginn.management.domain.value_objects.common import Principal
 from huginn.management.persistence.database.client import (
     ManagementConnectionFactory,
-    PsycopgDatabaseSession,
 )
 from huginn.management.persistence.database.prospecting_unit_of_work import (
     PostgresProspectingUnitOfWork,
@@ -28,9 +31,6 @@ from huginn.management.persistence.repositories.digest_subscription_access impor
 )
 from huginn.management.persistence.repositories.recommendation_generation import (
     PostgresRecommendationGenerationSource,
-)
-from huginn.management.persistence.repositories.suppression_block import (
-    PostgresSuppressionBlockRepository,
 )
 from huginn.management.persistence.repositories.weekly_digest_content import (
     PostgresWeeklyDigestContentRepository,
@@ -180,35 +180,6 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
         "https://huginn.example", "integration-signing-key", "huginn.example"
     )
 
-    class DecisionDuringRender:
-        target_company_id = None
-
-        def render(self, subscription, week_start, content_id, revisions):
-            message = base_renderer.render(
-                subscription, week_start, content_id, revisions
-            )
-            if self.target_company_id is None:
-                self.target_company_id = revisions[0].company_id
-                decided_at = now + timedelta(seconds=1)
-                with psycopg.connect(url) as connection:
-                    PostgresSuppressionBlockRepository(
-                        PsycopgDatabaseSession(connection)
-                    ).append(
-                        SuppressionBlock(
-                            UUID(int=1),
-                            business_id,
-                            self.target_company_id,
-                            SuppressionKind("rejection"),
-                            decided_at,
-                            created_by_user_id=user,
-                            reason="Intervening decision before email authorization",
-                        )
-                    )
-                    connection.commit()
-                service_time[0] = now + timedelta(seconds=2)
-            return message
-
-    renderer = DecisionDuringRender()
     service = WeeklyDigestService(
         lambda: PostgresProspectingUnitOfWork(factory),
         subscription_access_factory=lambda work: PostgresDigestSubscriptionAccess(
@@ -222,11 +193,43 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
         ),
         source_factory=PostgresRecommendationGenerationSource,
         generation=weekly_generation,
-        renderer=renderer,
+        renderer=base_renderer,
         sender=Sender(),
         sender_address="weekly@huginn.example",
         clock=lambda: service_time[0],
     )
+    original_authorize = service._authorize
+    rejected_company_ids = []
+
+    def authorize_after_owner_rejection(subscription, delivery, week_start, references):
+        reference = references[0]
+        with PostgresProspectingUnitOfWork(factory) as work:
+            recommendation = work.recommendations.get_owned(
+                business_id, reference.recommendation_id
+            )
+        assert recommendation is not None
+        rejected_company_ids.append(recommendation.company_id)
+        decided_at = now + timedelta(seconds=1)
+        with psycopg.connect(url) as connection:
+            account_id = connection.execute(
+                "SELECT account_id FROM operational.users WHERE id=%s", (user,)
+            ).fetchone()[0]
+        RecommendationDecisionService(
+            lambda: PostgresProspectingUnitOfWork(factory), clock=lambda: decided_at
+        ).mark_not_relevant(
+            Principal(account_id, user),
+            MarkRecommendationNotRelevantRequest(
+                reference.recommendation_id,
+                reference.revision_id,
+                recommendation.version,
+                "reject-before-atomic-weekly-publication",
+                "Intervening decision before email authorization",
+            ),
+        )
+        service_time[0] = now + timedelta(seconds=2)
+        return original_authorize(subscription, delivery, week_start, references)
+
+    service._authorize = authorize_after_owner_rejection
     with PostgresProspectingUnitOfWork(factory) as work:
         subscription = PostgresDigestSubscriptionAccess(work.connection).list_eligible(
             1
@@ -251,12 +254,12 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
         assert len(members) == 6
         assert len({member[0] for member in members}) == 6
         assert {member[0] for member in members} == set(companies[:7]) - {
-            renderer.target_company_id
+            rejected_company_ids[0]
         }
         assert tuple(member[0] for member in members) == tuple(
             company_id
             for company_id in weekly_generation.company_order
-            if company_id != renderer.target_company_id
+            if company_id != rejected_company_ids[0]
         )
         content_versions = connection.execute(
             "SELECT c.version,c.id,count(m.position) FROM operational.weekly_digest_contents c "
@@ -265,15 +268,19 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
             (delivery,),
         ).fetchall()
         assert [(version, count) for version, _, count in content_versions] == [
-            (1, 7),
-            (2, 6),
+            (1, 6),
         ]
         assert content_id == content_versions[-1][1]
-        old_member_count = connection.execute(
-            "SELECT count(*) FROM operational.weekly_digest_members WHERE content_id=%s",
-            (content_versions[0][1],),
-        ).fetchone()[0]
-        assert old_member_count == 7
+        assert connection.execute(
+            "SELECT status,first_presented_at FROM operational.recommendations "
+            "WHERE business_id=%s AND company_id=%s",
+            (business_id, rejected_company_ids[0]),
+        ).fetchone() == ("rejected", None)
+        assert connection.execute(
+            "SELECT count(*) FROM operational.offer_cycles "
+            "WHERE business_id=%s AND company_id=%s",
+            (business_id, rejected_company_ids[0]),
+        ).fetchone() == (0,)
         assert (
             connection.execute(
                 "SELECT count(*) FROM operational.recommendation_batches WHERE user_id=%s",
@@ -319,7 +326,7 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
         )
 
     # A failure authorizing the second Company rolls back the first Company's
-    # Sending transition and delivery authorization before safe claim cleanup.
+    # Sending transition, content and claims in the publication transaction.
     with psycopg.connect(url) as connection:
         owner2, _, _ = seed_digest_subscriber(
             connection, "weekly-authorization-rollback"
@@ -422,11 +429,11 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
             ).fetchone()[0]
             == "failed"
         )
-        selected_count = connection.execute(
-            "SELECT count(*) FROM operational.weekly_digest_members WHERE content_id=%s",
-            (selected_content,),
-        ).fetchone()[0]
-        assert selected_count >= 2
+        assert selected_content is None
+        assert connection.execute(
+            "SELECT count(*) FROM operational.weekly_digest_contents WHERE business_id=%s",
+            (business2,),
+        ).fetchone() == (0,)
         assert (
             connection.execute(
                 "SELECT count(*) FROM operational.offer_cycles "
@@ -445,11 +452,10 @@ def test_weekly_email_uses_shared_multi_strategy_revisions_and_distinct_companie
         )
         assert (
             connection.execute(
-                "SELECT count(*) FROM operational.offer_cycles "
-                "WHERE business_id=%s AND status='abandoned'",
+                "SELECT count(*) FROM operational.offer_cycles WHERE business_id=%s",
                 (business2,),
             ).fetchone()[0]
-            == selected_count
+            == 0
         )
         assert (
             connection.execute(
