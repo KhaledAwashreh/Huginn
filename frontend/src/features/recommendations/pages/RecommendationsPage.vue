@@ -57,7 +57,6 @@ onBeforeRouteLeave(() => {
 });
 onMounted(() => window.addEventListener('beforeunload', beforeUnload));
 onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
-const strategyId = ref('');
 const notice = ref('');
 const statuses = [
   { label: 'Open recommendations', value: 'open' },
@@ -70,7 +69,7 @@ function completed(event: { kind: string; message: string }): void {
 }
 async function generate(): Promise<void> {
   notice.value = '';
-  if (await workspace.generate(strategyId.value)) {
+  if (await workspace.generate(workspace.strategyId.value)) {
     notice.value = 'Recommendations refreshed.';
   }
 }
@@ -177,22 +176,26 @@ function statusLabel(item: RecommendationResponse): string {
 
     <section class="generation" aria-label="Generate recommendations">
       <div class="field">
-        <label for="recommendation-strategy">Generate for a discovery strategy</label>
+        <label for="recommendation-strategy">Discovery strategy</label>
         <Select
           input-id="recommendation-strategy"
-          aria-label="Discovery strategy for generation"
-          :model-value="strategyId"
+          aria-label="Discovery strategy"
+          :model-value="workspace.strategyId.value"
           :options="workspace.strategies.data.value ?? []"
           option-label="name"
           option-value="id"
           placeholder="Choose a strategy"
           :disabled="workspace.strategies.isPending.value || workspace.strategies.isError.value"
-          @update:model-value="strategyId = $event"
+          @update:model-value="workspace.strategyId.value = $event ?? ''"
         />
       </div>
       <Button
         :label="workspace.generating.value ? 'Generating…' : 'Generate recommendations'"
-        :disabled="!strategyId || workspace.generating.value || workspace.strategies.isError.value"
+        :disabled="
+          !workspace.strategyId.value ||
+          workspace.generating.value ||
+          workspace.strategies.isError.value
+        "
         @click="generate"
       />
       <p v-if="workspace.strategies.isError.value" class="error-inline" role="alert">
@@ -219,8 +222,12 @@ function statusLabel(item: RecommendationResponse): string {
         @click="workspace.preferences.refetch()"
       />
     </ErrorState>
+    <EmptyState
+      v-if="!workspace.strategyId.value"
+      message="Choose a discovery strategy to view its recommendations."
+    />
     <LoadingState
-      v-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"
+      v-else-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"
       message="Loading Business recommendations…"
     />
     <ErrorState

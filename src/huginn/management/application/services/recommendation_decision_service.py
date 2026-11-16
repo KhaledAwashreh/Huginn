@@ -94,6 +94,9 @@ class RecommendationDecisionService:
                     if request.expected_pause_id
                     else None,
                     "expected_pause_version": request.expected_pause_version,
+                    **(
+                        {"reason": request.reason} if request.reason is not None else {}
+                    ),
                 },
             ),
         )
@@ -153,6 +156,7 @@ class RecommendationDecisionService:
                     effective_at=selected_at,
                     created_by_user_id=principal.user_id,
                     expires_at=pause.expires_at,
+                    reason=request.reason,
                 )
             )
             blockers = self._remaining(

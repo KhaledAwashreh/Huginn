@@ -19,6 +19,7 @@ class LaterRecommendationRequest:
     expected_pause_id: UUID | None
     expected_pause_version: int | None
     request_key: str
+    reason: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.recommendation_id, UUID) or not isinstance(
@@ -64,3 +65,5 @@ class LaterRecommendationRequest:
             raise ValidationDomainError("Expected pause version must be positive")
         if type(self.request_key) is not str or not self.request_key.strip():
             raise ValidationDomainError("Request key is required")
+        if self.reason is not None and type(self.reason) is not str:
+            raise ValidationDomainError("Mute reason must be text")

@@ -22,6 +22,13 @@ export function strategyName(item: StrategyAssessment): string {
   return text(record(item.strategy_snapshot).name) ?? 'Discovery strategy';
 }
 
+export function relevanceScore(item: StrategyAssessment): number | null {
+  const score = record(item.assessment_snapshot).score;
+  return typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 100
+    ? score
+    : null;
+}
+
 export function retainedEvidence(
   assessment: AssessmentRevision,
   item: StrategyAssessment,

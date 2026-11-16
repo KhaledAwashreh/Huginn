@@ -19,8 +19,13 @@ from huginn.management.application.requests.reverse_recommendation_rejection_req
 from huginn.management.application.services.recommendation_decision_service import (
     RecommendationDecisionService,
 )
+from huginn.management.domain.entities.command_receipt import CommandReceipt
 from huginn.management.domain.entities.prospect import Prospect
 from huginn.management.domain.errors.errors import ConflictError, NotFoundError
+from huginn.management.domain.policies.command_fingerprint import (
+    fingerprint_command_payload,
+)
+from huginn.management.domain.value_objects.command_identity import CommandIdentity
 from huginn.management.domain.value_objects.pause_choice import PauseChoice
 from huginn.management.domain.value_objects.prospect_stage import ProspectStage
 from huginn.management.domain.value_objects.recommendation_status import (
@@ -142,6 +147,48 @@ def test_later_later_same_key_replays_and_does_not_replace_twice():
     assert store.commits == 1
     assert len(store.suppression_blocks) == 2
     assert len(store.receipts) == 1
+
+
+def test_later_replays_legacy_receipt_without_reason_and_conflicts_on_changed_reason():
+    store = ProspectingCommandStore()
+    command = _later_request(store, "x2")
+    original = _later_service(store).later(store.principal, command)
+    receipt_key = (store.business.id, command.request_key)
+    receipt = store.receipts[receipt_key]
+    legacy_fingerprint = fingerprint_command_payload(
+        "later_recommendation",
+        {
+            "recommendation_id": str(command.recommendation_id),
+            "assessment_revision_id": str(command.assessment_revision_id),
+            "expected_recommendation_version": command.expected_recommendation_version,
+            "actor_user_id": str(store.principal.user_id),
+            "pause_choice": command.pause_choice.value,
+            "expected_repeat_interval_days": command.expected_repeat_interval_days,
+            "expected_preference_updated_at": (
+                command.expected_preference_updated_at.isoformat()
+            ),
+            "expected_pause_id": None,
+            "expected_pause_version": None,
+        },
+    )
+    store.receipts[receipt_key] = CommandReceipt(
+        receipt.business_id,
+        receipt.scope,
+        CommandIdentity(command.request_key, legacy_fingerprint),
+        receipt.resource_kind,
+        receipt.resource_id,
+        receipt.resource_version,
+        receipt.result_snapshot,
+        receipt.recorded_at,
+    )
+
+    assert _later_service(store).later(store.principal, command) == original
+    with pytest.raises(ConflictError):
+        _later_service(store).later(
+            store.principal, replace(command, reason="a different reason")
+        )
+    assert store.commits == 1
+    assert len(store.suppression_blocks) == 1
 
 
 def test_later_later_rejects_stale_preferences_expected_pause_or_multiple_active_pauses():

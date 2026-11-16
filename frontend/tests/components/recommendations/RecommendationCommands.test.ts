@@ -83,7 +83,7 @@ it('publishes a committed receipt before refetch can remove its row from the cur
   wrapper.unmount();
 });
 
-it('clears a completed decision without discarding its separate assessment feedback draft', () => {
+it('clears a completed decision without pinning an unsent report or clearing its form', () => {
   const draft = createRecommendationCommandDraft('recommendation-1');
   const snapshot = { id: 'recommendation-1' } as RecommendationView;
   draft.snapshot = snapshot;
@@ -99,10 +99,11 @@ it('clears a completed decision without discarding its separate assessment feedb
 
   expect(draft).toEqual({
     ...createRecommendationCommandDraft('recommendation-1'),
-    snapshot,
+    snapshot: null,
     feedback,
   });
   expect(draft.feedback).toBe(feedback);
+  expect(draft.feedback.notes).toBe('Keep these separate notes');
   draft.feedback.open = false;
   draft.feedback.notes = '';
 

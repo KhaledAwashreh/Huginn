@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import PrimeVue from 'primevue/config';
 import RecommendationQualityFeedback from '../../../src/features/recommendations/components/RecommendationQualityFeedback.vue';
 import { createRecommendationCommandDraft } from '../../../src/features/recommendations/models/recommendationCommandDraft';
+import { ApiError } from '../../../src/api/apiError';
 import type { RecommendationView } from '../../../src/features/recommendations/models/prospecting';
 
 const mocks = vi.hoisted(() => ({ record: vi.fn() }));
@@ -39,7 +40,6 @@ beforeEach(() => {
 it('submits a report for the exact shown assessment without changing decision state', async () => {
   mocks.record.mockResolvedValue({ id: 'feedback-1', assessment_revision_id: 'revision-1' });
   const wrapper = setup();
-  await button(wrapper, 'Report assessment quality').trigger('click');
   await wrapper.get('select').setValue('not_useful');
   await wrapper.get('input[value="evidence_wrong"]').setValue(true);
   const textareas = wrapper.findAll('textarea');
@@ -72,7 +72,6 @@ it('retries an uncertain report against its original recommendation and exact re
     .mockRejectedValueOnce(new TypeError('network interrupted'))
     .mockResolvedValue({ id: 'feedback-1' });
   const wrapper = setup();
-  await button(wrapper, 'Report assessment quality').trigger('click');
   await wrapper.get('select').setValue('useful');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
@@ -85,3 +84,53 @@ it('retries an uncertain report against its original recommendation and exact re
   expect(mocks.record.mock.calls[1]?.[0]).toBe('rec-1');
   expect(mocks.record.mock.calls[1]?.[1].assessment_revision_id).toBe('revision-1');
 });
+
+it('discards unsubmitted form values on leaving while preserving a separate decision draft', async () => {
+  const wrapper = setup();
+  const draft = wrapper.props('draftState');
+  draft.snapshot = recommendation();
+  draft.reason = 'Keep this decision reason.';
+  await wrapper.get('select').setValue('not_useful');
+  await wrapper.get('input[value="evidence_wrong"]').setValue(true);
+  const notes = wrapper.findAll('textarea')[1];
+  if (!notes) throw new Error('Notes field was not rendered');
+  await notes.setValue('Temporary notes.');
+  wrapper.unmount();
+  expect(draft.feedback).toEqual(createRecommendationCommandDraft('rec-1').feedback);
+  expect(draft.reason).toBe('Keep this decision reason.');
+  expect(draft.snapshot?.id).toBe('rec-1');
+  expect(mocks.record).not.toHaveBeenCalled();
+});
+
+it('discards a rejected report when leaving the form', async () => {
+  mocks.record.mockRejectedValue(new ApiError(422, 'validation_error', 'Invalid report'));
+  const wrapper = setup();
+  const draft = wrapper.props('draftState');
+  await wrapper.get('select').setValue('not_useful');
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(draft.feedback.status).toBe('error');
+  wrapper.unmount();
+  expect(draft.feedback).toEqual(createRecommendationCommandDraft('rec-1').feedback);
+  expect(draft.snapshot).toBeNull();
+});
+
+it.each(['pending', 'uncertain'] as const)(
+  'preserves a submitted %s report on leaving for exact-request retry',
+  async (status) => {
+    if (status === 'pending') mocks.record.mockReturnValue(new Promise(() => {}));
+    else mocks.record.mockRejectedValue(new TypeError('network interrupted'));
+    const wrapper = setup();
+    const draft = wrapper.props('draftState');
+    await wrapper.get('select').setValue('useful');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    const intent = draft.feedback.intent;
+    expect(draft.feedback.status).toBe(status);
+    wrapper.unmount();
+    expect(draft.feedback.intent).toBe(intent);
+    expect(draft.feedback.usefulness).toBe('useful');
+    expect(draft.feedback.status).toBe(status);
+    expect(draft.snapshot?.id).toBe('rec-1');
+  },
+);

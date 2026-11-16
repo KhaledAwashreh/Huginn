@@ -140,6 +140,106 @@ def test_recommendation_search_filters_full_owned_dataset_before_pagination(
     assert target_identity.business_id == identity.business_id
 
 
+def test_strategy_filter_uses_current_revision_before_search_and_pagination(
+    management_database_url,
+):
+    strategy_a, strategy_b = uuid4(), uuid4()
+    with psycopg.connect(management_database_url) as connection:
+        identity, first, old_revision = _seed(connection, "Strategy Target One")
+        second_identity, second, second_old = _seed(
+            connection, "Strategy Target Two", identity
+        )
+        unrelated_identity, unrelated, unrelated_old = _seed(
+            connection, "Strategy Target Other", identity
+        )
+        foreign_identity, foreign, foreign_old = _seed(
+            connection, "Strategy Target Foreign"
+        )
+    selected = {}
+    for owner, rec, old, strategies in (
+        (identity, first, old_revision, (strategy_a,)),
+        (second_identity, second, second_old, (strategy_a, strategy_b)),
+        (unrelated_identity, unrelated, unrelated_old, (strategy_b,)),
+        (foreign_identity, foreign, foreign_old, (strategy_a,)),
+    ):
+        associations = tuple(
+            replace(old.strategy_assessments[index], strategy_id=strategy)
+            for index, strategy in enumerate(strategies)
+        )
+        revision = replace(
+            old, id=uuid4(), revision_number=2, strategy_assessments=associations
+        )
+        with _work(management_database_url) as work:
+            work.assessment_revisions.append(revision)
+            work.recommendations.select_current_revision(
+                owner.business_id, rec.id, revision.id, rec.version
+            )
+            work.commit()
+        selected[rec.id] = revision
+    service = _service(management_database_url)
+    principal = _principal(identity)
+    with psycopg.connect(management_database_url) as connection:
+        before = _snapshot(connection, identity.business_id)
+    first_page = service.list_recommendations(
+        principal,
+        ListProspectingRequest(search="STRATEGY TARGET", limit=1),
+        strategy_id=strategy_a,
+    )
+    second_page = service.list_recommendations(
+        principal,
+        ListProspectingRequest(search="STRATEGY TARGET", limit=1, offset=1),
+        strategy_id=strategy_a,
+    )
+    assert first_page.has_more is True
+    assert second_page.has_more is False
+    assert {page.items[0].recommendation.id for page in (first_page, second_page)} == {
+        first.id,
+        second.id,
+    }
+    assert all(
+        page.items[0].assessment == selected[page.items[0].recommendation.id]
+        for page in (first_page, second_page)
+    )
+    assert {
+        view.recommendation.id
+        for view in service.list_recommendations(
+            principal, ListProspectingRequest(), strategy_id=strategy_b
+        ).items
+    } == {second.id, unrelated.id}
+    assert (
+        service.list_recommendations(
+            principal, ListProspectingRequest(search="Other"), strategy_id=strategy_a
+        ).items
+        == ()
+    )
+    assert (
+        service.list_recommendations(
+            principal,
+            ListProspectingRequest(),
+            strategy_id=old_revision.strategy_assessments[0].strategy_id,
+        ).items
+        == ()
+    )
+    assert (
+        service.list_recommendations(
+            principal, ListProspectingRequest(), strategy_id=uuid4()
+        ).items
+        == ()
+    )
+    assert (
+        service.get_recommendation(
+            principal, first.id, assessment_revision_id=old_revision.id
+        ).assessment
+        == old_revision
+    )
+    assert service.list_assessments(principal, first.id) == (
+        old_revision,
+        selected[first.id],
+    )
+    with psycopg.connect(management_database_url) as connection:
+        assert _snapshot(connection, identity.business_id) == before
+
+
 def test_historical_save_hides_another_open_occurrence_but_preserves_both_reads(
     management_database_url,
 ):
@@ -298,6 +398,55 @@ def test_unsaved_hidden_suppressions_have_company_identity_and_independent_block
         .items
         == ()
     )
+
+
+def test_list_hides_companies_with_an_active_pause_until_it_is_cleared(
+    management_database_url,
+):
+    with psycopg.connect(management_database_url) as connection:
+        muted_identity, _, _ = _seed(connection, "Muted company")
+        visible_identity, _, _ = _seed(connection, "Visible company", muted_identity)
+    now = datetime.now(UTC)
+    with _work(management_database_url) as work:
+        pause = work.suppression_blocks.append(
+            SuppressionBlock(
+                uuid4(),
+                muted_identity.business_id,
+                muted_identity.company_id,
+                SuppressionKind("pause"),
+                now,
+                created_by_user_id=muted_identity.owner_user_id,
+                expires_at=now + timedelta(days=30),
+            )
+        )
+        work.commit()
+    service = _service(management_database_url)
+    visible_names = {
+        view.company.name
+        for view in service.list_recommendations(
+            _principal(muted_identity), ListProspectingRequest()
+        ).items
+    }
+    assert "Muted company" not in visible_names
+    assert "Visible company" in visible_names
+
+    with _work(management_database_url) as work:
+        work.suppression_blocks.clear_one(
+            muted_identity.business_id,
+            muted_identity.company_id,
+            pause.id,
+            pause.version,
+            muted_identity.owner_user_id,
+            now,
+        )
+        work.commit()
+    restored_names = {
+        view.company.name
+        for view in service.list_recommendations(
+            _principal(visible_identity), ListProspectingRequest()
+        ).items
+    }
+    assert restored_names == {"Muted company", "Visible company"}
 
 
 def test_routine_reads_preserve_all_history_with_unavailable_current_evidence(

@@ -150,15 +150,21 @@ class PostgresProspectingQuery(ProspectingQuery):
         request: ListProspectingRequest,
         status: RecommendationStatus | None,
         at: datetime,
+        strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]:
         where = [
             "r.business_id=%s",
-            "(r.status<>'open' OR NOT EXISTS(SELECT 1 FROM operational.prospects p WHERE p.business_id=r.business_id AND p.company_id=r.company_id))",
+            "(r.status<>'open' OR (NOT EXISTS(SELECT 1 FROM operational.prospects p WHERE p.business_id=r.business_id AND p.company_id=r.company_id) AND NOT EXISTS(SELECT 1 FROM operational.suppression_blocks b WHERE b.business_id=r.business_id AND b.company_id=r.company_id AND b.kind='pause' AND b.cleared_at IS NULL AND b.effective_at<=%s AND (b.expires_at IS NULL OR b.expires_at>%s))))",
         ]
-        parameters: list[object] = [business_id]
+        parameters: list[object] = [business_id, at, at]
         if status is not None:
             where.append("r.status=%s")
             parameters.append(status.value)
+        if strategy_id is not None:
+            where.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements(v.strategy_assessments) strategy WHERE strategy->>'strategy_id'=%s)"
+            )
+            parameters.append(str(strategy_id))
         if request.search:
             where.append(_SEARCH)
             parameters.extend((request.search, request.search))

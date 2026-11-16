@@ -86,6 +86,22 @@ const recommendation: components['schemas']['RecommendationResponse'] = {
   active_blocks: [],
 };
 
+const researchStrategy = {
+  id: '60000000-0000-0000-0000-000000000001',
+  business_id: recommendation.business_id,
+  name: 'Research strategy',
+  service_offering_id: '70000000-0000-0000-0000-000000000001',
+  ideal_client_profile_id: '80000000-0000-0000-0000-000000000001',
+  is_active: true,
+  created_at: '2026-11-01T00:00:00Z',
+  updated_at: '2026-11-01T00:00:00Z',
+};
+
+async function chooseStrategy(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('combobox', { name: 'Discovery strategy', exact: true }).click();
+  await page.getByRole('option', { name: 'Research strategy', exact: true }).click();
+}
+
 test('renders assessment lineage, searches server-side, reports feedback, and saves the exact revision', async ({
   page,
 }) => {
@@ -266,6 +282,7 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  await chooseStrategy(page);
   await expect(
     page.getByText('Their current hiring supports reviewing their research workflow.'),
   ).toBeVisible();
@@ -290,13 +307,13 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     page.getByRole('heading', { name: 'Northstar Research', exact: true }),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Review Later' }).click();
-  const preview = page.getByTestId('later-expiry-preview');
-  await expect(preview).toContainText('If you pause now');
-  await expect(preview).toContainText('UTC');
-  await expect(preview).toContainText('30 days');
-  await page.getByRole('button', { name: 'Confirm Later' }).click();
-  await expect(page.getByRole('status')).toContainText('Accepted at');
+  await page.getByRole('button', { name: 'Not relevant' }).click();
+  await page.getByLabel('Reason (optional)').fill('Not a fit right now.');
+  await page.getByLabel('Mute days').fill('45');
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Muted until' })).toContainText(
+    'Muted until',
+  );
   expect(laterRequest).toMatchObject({
     assessment_revision_id: recommendation.assessment?.id,
     expected_pause_id: null,
@@ -304,7 +321,8 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     expected_preference_updated_at: '2026-11-14T10:00:00Z',
     expected_repeat_interval_days: 30,
     expected_recommendation_version: recommendation.version,
-    pause_choice: 'x1',
+    pause_choice: 'd45',
+    reason: 'Not a fit right now.',
   });
 
   await page.getByRole('button', { name: 'Manage suppressions' }).click();
@@ -316,7 +334,6 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
     page.getByText(/Rejection reversed\. Independent blocks remain unchanged/),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Report assessment quality' }).click();
   await page.getByLabel('How useful was this assessment?').selectOption('not_useful');
   await page.getByLabel('Outcome').selectOption('not_relevant');
   await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');
@@ -387,7 +404,7 @@ test('confirms first presentation only after the exact assessment revision is re
     }),
   );
   await page.route('**/api/v1/discovery-strategies?*', (route) =>
-    route.fulfill({ json: { items: [], offset: 0, limit: 100, has_more: false } }),
+    route.fulfill({ json: { items: [researchStrategy], offset: 0, limit: 100, has_more: false } }),
   );
   await page.route('**/api/v1/suppressions?*', (route) =>
     route.fulfill({ json: { items: [], offset: 0, limit: 25, has_more: false } }),
@@ -434,6 +451,7 @@ test('confirms first presentation only after the exact assessment revision is re
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  await chooseStrategy(page);
   await expect(
     page.getByText('Their current hiring supports reviewing their research workflow.'),
   ).toBeVisible();
@@ -516,7 +534,7 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
     route.fulfill({ json: { items: [], offset: 0, limit: 25, has_more: false } }),
   );
   await page.route('**/api/v1/discovery-strategies?*', (route) =>
-    route.fulfill({ json: { items: [], offset: 0, limit: 100, has_more: false } }),
+    route.fulfill({ json: { items: [researchStrategy], offset: 0, limit: 100, has_more: false } }),
   );
   await page.route('**/api/v1/recommendations/*/offer-preparations', async (route) => {
     offers.push(new URL(route.request().url()).pathname);
@@ -567,10 +585,12 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  await chooseStrategy(page);
   showUnrelated = true;
   await page.goto(
     `/recommendations?recommendation_id=${linked.id}&assessment_revision_id=${oldRevisionId}`,
   );
+  await chooseStrategy(page);
   await expect(page.getByRole('heading', { name: 'Recommendation from your email' })).toBeVisible();
   await expect(
     page
@@ -591,6 +611,7 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
     ]);
   await expect.poll(() => repeatPresentedAt).toBe(expectedRepeatPresentedAt);
   await page.reload();
+  await chooseStrategy(page);
   await expect(card.getByText('Unrelated Research', { exact: true })).toBeVisible();
   await card.getByRole('button', { name: 'Save as prospect' }).click();
   const email = page.getByRole('region', { name: 'Recommendation from your email' });
@@ -652,7 +673,7 @@ test('searches recommendations beyond page one and resets pagination offset', as
     }),
   );
   await page.route('**/api/v1/discovery-strategies?*', (route) =>
-    route.fulfill({ json: { items: [], offset: 0, limit: 100, has_more: false } }),
+    route.fulfill({ json: { items: [researchStrategy], offset: 0, limit: 100, has_more: false } }),
   );
   await page.route('**/api/v1/suppressions?*', (route) =>
     route.fulfill({ json: { items: [], offset: 0, limit: 25, has_more: false } }),
@@ -663,6 +684,7 @@ test('searches recommendations beyond page one and resets pagination offset', as
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  await chooseStrategy(page);
   await expect(page.getByText('Recommendation 01', { exact: true })).toBeVisible();
   await expect(page.getByText('Showing 1–25')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();

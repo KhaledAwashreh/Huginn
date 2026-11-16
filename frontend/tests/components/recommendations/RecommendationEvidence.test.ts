@@ -66,7 +66,7 @@ it('renders replaced canonical props for the same recommendation identity', asyn
     }),
   });
 
-  expect(wrapper.text()).toContain('Currently blocked by an independent decision or relationship');
+  expect(wrapper.text()).not.toContain('Currently blocked');
   expect(wrapper.text()).toContain('Northstar updated');
   expect(wrapper.text()).toContain('CA');
 });

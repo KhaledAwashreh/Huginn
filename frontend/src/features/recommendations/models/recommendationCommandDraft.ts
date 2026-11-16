@@ -88,17 +88,7 @@ export function createRecommendationCommandDraft(
 }
 
 export function hasRecommendationFeedbackDraft(draft: RecommendationFeedbackDraft): boolean {
-  return Boolean(
-    draft.intent ||
-    draft.status !== 'idle' ||
-    draft.open ||
-    draft.usefulness !== 'unsure' ||
-    draft.reasons.length ||
-    draft.outcome !== 'unknown' ||
-    draft.next_step !== 'none' ||
-    draft.correction.trim() ||
-    draft.notes.trim(),
-  );
+  return draft.intent !== null && (draft.status === 'pending' || draft.status === 'uncertain');
 }
 
 export function resetRecommendationDecisionDraft(draft: RecommendationCommandDraft): void {

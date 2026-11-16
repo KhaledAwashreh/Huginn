@@ -47,6 +47,8 @@ const assessment: components['schemas']['AssessmentRevisionResponse'] = {
   policy_versions: ['fit-v1'],
   evaluation_seed: 'fixture-seed',
 };
+const strategy = assessment.strategy_assessments[0];
+if (!strategy) throw new Error('The fixture requires a strategy assessment.');
 
 it('renders the immutable origin assessment and joins source details by observation ID', () => {
   const wrapper = mount(RecommendationAssessment, {
@@ -57,8 +59,62 @@ it('renders the immutable origin assessment and joins source details by observat
     wrapper.get('[data-assessment-revision-id]').attributes('data-assessment-revision-id'),
   ).toBe('revision-1');
   expect(wrapper.text()).toContain('Current hiring suggests a research workflow review.');
-  expect(wrapper.text()).toContain('Buying role is unknown.');
+  expect(wrapper.text()).not.toContain('Buying role is unknown.');
+  expect(wrapper.text()).not.toContain('Product research');
+  expect(wrapper.text()).not.toContain('Research strategy');
   expect(wrapper.get('a').attributes('href')).toBe('https://northstar.example/careers');
   expect(wrapper.text()).toContain('Source date:');
   expect(wrapper.text()).not.toContain('Current source evidence differs');
+});
+
+it.each([0, 78, 100])('shows the retained relevance score %s out of 100', (score) => {
+  const wrapper = mount(RecommendationAssessment, {
+    props: {
+      assessment: {
+        ...assessment,
+        strategy_assessments: [{ ...strategy, assessment_snapshot: { score } }],
+      },
+    },
+  });
+  expect(wrapper.text()).toContain(`Relevance: ${score}/100`);
+});
+
+it.each([undefined, null, '78', -1, 101, NaN, Infinity])(
+  'omits absent or invalid relevance score %s',
+  (score) => {
+    const wrapper = mount(RecommendationAssessment, {
+      props: {
+        assessment: {
+          ...assessment,
+          strategy_assessments: [{ ...strategy, assessment_snapshot: { score } }],
+        },
+      },
+    });
+    expect(wrapper.text()).not.toContain('Relevance:');
+  },
+);
+
+it('keeps each strategy name and relevance score together without combining them', () => {
+  const wrapper = mount(RecommendationAssessment, {
+    props: {
+      assessment: {
+        ...assessment,
+        strategy_assessments: [
+          { ...strategy, assessment_snapshot: { score: 78 } },
+          {
+            ...strategy,
+            strategy_id: 'strategy-2',
+            strategy_snapshot: { name: 'Engineering strategy' },
+            assessment_snapshot: { score: 91 },
+          },
+        ],
+      },
+    },
+  });
+  const [research, engineering] = wrapper.findAll('.strategy-assessment');
+  if (!research || !engineering) throw new Error('Both strategy assessments must render.');
+  expect(research.text()).toContain('Research strategy');
+  expect(research.text()).toContain('Relevance: 78/100');
+  expect(engineering.text()).toContain('Engineering strategy');
+  expect(engineering.text()).toContain('Relevance: 91/100');
 });

@@ -157,11 +157,13 @@ def list_recommendations(
     dependencies: Management,
     page: Annotated[ListProspectingRequest, Depends(prospecting_page)],
     status: Literal["open", "converted", "rejected", "all"] = "open",
+    strategy_id: UUID | None = None,
 ):
     result = dependencies.prospecting_read_service.list_recommendations(
         authenticated.principal,
         page,
         status=None if status == "all" else RecommendationStatus(status),
+        strategy_id=strategy_id,
     )
     return PageResponse[RecommendationResponse](
         items=[recommendation_response(item) for item in result.items],
@@ -277,6 +279,7 @@ def later(
         body.expected_pause_id,
         body.expected_pause_version,
         body.request_key,
+        body.reason,
     )
     return response_from_domain(
         dependencies.recommendation_decision_service.later(

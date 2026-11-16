@@ -67,8 +67,55 @@ beforeEach(() => {
   mocks.strategies.mockResolvedValue({ items: [], has_more: false, offset: 0, limit: 100 });
 });
 
+it('waits for a strategy and isolates rows and requests when switching strategies', async () => {
+  const { workspace } = setup();
+  await flushPromises();
+  expect(mocks.list).not.toHaveBeenCalled();
+  workspace.strategyId.value = 'strategy-1';
+  await flushPromises();
+  workspace.setOffset(50);
+  await flushPromises();
+  workspace.strategyId.value = 'strategy-2';
+  await flushPromises();
+  expect(workspace.offset.value).toBe(0);
+  expect(mocks.list).toHaveBeenLastCalledWith(
+    { strategyId: 'strategy-2', status: 'open', search: '', offset: 0, limit: 25 },
+    expect.any(AbortSignal),
+  );
+  expect(
+    mocks.list.mock.calls.some(
+      ([options]) => options.strategyId === 'strategy-2' && options.offset === 50,
+    ),
+  ).toBe(false);
+  workspace.strategyId.value = '';
+  await flushPromises();
+  expect(workspace.recommendations.data.value).toBeUndefined();
+});
+
+it('hides the previous strategy rows while its replacement request is pending', async () => {
+  let finishRequest!: (page: RecommendationPage) => void;
+  mocks.list.mockResolvedValueOnce({ ...emptyPage(), items: [{ id: 'strategy-one-rec' }] });
+  const { workspace } = setup();
+  workspace.strategyId.value = 'strategy-1';
+  await flushPromises();
+  expect(workspace.recommendations.data.value?.items[0]?.id).toBe('strategy-one-rec');
+  mocks.list.mockImplementationOnce(
+    () =>
+      new Promise<RecommendationPage>((resolve) => {
+        finishRequest = resolve;
+      }),
+  );
+  workspace.strategyId.value = 'strategy-2';
+  await flushPromises();
+  expect(workspace.recommendations.data.value).toBeUndefined();
+  finishRequest(emptyPage());
+  await flushPromises();
+});
+
 it('searches and filters on the server and resets pagination on each query change', async () => {
   const { workspace } = setup();
+  await flushPromises();
+  workspace.strategyId.value = 'strategy-1';
   await flushPromises();
   workspace.setOffset(50);
   await flushPromises();
@@ -78,7 +125,13 @@ it('searches and filters on the server and resets pagination on each query chang
   await flushPromises();
   expect(workspace.offset.value).toBe(0);
   expect(mocks.list).toHaveBeenLastCalledWith(
-    { status: 'converted', search: 'northstar.example', offset: 0, limit: 25 },
+    {
+      strategyId: 'strategy-1',
+      status: 'converted',
+      search: 'northstar.example',
+      offset: 0,
+      limit: 25,
+    },
     expect.any(AbortSignal),
   );
 });
@@ -103,12 +156,14 @@ it('posts a generation request then refreshes the canonical list without inserti
 it('resets server rows and search state when the authenticated identity changes', async () => {
   mocks.list.mockResolvedValueOnce({ ...emptyPage(), items: [{ id: 'private-rec' }] });
   const { workspace, client } = setup();
+  workspace.strategyId.value = 'strategy-1';
   await flushPromises();
   workspace.search.value = 'private';
   await flushPromises();
   mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'csrf-2' };
   await flushPromises();
   expect(workspace.search.value).toBe('');
+  expect(workspace.strategyId.value).toBe('');
   expect(client.getQueryData(workspace.recommendationsKey.value)).not.toEqual(
     expect.objectContaining({ items: [{ id: 'private-rec' }] }),
   );

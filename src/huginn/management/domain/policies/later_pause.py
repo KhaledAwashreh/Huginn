@@ -16,15 +16,17 @@ def capture_later_pause(
 ) -> LaterPause:
     if not isinstance(choice, PauseChoice):
         raise ValidationDomainError("Pause choice must use its domain value")
-    if (
+    if type(repeat_interval_days) is not int or repeat_interval_days < 1:
+        raise ValidationDomainError("Repeat interval must be positive")
+    if choice.days is None and (
         repeat_interval_days != expected_repeat_interval_days
         or preference_updated_at != expected_preference_updated_at
     ):
         raise ConflictError("Repeat interval changed; review the Later duration")
-    if type(repeat_interval_days) is not int or repeat_interval_days < 1:
-        raise ValidationDomainError("Repeat interval must be positive")
     if choice.value == "indefinite":
         expires_at = None
+    elif choice.days is not None:
+        expires_at = selected_at + timedelta(days=choice.days)
     else:
         expires_at = selected_at + timedelta(
             days=int(choice.value[1:]) * repeat_interval_days
