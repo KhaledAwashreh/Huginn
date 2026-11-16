@@ -306,9 +306,6 @@ class RecommendationDecisionService:
         if replay is not None:
             return replay
         recommendation, revision = self._membership(uow, business_id, request)
-        self._require_open_version(
-            recommendation, request.expected_recommendation_version, stale_message
-        )
         uow.lock_business_company(business_id, revision.company_id)
         replay = self._replay(
             uow.commands.get_by_key(business_id, identity.key),

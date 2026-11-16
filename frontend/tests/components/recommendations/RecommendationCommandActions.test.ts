@@ -1,10 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { reactive } from 'vue';
 import PrimeVue from 'primevue/config';
 import Select from 'primevue/select';
 import { ApiError } from '../../../src/api/apiError';
 import RecommendationCommandActions from '../../../src/features/recommendations/components/RecommendationCommandActions.vue';
+import { createRecommendationCommandDraft } from '../../../src/features/recommendations/models/recommendationCommandDraft';
 import type {
   RecommendationView,
   RecommendationPreferences,
@@ -180,6 +182,74 @@ it('retries an uncertain decision against its original recommendation target aft
 
   expect(mocks.notRelevant.mock.calls[1]).toEqual(mocks.notRelevant.mock.calls[0]);
   expect(mocks.notRelevant.mock.calls[1]?.[0]).toBe('rec-1');
+});
+
+it('preserves Save recovery when an earlier Later preference refresh finishes during the request', async () => {
+  let finishPreferences!: (value: RecommendationPreferences) => void;
+  mocks.refreshPreferences.mockResolvedValueOnce(preferences).mockReturnValueOnce(
+    new Promise<RecommendationPreferences>((resolve) => {
+      finishPreferences = resolve;
+    }),
+  );
+  let failSave!: (reason: ApiError) => void;
+  mocks.save
+    .mockReturnValueOnce(
+      new Promise<never>((_resolve, reject) => {
+        failSave = reject;
+      }),
+    )
+    .mockResolvedValue({
+      recommendation_id: 'rec-1',
+      company_id: 'company-1',
+      assessment_revision_id: 'revision-1',
+      prospect_id: 'prospect-1',
+      prospect_stage: 'saved',
+      prospect_version: 1,
+      origin_id: 'origin-1',
+    });
+  vi.stubGlobal('crypto', {
+    randomUUID: vi
+      .fn()
+      .mockReturnValueOnce('save-request-key')
+      .mockReturnValueOnce('later-request-key'),
+  });
+  const draft = reactive(createRecommendationCommandDraft('rec-1'));
+  const wrapper = setup();
+  await wrapper.setProps({ draftState: draft });
+  await buttonWithText(wrapper, 'Review Later').trigger('click');
+  await flushPromises();
+  await buttonWithText(wrapper, 'Confirm Later').trigger('click');
+  await buttonWithText(wrapper, 'Save as prospect').trigger('click');
+  await flushPromises();
+  const saveIntent = draft.intent;
+  expect(saveIntent).toMatchObject({
+    kind: 'saved',
+    request: { assessment_revision_id: 'revision-1', request_key: 'save-request-key' },
+  });
+
+  finishPreferences(preferences);
+  await flushPromises();
+
+  expect(mocks.later).not.toHaveBeenCalled();
+  expect(draft.intent).toBe(saveIntent);
+  expect(draft.status).toBe('pending');
+  failSave(new ApiError(503, 'unavailable', 'Save result unknown'));
+  await flushPromises();
+
+  expect(draft.intent).toBe(saveIntent);
+  expect(draft.status).toBe('uncertain');
+  expect(wrapper.text()).toContain('Retry the same update safely.');
+  await buttonWithText(wrapper, 'Retry the same request').trigger('click');
+  await flushPromises();
+
+  expect(mocks.save).toHaveBeenCalledTimes(2);
+  expect(mocks.save.mock.calls[1]).toEqual([
+    'rec-1',
+    { assessment_revision_id: 'revision-1', request_key: 'save-request-key' },
+  ]);
+  expect(mocks.later).not.toHaveBeenCalled();
+  expect(wrapper.emitted('completed')?.[0]?.[0]).toMatchObject({ kind: 'saved' });
+  wrapper.unmount();
 });
 
 it('previews the Business cadence and explicitly confirms replacement of only the active pause', async () => {

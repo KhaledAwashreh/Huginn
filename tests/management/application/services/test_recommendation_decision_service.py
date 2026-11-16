@@ -276,6 +276,130 @@ def test_mark_not_relevant_same_key_replays_and_changed_intent_or_foreign_member
     assert store.commits == 1
 
 
+def _rejection_service_with_interleaved_commit(store, command):
+    committed = []
+
+    def retry_uow():
+        uow = store.uow()
+        get_receipt = uow.commands.get_by_key
+
+        def get_before_concurrent_commit(business_id, key):
+            missing_receipt = get_receipt(business_id, key)
+            assert missing_receipt is None
+            uow.commands.get_by_key = get_receipt
+            committed.append(
+                _mark_not_relevant_service(store).mark_not_relevant(
+                    store.principal, command
+                )
+            )
+            # A retry rollback must not undo the other transaction's commit.
+            uow.snapshot = (
+                store.recommendation,
+                list(store.suppression_blocks),
+                dict(store.receipts),
+            )
+            return missing_receipt
+
+        uow.commands.get_by_key = get_before_concurrent_commit
+        return uow
+
+    return RecommendationDecisionService(retry_uow), committed
+
+
+def test_mark_not_relevant_replays_commit_between_receipt_lookup_and_membership():
+    store = ProspectingCommandStore()
+    command = _mark_not_relevant_request(store, reason="Wrong buyer")
+    service, committed = _rejection_service_with_interleaved_commit(store, command)
+
+    replay = service.mark_not_relevant(store.principal, command)
+
+    assert replay == committed[0]
+    assert replay.recommendation_version == 5
+    assert replay.reason == "Wrong buyer"
+    assert store.recommendation.status.value == "rejected"
+    assert store.recommendation.version == 5
+    assert len(store.suppression_blocks) == 1
+    assert store.suppression_blocks[0].id == replay.suppression_block_id
+    assert store.suppression_blocks[0].reason == "Wrong buyer"
+    assert len(store.receipts) == 1
+    assert store.commits == 1
+
+
+@pytest.mark.parametrize(
+    ("changed_fields", "conflict"),
+    [
+        ({"reason": "Changed reason"}, "different command intent"),
+        ({"request_key": "new-stale-command"}, "already resolved"),
+    ],
+)
+def test_mark_not_relevant_interleaved_commit_rejects_changed_intent_or_new_stale_command(
+    changed_fields, conflict
+):
+    store = ProspectingCommandStore()
+    command = _mark_not_relevant_request(store, reason="Wrong buyer")
+    service, committed = _rejection_service_with_interleaved_commit(store, command)
+
+    with pytest.raises(ConflictError, match=conflict):
+        service.mark_not_relevant(store.principal, replace(command, **changed_fields))
+
+    assert store.recommendation.version == committed[0].recommendation_version == 5
+    assert len(store.suppression_blocks) == 1
+    assert store.suppression_blocks[0].reason == "Wrong buyer"
+    assert len(store.receipts) == 1
+    assert store.commits == 1
+
+
+@pytest.mark.parametrize("action", ["later", "mark_not_relevant"])
+@pytest.mark.parametrize("resolved", [False, True])
+def test_new_decision_command_still_rejects_stale_or_resolved_recommendation(
+    action, resolved
+):
+    store = ProspectingCommandStore()
+    command = (
+        _later_request(store)
+        if action == "later"
+        else _mark_not_relevant_request(store)
+    )
+    store.recommendation = replace(store.recommendation, version=5)
+    if resolved:
+        store.recommendation = replace(
+            store.recommendation,
+            status=RecommendationStatus("rejected"),
+            resolved_at=NOW,
+            resolved_by_user_id=store.principal.user_id,
+            resolution_reason="not_relevant",
+        )
+    before = store.recommendation
+
+    with pytest.raises(ConflictError):
+        getattr(_mark_not_relevant_service(store), action)(store.principal, command)
+
+    assert store.recommendation == before
+    assert store.suppression_blocks == []
+    assert store.receipts == {}
+    assert store.commits == 0
+
+
+@pytest.mark.parametrize(
+    "foreign_field", ["recommendation_id", "assessment_revision_id"]
+)
+def test_decision_membership_remains_private_before_pair_lock(foreign_field):
+    store = ProspectingCommandStore()
+    command = replace(_mark_not_relevant_request(store), **{foreign_field: uuid4()})
+    store.recommendation = replace(store.recommendation, version=5)
+
+    def foreign_pair_must_not_be_locked():
+        pytest.fail("Foreign recommendation membership reached the pair lock")
+
+    store.after_lock = foreign_pair_must_not_be_locked
+    with pytest.raises(NotFoundError):
+        _mark_not_relevant_service(store).mark_not_relevant(store.principal, command)
+
+    assert store.suppression_blocks == []
+    assert store.receipts == {}
+    assert store.commits == 0
+
+
 def test_mark_not_relevant_recommendation_is_revalidated_after_lock_and_optimistic_version_is_enforced():
     store = ProspectingCommandStore()
     store.after_lock = lambda: setattr(
