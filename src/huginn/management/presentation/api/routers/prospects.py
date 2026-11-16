@@ -1,6 +1,5 @@
 """Business-owned pursuit reads; queries never record presentation."""
 
-import json
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -44,7 +43,10 @@ from huginn.management.presentation.api.dependencies.prospecting import (
 )
 from huginn.management.presentation.api.dependencies.services import Management
 from huginn.management.presentation.api.openapi.responses import error_responses
-from huginn.management.presentation.api.prospecting_mapping import prospect_response
+from huginn.management.presentation.api.prospecting_mapping import (
+    prospect_command_response,
+    prospect_response,
+)
 from huginn.management.presentation.api.requests.change_prospect_stage import (
     ChangeProspectStageRequest,
 )
@@ -139,13 +141,11 @@ def change_prospect_stage(
 ):
     values = body.model_dump()
     values["target_stage"] = ProspectStage(body.target_stage)
-    result = dependencies.change_prospect_stage_service.execute(
+    result = dependencies.prospect_service.change_stage(
         authenticated.principal,
         ChangeProspectStageCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -160,12 +160,10 @@ def close_prospect(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.close_prospect_service.execute(
+    result = dependencies.prospect_service.close(
         authenticated.principal, CloseProspectCommand(prospect_id=prospect_id, **values)
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -180,13 +178,11 @@ def reopen_prospect(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.reopen_prospect_service.execute(
+    result = dependencies.prospect_service.reopen(
         authenticated.principal,
         ReopenProspectCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -201,13 +197,11 @@ def update_prospect_notes(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.update_prospect_notes_service.execute(
+    result = dependencies.prospect_service.update_notes(
         authenticated.principal,
         UpdateProspectNotesCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -222,13 +216,11 @@ def set_prospect_follow_up(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.set_prospect_follow_up_service.execute(
+    result = dependencies.prospect_service.set_follow_up(
         authenticated.principal,
         SetProspectFollowUpCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -243,13 +235,11 @@ def clear_prospect_follow_up(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.clear_prospect_follow_up_service.execute(
+    result = dependencies.prospect_service.clear_follow_up(
         authenticated.principal,
         ClearProspectFollowUpCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -264,13 +254,11 @@ def record_proposal_draft(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.record_proposal_draft_service.execute(
+    result = dependencies.prospect_service.record_proposal_draft(
         authenticated.principal,
         RecordProposalDraftCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -285,10 +273,8 @@ def correct_prospect_activity_time(
     dependencies: Management,
 ):
     values = body.model_dump()
-    result = dependencies.correct_prospect_activity_time_service.execute(
+    result = dependencies.prospect_service.correct_activity_time(
         authenticated.principal,
         CorrectProspectActivityTimeCommand(prospect_id=prospect_id, **values),
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)

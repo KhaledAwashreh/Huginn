@@ -254,3 +254,28 @@ def test_response_schemas_constrain_current_eligibility_and_closed_last_active_s
             for value in branch.get("enum", [])
         } == {"saved", "contacted", "in_conversation", "proposal_sent"}
         assert any(branch.get("type") == "null" for branch in property_schema["anyOf"])
+
+
+def test_prospect_command_mapper_preserves_fresh_and_replayed_http_output():
+    from huginn.management.application.responses.prospect_command_response import (
+        ProspectCommandResponse as CommandResult,
+    )
+    from huginn.management.presentation.api import prospecting_mapping
+
+    identity, _, _, prospect, _ = _base()
+    activity = valid_prospect_activity(identity, prospect)
+    result = CommandResult(prospect, activity)
+    mapper = getattr(prospecting_mapping, "prospect_command_response", None)
+    assert mapper is not None, "Commands need a typed presentation mapper"
+    replay = CommandResult.from_snapshot(result.snapshot())
+    import json
+
+    from huginn.management.presentation.api.responses.prospect_command import (
+        ProspectCommandResponse,
+    )
+
+    expected = ProspectCommandResponse.model_validate_json(
+        json.dumps(result.snapshot().to_json_object())
+    ).model_dump(mode="json")
+    assert mapper(result).model_dump(mode="json") == expected
+    assert mapper(replay).model_dump(mode="json") == expected

@@ -366,11 +366,8 @@ def test_manageable_read_and_explicit_resume_need_no_prospect_or_new_generation(
     from huginn.management.application.requests.reverse_recommendation_rejection_request import (
         ReverseRecommendationRejectionRequest,
     )
-    from huginn.management.application.services.cancel_recommendation_pause_service import (
-        CancelRecommendationPauseService,
-    )
-    from huginn.management.application.services.reverse_recommendation_rejection_service import (
-        ReverseRecommendationRejectionService,
+    from huginn.management.application.services.recommendation_decision_service import (
+        RecommendationDecisionService,
     )
 
     with psycopg.connect(management_database_url) as connection:
@@ -411,9 +408,9 @@ def test_manageable_read_and_explicit_resume_need_no_prospect_or_new_generation(
     block = next(
         block for block in entry.active_blocks if block.kind.value == "rejection"
     )
-    reversed_result = ReverseRecommendationRejectionService(
+    reversed_result = RecommendationDecisionService(
         lambda: _work(management_database_url)
-    ).execute(
+    ).reverse_rejection(
         _principal(identity),
         ReverseRecommendationRejectionRequest(
             block.id, block.version, "reverse-hidden"
@@ -424,9 +421,9 @@ def test_manageable_read_and_explicit_resume_need_no_prospect_or_new_generation(
         _principal(identity), ListProspectingRequest()
     ).items[0]
     pause = next(block for block in entry.active_blocks if block.kind.value == "pause")
-    resumed = CancelRecommendationPauseService(
+    resumed = RecommendationDecisionService(
         lambda: _work(management_database_url)
-    ).execute(
+    ).cancel_pause(
         _principal(identity),
         CancelRecommendationPauseRequest(pause.id, pause.version, "resume-hidden"),
     )
@@ -470,3 +467,179 @@ def test_manageable_read_and_explicit_resume_need_no_prospect_or_new_generation(
             ).fetchone()[0]
             == 0
         )
+
+
+@pytest.mark.parametrize("limit", (1, 3))
+def test_prospect_page_batches_all_saved_origins_without_history_or_owner_loss(
+    management_database_url, limit
+):
+    from tests.management.persistence.prospecting_fixtures import (
+        valid_assessment_revision,
+        valid_prospect_origin,
+    )
+
+    with psycopg.connect(management_database_url) as connection:
+        identity, recommendation, revision = _seed(connection, "Batch prospect 0")
+        selections = [(identity, recommendation, revision)]
+        for index in range(1, 3):
+            selections.append(_seed(connection, f"Batch prospect {index}", identity))
+        foreign, foreign_rec, foreign_revision = _seed(
+            connection, "Batch prospect foreign"
+        )
+    saves = SaveRecommendationService(lambda: _work(management_database_url))
+    expected = {}
+    for index, (owner, rec, selected) in enumerate(
+        selections + [(foreign, foreign_rec, foreign_revision)]
+    ):
+        saved = saves.execute(
+            _principal(owner),
+            SaveRecommendationRequest(rec.id, selected.id, f"batch-save-{index}"),
+        )
+        with _work(management_database_url) as work:
+            prospect = work.prospects.get_owned(owner.business_id, saved.prospect_id)
+            newer = work.assessment_revisions.append(
+                valid_assessment_revision(owner, rec, revision_number=2)
+            )
+            work.origins.append_if_absent(
+                valid_prospect_origin(owner, rec, newer, prospect)
+            )
+            # Unsaved assessment history must not replace or enter saved origins.
+            work.assessment_revisions.append(
+                valid_assessment_revision(owner, rec, revision_number=3)
+            )
+            work.commit()
+        if owner.business_id == identity.business_id:
+            expected[saved.prospect_id] = (selected, newer)
+    queries = []
+
+    class CountingCursor(psycopg.Cursor):
+        def execute(self, query, params=None, **kwargs):
+            queries.append(str(query))
+            return super().execute(query, params, **kwargs)
+
+    def connect(database_url, **kwargs):
+        return psycopg.connect(database_url, cursor_factory=CountingCursor, **kwargs)
+
+    factory = ManagementConnectionFactory(management_database_url, connector=connect)
+    with PostgresProspectingUnitOfWork(factory, read_only=True) as work:
+        queries.clear()
+        query = PostgresProspectingQuery(
+            work, PostgresRecommendationGenerationSource(work.connection)
+        )
+        page = query.list_prospects(
+            identity.business_id,
+            ListProspectingRequest(limit=limit),
+            None,
+            datetime.now(UTC),
+        )
+        assert len(queries) <= 5, queries
+        assert len(page.items) == limit
+        assert page.has_more is (limit < 3)
+        for view in page.items:
+            assert (
+                tuple(origin.assessment for origin in view.origins)
+                == expected[view.prospect.id]
+            )
+            assert all(
+                origin.recommendation.business_id == identity.business_id
+                for origin in view.origins
+            )
+            assert view.activities is None
+        queries.clear()
+        detail = query.get_prospect(
+            identity.business_id, page.items[0].prospect.id, datetime.now(UTC)
+        )
+        assert len(queries) <= 6, queries
+        assert detail.origins == page.items[0].origins
+        assert detail.activities[0].kind.value == "prospect_saved"
+        assert (
+            work.prospects.get_many_owned(identity.business_id, (saved.prospect_id,))
+            == ()
+        )
+        assert (
+            work.origins.list_for_prospects(identity.business_id, (saved.prospect_id,))
+            == ()
+        )
+        assert (
+            work.recommendations.get_many_owned(identity.business_id, (foreign_rec.id,))
+            == ()
+        )
+        assert (
+            work.assessment_revisions.get_many_owned(
+                identity.business_id, (foreign_revision.id,)
+            )
+            == ()
+        )
+        queries.clear()
+        assert (
+            query.list_prospects(
+                identity.business_id,
+                ListProspectingRequest(search="absent-target"),
+                None,
+                datetime.now(UTC),
+            ).items
+            == ()
+        )
+        assert len(queries) == 1
+        assert (
+            query.get_prospect(
+                identity.business_id, saved.prospect_id, datetime.now(UTC)
+            )
+            is None
+        )
+    with psycopg.connect(management_database_url) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.assessment_revisions WHERE business_id=%s",
+                (identity.business_id,),
+            ).fetchone()[0]
+            == 9
+        )
+
+
+def test_batched_prospect_reads_preserve_captured_source_and_persisted_history(
+    retained_management_database_url, monkeypatch
+):
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    with _work(context.database_url, read_only=True) as work:
+        assessed = work.assessment_revisions.get_owned(
+            context.business_id, selection.recommendation_id, selection.revision_id
+        )
+    saved = SaveRecommendationService(lambda: _work(context.database_url)).execute(
+        context.principal,
+        SaveRecommendationRequest(
+            selection.recommendation_id, selection.revision_id, "save-captured-source"
+        ),
+    )
+    with psycopg.connect(context.database_url) as connection:
+        before = _snapshot(connection, context.business_id)
+        stored_evidence = connection.execute(
+            "SELECT evidence_snapshots FROM operational.assessment_revisions WHERE id=%s",
+            (selection.revision_id,),
+        ).fetchone()[0]
+    service = _service(context.database_url)
+    listing = service.list_prospects(context.principal, ListProspectingRequest())
+    detail = service.get_prospect(context.principal, saved.prospect_id)
+    assert len(listing.items) == 1
+    assert listing.items[0].origins == detail.origins
+    assert detail.origins[0].assessment == assessed
+    evidence = [
+        value.to_json_object()
+        for value in detail.origins[0].assessment.evidence_snapshots
+    ]
+    assert evidence == stored_evidence
+    assert evidence and all(
+        value["source_url"] == context.listing_url for value in evidence
+    )
+    assert all(value["quote"] in value["description"] for value in evidence)
+    assert detail.activities[0].kind.value == "prospect_saved"
+    with psycopg.connect(context.database_url) as connection:
+        assert _snapshot(connection, context.business_id) == before

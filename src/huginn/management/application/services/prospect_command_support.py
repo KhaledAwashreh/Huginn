@@ -7,6 +7,9 @@ from uuid import UUID, uuid4
 from huginn.management.application.responses.prospect_command_response import (
     ProspectCommandResponse,
 )
+from huginn.management.application.services.business_resolution import (
+    business_id_for_principal,
+)
 from huginn.management.domain.entities.command_receipt import CommandReceipt
 from huginn.management.domain.entities.prospect import Prospect
 from huginn.management.domain.entities.prospect_activity import ProspectActivity
@@ -58,12 +61,30 @@ def load_owned_prospect(
     return prospect
 
 
-def lock_and_reload_prospect(
-    uow: ProspectingUnitOfWork, business_id: UUID, prospect_id: UUID
-) -> Prospect:
+def prepare_prospect_command(
+    uow: ProspectingUnitOfWork,
+    principal: Principal,
+    scope: str,
+    identity: CommandIdentity,
+    prospect_id: UUID,
+    expected_version: int,
+) -> tuple[Prospect, ProspectCommandResponse | None]:
+    business_id = business_id_for_principal(principal, uow.businesses)
+    replay = replay_command(
+        uow.commands.get_by_key(business_id, identity.key), scope, identity
+    )
+    if replay is not None:
+        return replay.prospect, replay
     initial = load_owned_prospect(uow, business_id, prospect_id)
     uow.lock_business_company(business_id, initial.company_id)
-    return load_owned_prospect(uow, business_id, prospect_id)
+    prospect = load_owned_prospect(uow, business_id, prospect_id)
+    replay = replay_command(
+        uow.commands.get_by_key(business_id, identity.key), scope, identity
+    )
+    if replay is not None:
+        return replay.prospect, replay
+    require_version(prospect, expected_version)
+    return prospect, None
 
 
 def require_version(prospect: Prospect, expected_version: int) -> None:

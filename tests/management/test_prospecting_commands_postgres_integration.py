@@ -28,30 +28,7 @@ from huginn.management.application.requests.set_prospect_follow_up_request impor
 from huginn.management.application.requests.update_prospect_notes_request import (
     UpdateProspectNotesRequest,
 )
-from huginn.management.application.services.change_prospect_stage_service import (
-    ChangeProspectStageService,
-)
-from huginn.management.application.services.clear_prospect_follow_up_service import (
-    ClearProspectFollowUpService,
-)
-from huginn.management.application.services.close_prospect_service import (
-    CloseProspectService,
-)
-from huginn.management.application.services.correct_prospect_activity_time_service import (
-    CorrectProspectActivityTimeService,
-)
-from huginn.management.application.services.record_proposal_draft_service import (
-    RecordProposalDraftService,
-)
-from huginn.management.application.services.reopen_prospect_service import (
-    ReopenProspectService,
-)
-from huginn.management.application.services.set_prospect_follow_up_service import (
-    SetProspectFollowUpService,
-)
-from huginn.management.application.services.update_prospect_notes_service import (
-    UpdateProspectNotesService,
-)
+from huginn.management.application.services.prospects import ProspectService
 from huginn.management.domain.errors.errors import ConflictError, NotFoundError
 from huginn.management.domain.policies.prospect_activity_occurrence import (
     project_activity_occurrence,
@@ -111,7 +88,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     management_database_url,
 ):
     identity, prospect, principal = _seed(management_database_url)
-    stage_service = ChangeProspectStageService(
+    stage_service = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=1),
     )
@@ -122,8 +99,8 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
         BASE - timedelta(days=2),
         "stage-contacted",
     )
-    contacted = stage_service.execute(principal, contacted_request)
-    assert stage_service.execute(principal, contacted_request) == contacted
+    contacted = stage_service.change_stage(principal, contacted_request)
+    assert stage_service.change_stage(principal, contacted_request) == contacted
     assert contacted.activity.occurred_at == BASE - timedelta(days=2)
     assert contacted.activity.recorded_at == BASE + timedelta(minutes=1)
     assert (
@@ -131,7 +108,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
         == contacted.prospect
     )
 
-    conversation = stage_service.execute(
+    conversation = stage_service.change_stage(
         principal,
         ChangeProspectStageRequest(
             prospect.id,
@@ -141,7 +118,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
             "stage-conversation",
         ),
     )
-    proposal = stage_service.execute(
+    proposal = stage_service.change_stage(
         principal,
         ChangeProspectStageRequest(
             prospect.id,
@@ -152,7 +129,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
         ),
     )
     assert proposal.activity.kind.value == "proposal_sent"
-    won = stage_service.execute(
+    won = stage_service.change_stage(
         principal,
         ChangeProspectStageRequest(
             prospect.id,
@@ -162,7 +139,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
             "stage-won",
         ),
     )
-    proposal_revisited = stage_service.execute(
+    proposal_revisited = stage_service.change_stage(
         principal,
         ChangeProspectStageRequest(
             prospect.id,
@@ -175,11 +152,11 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     )
     assert proposal_revisited.activity.kind.value == "stage_changed"
 
-    draft_service = RecordProposalDraftService(
+    draft_service = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=4),
     )
-    draft = draft_service.execute(
+    draft = draft_service.record_proposal_draft(
         principal,
         RecordProposalDraftRequest(
             prospect.id,
@@ -191,11 +168,11 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     )
     assert draft.prospect == proposal_revisited.prospect
 
-    notes = UpdateProspectNotesService(
+    notes = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=5),
     )
-    note_update = notes.execute(
+    note_update = notes.update_notes(
         principal,
         UpdateProspectNotesRequest(
             prospect.id,
@@ -209,7 +186,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
         "prior": "Initial prospect note",
         "replacement": "Replacement memo",
     }
-    note_clear = notes.execute(
+    note_clear = notes.update_notes(
         principal,
         UpdateProspectNotesRequest(
             prospect.id,
@@ -222,10 +199,10 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     assert note_clear.prospect.notes == ""
 
     follow_up_at = BASE - timedelta(hours=1)
-    set_follow_up = SetProspectFollowUpService(
+    set_follow_up = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=7),
-    ).execute(
+    ).set_follow_up(
         principal,
         SetProspectFollowUpRequest(
             prospect.id,
@@ -236,10 +213,10 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
         ),
     )
     assert set_follow_up.prospect.follow_up_at == follow_up_at
-    clear_follow_up = ClearProspectFollowUpService(
+    clear_follow_up = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=8),
-    ).execute(
+    ).clear_follow_up(
         principal,
         ClearProspectFollowUpRequest(
             prospect.id,
@@ -250,10 +227,10 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     )
     assert clear_follow_up.prospect.follow_up_at is None
 
-    backward = ChangeProspectStageService(
+    backward = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=9),
-    ).execute(
+    ).change_stage(
         principal,
         ChangeProspectStageRequest(
             prospect.id,
@@ -264,10 +241,10 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
             "Proposal needs revision",
         ),
     )
-    close = CloseProspectService(
+    close = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=10),
-    ).execute(
+    ).close(
         principal,
         CloseProspectRequest(
             prospect.id,
@@ -277,10 +254,10 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
             "close",
         ),
     )
-    reopened = ReopenProspectService(
+    reopened = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=11),
-    ).execute(
+    ).reopen(
         principal,
         ReopenProspectRequest(
             prospect.id,
@@ -292,11 +269,11 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
     assert reopened.prospect.stage == ProspectStage("in_conversation")
     assert reopened.prospect.last_active_stage is None
 
-    corrected = CorrectProspectActivityTimeService(
+    corrected = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=12),
     )
-    first_correction = corrected.execute(
+    first_correction = corrected.correct_activity_time(
         principal,
         CorrectProspectActivityTimeRequest(
             prospect.id,
@@ -307,7 +284,7 @@ def test_stage_activity_notes_followup_and_correction_history_round_trip(
             "correct-proposal-first",
         ),
     )
-    second_correction = corrected.execute(
+    second_correction = corrected.correct_activity_time(
         principal,
         CorrectProspectActivityTimeRequest(
             prospect.id,
@@ -390,12 +367,12 @@ def test_note_and_activity_rollback_with_receipt_failure(management_database_url
     before_activities = _read_activities(
         management_database_url, identity.business_id, prospect.id
     )
-    service = UpdateProspectNotesService(
+    service = ProspectService(
         lambda: _FailingReceiptUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=1),
     )
     with pytest.raises(ConflictError, match="Injected receipt failure"):
-        service.execute(
+        service.update_notes(
             principal,
             UpdateProspectNotesRequest(
                 prospect.id, 1, "Must roll back", BASE, "rollback-note"
@@ -427,21 +404,21 @@ def test_foreign_owner_cannot_mutate_prospect_and_stale_version_conflicts(
     with psycopg.connect(management_database_url) as connection:
         other_identity = seed_prospecting_owner_company(connection)
     foreign = Principal(other_identity.account_id, other_identity.owner_user_id)
-    service = ChangeProspectStageService(
+    service = ProspectService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: BASE + timedelta(minutes=1),
     )
     request = ChangeProspectStageRequest(
         prospect.id, 1, ProspectStage("contacted"), BASE, "owned-stage"
     )
-    changed = service.execute(principal, request)
+    changed = service.change_stage(principal, request)
     with pytest.raises(ConflictError):
-        service.execute(
+        service.change_stage(
             principal,
             replace(request, request_key="stale-stage"),
         )
     with pytest.raises(NotFoundError):
-        service.execute(foreign, replace(request, request_key="foreign-stage"))
+        service.change_stage(foreign, replace(request, request_key="foreign-stage"))
     assert (
         _read_prospect(management_database_url, identity.business_id, prospect.id)
         == changed.prospect

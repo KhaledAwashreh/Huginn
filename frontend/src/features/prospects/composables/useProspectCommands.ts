@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue';
+import { computed, ref, shallowRef, watch, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { ApiError } from '../../../api/apiError';
 import { changeProspectStage } from '../api/changeProspectStage';
@@ -11,6 +11,7 @@ import { setProspectFollowUp } from '../api/setProspectFollowUp';
 import { updateProspectNotes } from '../api/updateProspectNotes';
 import {
   captureProspectCommand,
+  resetProspectDraft,
   type ProspectCommandDraft,
   type ProspectCommandIntent,
   type ProspectCommandKind,
@@ -42,9 +43,12 @@ async function send(intent: ProspectCommandIntent): Promise<unknown> {
 export function useProspectCommands(identity: Readonly<Ref<string>>) {
   const queryClient = useQueryClient();
   const pending = ref(false);
-  const error = ref('');
-  const canRetry = ref(false);
-  const needsRefresh = ref(false);
+  const activeDraft = shallowRef<ProspectCommandDraft | null>(null);
+  const error = computed(() => activeDraft.value?.error ?? '');
+  const canRetry = computed(() => activeDraft.value?.status === 'uncertain');
+  const needsRefresh = computed(
+    () => activeDraft.value?.status === 'stale' && Boolean(error.value),
+  );
   const message = ref('');
   const messageProspectId = ref<string | null>(null);
   let generation = 0;
@@ -54,9 +58,7 @@ export function useProspectCommands(identity: Readonly<Ref<string>>) {
     () => {
       generation += 1;
       pending.value = false;
-      error.value = '';
-      canRetry.value = false;
-      needsRefresh.value = false;
+      activeDraft.value = null;
       message.value = '';
       messageProspectId.value = null;
     },
@@ -76,9 +78,8 @@ export function useProspectCommands(identity: Readonly<Ref<string>>) {
     if (pending.value || identity.value !== intent.identity) return false;
     const requestGeneration = generation;
     pending.value = true;
-    error.value = '';
-    canRetry.value = false;
-    needsRefresh.value = false;
+    activeDraft.value = draft;
+    draft.error = '';
     message.value = '';
     messageProspectId.value = null;
     draft.status = 'pending';
@@ -86,22 +87,7 @@ export function useProspectCommands(identity: Readonly<Ref<string>>) {
     try {
       await send(intent);
       if (identity.value !== intent.identity || generation !== requestGeneration) return false;
-      draft.status = 'idle';
-      draft.intent = null;
-      draft.error = '';
-      draft.editing = false;
-      draft.expectedVersion = null;
-      draft.snapshot = null;
-      draft.editor = null;
-      draft.stageTarget = null;
-      draft.reason = '';
-      draft.occurredAt = '';
-      draft.notes = '';
-      draft.followUpAt = '';
-      draft.proposalSummary = '';
-      draft.correctionActivityId = '';
-      draft.correctionHeadId = null;
-      draft.replacementOccurredAt = '';
+      resetProspectDraft(draft);
       message.value = 'Saved. Current prospect details and history are refreshing.';
       messageProspectId.value = intent.prospectId;
       await invalidate(intent.identity, intent.prospectId);
@@ -109,22 +95,17 @@ export function useProspectCommands(identity: Readonly<Ref<string>>) {
     } catch (caught) {
       if (identity.value !== intent.identity || generation !== requestGeneration) return false;
       if (caught instanceof ApiError && caught.status === 409) {
-        error.value =
+        draft.error =
           'This prospect changed. Refresh its details, then discard or reopen this draft.';
-        needsRefresh.value = true;
         draft.status = 'stale';
-        draft.error = error.value;
         draft.intent = null;
       } else if (caught instanceof ApiError && caught.status < 500) {
-        error.value = 'The command was not accepted. Review the draft and try again.';
+        draft.error = 'The update was not accepted. Review your changes and try again.';
         draft.status = 'error';
-        draft.error = error.value;
         draft.intent = null;
       } else {
-        error.value = 'The result is uncertain. Retry the exact same request to check its receipt.';
-        canRetry.value = true;
+        draft.error = 'We could not confirm the result. Retry the same update safely.';
         draft.status = 'uncertain';
-        draft.error = error.value;
         draft.intent = intent;
       }
       return false;
@@ -181,12 +162,11 @@ export function useProspectCommands(identity: Readonly<Ref<string>>) {
   async function refresh(prospectId: string): Promise<void> {
     const requestedIdentity = identity.value;
     const requestGeneration = generation;
-    error.value = '';
+    if (activeDraft.value) activeDraft.value.error = '';
     message.value = '';
     messageProspectId.value = null;
     await invalidate(requestedIdentity, prospectId);
     if (identity.value !== requestedIdentity || generation !== requestGeneration) return;
-    needsRefresh.value = false;
   }
 
   return {

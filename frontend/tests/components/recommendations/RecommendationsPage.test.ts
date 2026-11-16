@@ -214,7 +214,9 @@ it('shows revision rationale and cited assessment-time evidence before decision 
   const wrapper = setup();
   const text = wrapper.text();
   const cardHtml = wrapper.find('article.recommendation-card').html();
-  expect(text).toContain('Search covers the full Business dataset');
+  expect(text).toContain('Search your recommendations by company name or domain.');
+  expect(text).not.toContain('filters before pagination');
+  expect(text).not.toContain('Recommendation version');
   expect(text).toContain('A cited research group is expanding its data team.');
   expect(text).toContain('We are hiring two data analysts.');
   expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toContain('Open source');

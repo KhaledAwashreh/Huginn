@@ -8,6 +8,9 @@ from huginn.management.domain.value_objects.origin_append_result import (
 
 
 class ProspectOriginRepository(Protocol):
+    def list_for_prospects(
+        self, business_id: UUID, prospect_ids: tuple[UUID, ...]
+    ) -> tuple[ProspectOrigin, ...]: ...
     def list_owned(
         self, business_id: UUID, prospect_id: UUID
     ) -> tuple[ProspectOrigin, ...]: ...

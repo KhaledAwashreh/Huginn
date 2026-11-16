@@ -71,8 +71,7 @@ function completed(event: { kind: string; message: string }): void {
 async function generate(): Promise<void> {
   notice.value = '';
   if (await workspace.generate(strategyId.value)) {
-    const count = workspace.generationResult.value?.references.length ?? 0;
-    notice.value = `Generation completed. ${count} recommendation reference${count === 1 ? '' : 's'} processed; the server list has been refreshed.`;
+    notice.value = 'Recommendations refreshed.';
   }
 }
 function pagePrevious(): void {
@@ -182,9 +181,7 @@ function newlySelected(item: RecommendationResponse): boolean {
         />
       </div>
     </section>
-    <p class="search-help">
-      Search covers the full Business dataset and filters before pagination.
-    </p>
+    <p class="search-help">Search your recommendations by company name or domain.</p>
 
     <section class="generation" aria-label="Generate recommendations">
       <div class="field">
@@ -288,7 +285,6 @@ function newlySelected(item: RecommendationResponse): boolean {
               >
                 <div class="card-heading">
                   <span class="status">{{ statusLabel(item) }}</span>
-                  <code>Recommendation version {{ item.version }}</code>
                 </div>
                 <RecommendationEvidence :recommendation="item" />
                 <p v-if="item.prospect" class="saved-link">

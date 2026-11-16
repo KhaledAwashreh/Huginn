@@ -28,14 +28,11 @@ from huginn.management.application.requests.recover_weekly_digest_request import
 from huginn.management.application.requests.save_recommendation_request import (
     SaveRecommendationRequest,
 )
-from huginn.management.application.services.later_recommendation_service import (
-    LaterRecommendationService,
-)
-from huginn.management.application.services.mark_recommendation_not_relevant_service import (
-    MarkRecommendationNotRelevantService,
-)
 from huginn.management.application.services.prepare_recommendation_offer_service import (
     PrepareRecommendationOfferService,
+)
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
 )
 from huginn.management.application.services.record_recommendation_feedback_service import (
     RecordRecommendationFeedbackService,
@@ -717,10 +714,10 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 ),
             )
         elif decision == "not_relevant":
-            MarkRecommendationNotRelevantService(
+            RecommendationDecisionService(
                 lambda: PostgresProspectingUnitOfWork(context.connection_factory),
                 clock=lambda: context.current_time[0] + timedelta(seconds=1),
-            ).execute(
+            ).mark_not_relevant(
                 context.principal,
                 MarkRecommendationNotRelevantRequest(
                     member.recommendation_id,
@@ -731,10 +728,10 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 ),
             )
         else:
-            LaterRecommendationService(
+            RecommendationDecisionService(
                 lambda: PostgresProspectingUnitOfWork(context.connection_factory),
                 clock=lambda: context.current_time[0] + timedelta(seconds=1),
-            ).execute(
+            ).later(
                 context.principal,
                 LaterRecommendationRequest(
                     member.recommendation_id,
@@ -1028,10 +1025,10 @@ def test_post_authorization_rejection_and_opt_out_do_not_recall_accepted_message
                     "WHERE c.business_id=%s",
                     (context.business_id,),
                 ).fetchone()
-            MarkRecommendationNotRelevantService(
+            RecommendationDecisionService(
                 lambda: PostgresProspectingUnitOfWork(context.connection_factory),
                 clock=lambda: rejection_at,
-            ).execute(
+            ).mark_not_relevant(
                 context.principal,
                 MarkRecommendationNotRelevantRequest(
                     recommendation[0],

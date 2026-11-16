@@ -11,6 +11,9 @@ from huginn.management.application.read_models.prospect_view import ProspectView
 from huginn.management.application.read_models.recommendation_view import (
     RecommendationView,
 )
+from huginn.management.application.responses.prospect_command_response import (
+    ProspectCommandResponse as ProspectCommandResult,
+)
 from huginn.management.domain.entities.assessment_revision import AssessmentRevision
 from huginn.management.domain.entities.prospect import Prospect
 from huginn.management.domain.entities.prospect_activity import ProspectActivity
@@ -24,6 +27,12 @@ from huginn.management.domain.value_objects.strategy_assessment_snapshot import 
 )
 from huginn.management.presentation.api.responses.current_company import (
     CurrentCompanyResponse,
+)
+from huginn.management.presentation.api.responses.prospect_command import (
+    ProspectCommandResponse,
+)
+from huginn.management.presentation.api.responses.prospect_command_activity import (
+    ProspectCommandActivityResponse,
 )
 from huginn.management.presentation.api.responses.prospecting_activity import (
     ProspectActivityResponse,
@@ -272,4 +281,22 @@ def _prospect_activity(
         effective_occurred_at=effective_occurred_at,
         correction_head_id=correction_head_id,
         correction_sequence=correction_sequence,
+    )
+
+
+def prospect_command_response(result: ProspectCommandResult) -> ProspectCommandResponse:
+    activity = result.activity
+    return ProspectCommandResponse(
+        prospect=_prospect_entity(result.prospect),
+        activity=ProspectCommandActivityResponse(
+            id=activity.id,
+            business_id=activity.business_id,
+            prospect_id=activity.prospect_id,
+            actor_user_id=activity.actor_user_id,
+            kind=activity.kind.value,
+            occurred_at=activity.occurred_at,
+            recorded_at=activity.recorded_at,
+            payload=activity.payload.to_json_object(),
+            correction_of_id=activity.correction_of_id,
+        ),
     )

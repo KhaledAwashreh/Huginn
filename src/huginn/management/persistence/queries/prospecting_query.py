@@ -21,7 +21,6 @@ from huginn.management.application.read_models.recommendation_view import (
 from huginn.management.application.requests.list_prospecting_request import (
     ListProspectingRequest,
 )
-from huginn.management.domain.entities.prospect import Prospect
 from huginn.management.domain.entities.recommendation import Recommendation
 from huginn.management.domain.errors.errors import NotFoundError
 from huginn.management.domain.value_objects.common import Page
@@ -194,31 +193,37 @@ class PostgresProspectingQuery(ProspectingQuery):
             business_id, recommendation, company, state, at, assessment_revision_id
         )
 
-    def _prospect_view(
-        self,
-        business_id: UUID,
-        prospect: Prospect,
-        company: CurrentCompany,
-        *,
-        include_activities: bool,
-    ) -> ProspectView:
-        origins = []
-        for origin in self._work.origins.list_owned(business_id, prospect.id):
-            recommendation = self._work.recommendations.get_owned(
-                business_id, origin.recommendation_id
+    def _origins_by_prospect(
+        self, business_id: UUID, prospect_ids: tuple[UUID, ...]
+    ) -> dict[UUID, tuple[ProspectOriginView, ...]]:
+        origins = self._work.origins.list_for_prospects(business_id, prospect_ids)
+        recommendations = {
+            value.id: value
+            for value in self._work.recommendations.get_many_owned(
+                business_id, tuple({origin.recommendation_id for origin in origins})
             )
-            assessment = self._work.assessment_revisions.get_owned(
-                business_id, origin.recommendation_id, origin.assessment_revision_id
+        }
+        assessments = {
+            (value.recommendation_id, value.id): value
+            for value in self._work.assessment_revisions.get_many_owned(
+                business_id,
+                tuple({origin.assessment_revision_id for origin in origins}),
+            )
+        }
+        grouped: dict[UUID, list[ProspectOriginView]] = {
+            prospect_id: [] for prospect_id in prospect_ids
+        }
+        for origin in origins:
+            recommendation = recommendations.get(origin.recommendation_id)
+            assessment = assessments.get(
+                (origin.recommendation_id, origin.assessment_revision_id)
             )
             if recommendation is None or assessment is None:
                 raise NotFoundError("Saved assessment not found")
-            origins.append(ProspectOriginView(origin, recommendation, assessment))
-        activities = (
-            self._work.activities.list_owned(business_id, prospect.id)
-            if include_activities
-            else None
-        )
-        return ProspectView(prospect, company, tuple(origins), activities)
+            grouped[origin.prospect_id].append(
+                ProspectOriginView(origin, recommendation, assessment)
+            )
+        return {key: tuple(values) for key, values in grouped.items()}
 
     def list_prospects(
         self,
@@ -240,17 +245,21 @@ class PostgresProspectingQuery(ProspectingQuery):
             f"SELECT p.id,{_COMPANY_COLUMNS} FROM operational.prospects p JOIN gold.company c ON c.id=p.company_id WHERE {' AND '.join(where)} ORDER BY p.updated_at DESC,p.id LIMIT %s OFFSET %s",
             tuple(parameters),
         ).fetchall()
+        selected = rows[: request.limit]
+        prospect_ids = tuple(row[0] for row in selected)
+        prospects = {
+            value.id: value
+            for value in self._work.prospects.get_many_owned(business_id, prospect_ids)
+        }
+        origins = self._origins_by_prospect(business_id, prospect_ids)
         views = []
-        for row in rows[: request.limit]:
-            prospect = self._work.prospects.get_owned(business_id, row[0])
+        for row in selected:
+            prospect = prospects.get(row[0])
             if prospect is None:
                 raise NotFoundError("Prospect not found")
             views.append(
-                self._prospect_view(
-                    business_id,
-                    prospect,
-                    self._company(row[1:]),
-                    include_activities=False,
+                ProspectView(
+                    prospect, self._company(row[1:]), origins[prospect.id], None
                 )
             )
         return Page(
@@ -263,11 +272,12 @@ class PostgresProspectingQuery(ProspectingQuery):
         prospect = self._work.prospects.get_owned(business_id, prospect_id)
         if prospect is None:
             return None
-        return self._prospect_view(
-            business_id,
+        origins = self._origins_by_prospect(business_id, (prospect.id,))
+        return ProspectView(
             prospect,
             self._get_company(prospect.company_id),
-            include_activities=True,
+            origins[prospect.id],
+            self._work.activities.list_owned(business_id, prospect.id),
         )
 
     def list_manageable_suppressions(

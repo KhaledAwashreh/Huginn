@@ -320,7 +320,12 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.getByLabel('Outcome').selectOption('not_relevant');
   await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');
   await page.getByRole('button', { name: 'Submit assessment report' }).click();
-  await expect(page.getByText(/Feedback recorded for assessment revision/)).toBeVisible();
+  await expect(
+    page.getByText(
+      'Feedback recorded. This report does not change your recommendation or its ranking.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   expect(feedbackRequest).toMatchObject({ assessment_revision_id: recommendation.assessment?.id });
 
   expect(
@@ -339,7 +344,7 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.screenshot({ path: 'test-results/recommendations-wide.png', fullPage: true });
 
   await page.getByRole('button', { name: 'Save as prospect' }).click();
-  await expect(page.getByText(/Saved as a prospect \(ID/)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved as a prospect.' })).toBeVisible();
   await expect(page.getByText('No recommendations match this view yet.')).toBeVisible();
   expect(runtimeFaults).toEqual([]);
   expect(offerRequests).toEqual([]);

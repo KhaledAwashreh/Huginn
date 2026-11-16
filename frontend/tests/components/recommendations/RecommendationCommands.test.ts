@@ -2,6 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { computed, defineComponent, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
+import {
+  createRecommendationCommandDraft,
+  resetRecommendationDecisionDraft,
+} from '../../../src/features/recommendations/models/recommendationCommandDraft';
+import type { RecommendationView } from '../../../src/features/recommendations/models/prospecting';
 import { useRecommendationCommands } from '../../../src/features/recommendations/composables/useRecommendationCommands';
 
 function setup() {
@@ -76,4 +81,32 @@ it('publishes a committed receipt before refetch can remove its row from the cur
   finishInvalidation();
   await expect(pending).resolves.toEqual({ saved: true });
   wrapper.unmount();
+});
+
+it('clears a completed decision without discarding its separate assessment feedback draft', () => {
+  const draft = createRecommendationCommandDraft('recommendation-1');
+  const snapshot = { id: 'recommendation-1' } as RecommendationView;
+  draft.snapshot = snapshot;
+  draft.status = 'stale';
+  draft.reason = 'A reason';
+  draft.pauseChoice = 'x3';
+  draft.laterConfirmationOpen = true;
+  draft.feedback.open = true;
+  draft.feedback.notes = 'Keep these separate notes';
+  const feedback = draft.feedback;
+
+  resetRecommendationDecisionDraft(draft);
+
+  expect(draft).toEqual({
+    ...createRecommendationCommandDraft('recommendation-1'),
+    snapshot,
+    feedback,
+  });
+  expect(draft.feedback).toBe(feedback);
+  draft.feedback.open = false;
+  draft.feedback.notes = '';
+
+  resetRecommendationDecisionDraft(draft);
+
+  expect(draft.snapshot).toBeNull();
 });

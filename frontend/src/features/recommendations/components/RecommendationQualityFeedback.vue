@@ -110,7 +110,8 @@ async function send(intent: RecommendationFeedbackIntent): Promise<void> {
     if (props.identity !== intent.identity || commandDraft.value !== parentDraft) return;
     state.intent = null;
     state.status = 'idle';
-    state.error = `Feedback recorded for assessment revision ${intent.request.assessment_revision_id}. It did not change recommendation status or ranking.`;
+    state.error =
+      'Feedback recorded. This report does not change your recommendation or its ranking.';
     state.open = false;
     state.usefulness = 'unsure';
     state.reasons = [];
@@ -129,7 +130,7 @@ async function send(intent: RecommendationFeedbackIntent): Promise<void> {
     } else {
       state.status = 'uncertain';
       state.error =
-        'The feedback result is uncertain. Retry the exact same report to check its receipt.';
+        'We could not confirm whether your report was saved. Retry the same report safely.';
     }
   }
 }

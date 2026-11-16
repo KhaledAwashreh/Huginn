@@ -32,15 +32,23 @@ class PostgresProspectOriginRepository(ProspectOriginRepository):
     def _map(row: tuple[Any, ...]) -> ProspectOrigin:
         return ProspectOrigin(*row)
 
+    def list_for_prospects(
+        self, business_id: UUID, prospect_ids: tuple[UUID, ...]
+    ) -> tuple[ProspectOrigin, ...]:
+        if not prospect_ids:
+            return ()
+        rows = self.connection.execute(
+            f"SELECT {self._columns} FROM operational.prospect_origins "
+            "WHERE business_id=%s AND prospect_id=ANY(%s::uuid[]) "
+            "ORDER BY prospect_id,created_at,id",
+            (business_id, list(prospect_ids)),
+        ).fetchall()
+        return tuple(self._map(row) for row in rows)
+
     def list_owned(
         self, business_id: UUID, prospect_id: UUID
     ) -> tuple[ProspectOrigin, ...]:
-        rows = self.connection.execute(
-            f"SELECT {self._columns} FROM operational.prospect_origins "
-            "WHERE business_id=%s AND prospect_id=%s ORDER BY created_at,id",
-            (business_id, prospect_id),
-        ).fetchall()
-        return tuple(self._map(row) for row in rows)
+        return self.list_for_prospects(business_id, (prospect_id,))
 
     def append_if_absent(self, origin: ProspectOrigin) -> OriginAppendResult:
         membership = self.connection.execute(

@@ -131,7 +131,9 @@ it('preserves a rejected decision draft and retries only the exact same idempote
   await flushPromises();
   expect(reason.element.value).toBe('Wrong buyer');
   expect((reason.element as HTMLTextAreaElement).disabled).toBe(true);
-  expect(wrapper.text()).toContain('Retry the exact same request');
+  expect(wrapper.text()).toContain('Retry the same update safely.');
+  expect(wrapper.text()).not.toContain('request key');
+  expect(wrapper.text()).not.toContain('receipt');
   const firstRequest = mocks.notRelevant.mock.calls[0];
   expect(firstRequest).toEqual([
     'rec-1',

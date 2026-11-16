@@ -23,14 +23,11 @@ from huginn.management.application.requests.save_recommendation_request import (
 from huginn.management.application.services.confirm_recommendation_offer_service import (
     ConfirmRecommendationOfferService,
 )
-from huginn.management.application.services.later_recommendation_service import (
-    LaterRecommendationService,
-)
-from huginn.management.application.services.mark_recommendation_not_relevant_service import (
-    MarkRecommendationNotRelevantService,
-)
 from huginn.management.application.services.prepare_recommendation_offer_service import (
     PrepareRecommendationOfferService,
+)
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
 )
 from huginn.management.application.services.save_recommendation_service import (
     SaveRecommendationService,
@@ -315,9 +312,9 @@ def test_user_decision_before_confirmation_wins(
                 context.business_id, selected.recommendation_id
             )
         assert recommendation is not None
-        MarkRecommendationNotRelevantService(
+        RecommendationDecisionService(
             work_factory, clock=lambda: command_time
-        ).execute(
+        ).mark_not_relevant(
             context.principal,
             MarkRecommendationNotRelevantRequest(
                 selected.recommendation_id,
@@ -337,7 +334,7 @@ def test_user_decision_before_confirmation_wins(
                 context.business_id
             )
         assert recommendation is not None and preferences is not None
-        LaterRecommendationService(work_factory, clock=lambda: command_time).execute(
+        RecommendationDecisionService(work_factory, clock=lambda: command_time).later(
             context.principal,
             LaterRecommendationRequest(
                 selected.recommendation_id,

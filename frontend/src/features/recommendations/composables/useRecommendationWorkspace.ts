@@ -10,6 +10,7 @@ import { listSuppressions } from '../api/listSuppressions';
 import type { RecommendationPreferences, RecommendationStatusFilter } from '../models/prospecting';
 import {
   createRecommendationCommandDraft,
+  hasRecommendationFeedbackDraft,
   type RecommendationCommandDraft,
 } from '../models/recommendationCommandDraft';
 import type { RecommendationCommandRecovery } from '../models/recommendationCommandDraft';
@@ -153,17 +154,7 @@ export function useRecommendationWorkspace() {
         draft.pauseChoice !== 'x1' ||
         draft.laterConfirmationOpen,
       );
-      const feedbackDraft = Boolean(
-        draft.feedback.intent ||
-        draft.feedback.status !== 'idle' ||
-        draft.feedback.open ||
-        draft.feedback.usefulness !== 'unsure' ||
-        draft.feedback.reasons.length ||
-        draft.feedback.outcome !== 'unknown' ||
-        draft.feedback.next_step !== 'none' ||
-        draft.feedback.correction.trim() ||
-        draft.feedback.notes.trim(),
-      );
+      const feedbackDraft = hasRecommendationFeedbackDraft(draft.feedback);
       if ((!decisionDraft && !feedbackDraft) || !draft.snapshot) return [];
       return [
         {

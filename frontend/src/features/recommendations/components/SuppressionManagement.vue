@@ -85,7 +85,7 @@ async function retry(): Promise<void> {
         :disabled="commands.pending.value"
         @click="retry"
       />
-      <span>The original request key and block version are preserved.</span>
+      <span>Retrying checks the same update safely without repeating it.</span>
     </div>
     <Button
       v-if="commands.needsRefresh.value"

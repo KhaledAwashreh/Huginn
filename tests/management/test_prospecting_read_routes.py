@@ -118,15 +118,13 @@ def test_discovery_decisions_require_csrf_and_forward_exact_intent(action):
     observed = []
 
     class Commands:
-        def execute(self, actor, request):
+        def later(self, actor, request):
             observed.append((actor, request))
             raise NotFoundError("Recommendation not found")
 
-    keyword = (
-        "later_recommendation_service"
-        if action == "later"
-        else "mark_recommendation_not_relevant_service"
-    )
+        mark_not_relevant = later
+
+    keyword = "recommendation_decision_service"
     app = create_app(
         ManagementConfig("unused", environment="test"), **{keyword: Commands()}
     )
@@ -249,20 +247,20 @@ def test_generate_requires_csrf_and_returns_exact_stable_references():
 @pytest.mark.parametrize(
     ("action", "service_name", "extra"),
     [
-        ("stage", "change_prospect_stage", {"target_stage": "contacted"}),
-        ("close", "close_prospect", {"reason": "No longer active"}),
-        ("reopen", "reopen_prospect", {}),
-        ("notes", "update_prospect_notes", {"replacement_notes": "Canonical memo"}),
+        ("stage", "change_stage", {"target_stage": "contacted"}),
+        ("close", "close", {"reason": "No longer active"}),
+        ("reopen", "reopen", {}),
+        ("notes", "update_notes", {"replacement_notes": "Canonical memo"}),
         (
             "follow-up",
-            "set_prospect_follow_up",
+            "set_follow_up",
             {"follow_up_at": "2026-12-01T12:00:00+00:00"},
         ),
-        ("clear-follow-up", "clear_prospect_follow_up", {}),
+        ("clear-follow-up", "clear_follow_up", {}),
         ("proposal-drafts", "record_proposal_draft", {"summary": "Draft only"}),
         (
             "activity-time-corrections",
-            "correct_prospect_activity_time",
+            "correct_activity_time",
             {
                 "original_activity_id": str(uuid4()),
                 "expected_correction_head_id": None,
@@ -274,6 +272,8 @@ def test_generate_requires_csrf_and_returns_exact_stable_references():
 def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
     action, service_name, extra
 ):
+    from types import SimpleNamespace
+
     from huginn.management.security.tokens import digest_token
 
     principal = Principal(uuid4(), uuid4())
@@ -288,7 +288,7 @@ def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
 
     app = create_app(
         ManagementConfig("unused", environment="test"),
-        **{f"{service_name}_service": Command()},
+        prospect_service=SimpleNamespace(**{service_name: Command().execute}),
     )
     session = Session(
         uuid4(), principal.account_id, "digest", digest_token("csrf"), now, now, None

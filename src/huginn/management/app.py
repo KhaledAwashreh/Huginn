@@ -22,23 +22,8 @@ from huginn.management.application.services.business_profile import (
 from huginn.management.application.services.business_recommendation_preferences import (
     BusinessRecommendationPreferencesService,
 )
-from huginn.management.application.services.cancel_recommendation_pause_service import (
-    CancelRecommendationPauseService,
-)
-from huginn.management.application.services.change_prospect_stage_service import (
-    ChangeProspectStageService,
-)
-from huginn.management.application.services.clear_prospect_follow_up_service import (
-    ClearProspectFollowUpService,
-)
-from huginn.management.application.services.close_prospect_service import (
-    CloseProspectService,
-)
 from huginn.management.application.services.confirm_recommendation_offer_service import (
     ConfirmRecommendationOfferService,
-)
-from huginn.management.application.services.correct_prospect_activity_time_service import (
-    CorrectProspectActivityTimeService,
 )
 from huginn.management.application.services.current_session_service import (
     CurrentSessionService,
@@ -71,9 +56,6 @@ from huginn.management.application.services.get_matches_overview_service import 
 from huginn.management.application.services.ideal_client_profiles import (
     IdealClientProfileService,
 )
-from huginn.management.application.services.later_recommendation_service import (
-    LaterRecommendationService,
-)
 from huginn.management.application.services.list_company_options_service import (
     ListCompanyOptionsService,
 )
@@ -83,23 +65,21 @@ from huginn.management.application.services.list_match_signals_service import (
 from huginn.management.application.services.list_matches_service import (
     ListMatchesService,
 )
-from huginn.management.application.services.mark_recommendation_not_relevant_service import (
-    MarkRecommendationNotRelevantService,
-)
 from huginn.management.application.services.prepare_recommendation_offer_service import (
     PrepareRecommendationOfferService,
 )
 from huginn.management.application.services.prospecting_read_service import (
     ProspectingReadService,
 )
+from huginn.management.application.services.prospects import ProspectService
 from huginn.management.application.services.provisioning import (
     IdentityProvisioningService,
 )
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
+)
 from huginn.management.application.services.recommendation_generation import (
     RecommendationGenerationService,
-)
-from huginn.management.application.services.record_proposal_draft_service import (
-    RecordProposalDraftService,
 )
 from huginn.management.application.services.record_recommendation_feedback_service import (
     RecordRecommendationFeedbackService,
@@ -107,17 +87,11 @@ from huginn.management.application.services.record_recommendation_feedback_servi
 from huginn.management.application.services.recover_weekly_digest_service import (
     RecoverWeeklyDigestService,
 )
-from huginn.management.application.services.reopen_prospect_service import (
-    ReopenProspectService,
-)
 from huginn.management.application.services.resend_verification_service import (
     ResendVerificationService,
 )
 from huginn.management.application.services.reset_password_service import (
     ResetPasswordService,
-)
-from huginn.management.application.services.reverse_recommendation_rejection_service import (
-    ReverseRecommendationRejectionService,
 )
 from huginn.management.application.services.save_recommendation_service import (
     SaveRecommendationService,
@@ -125,13 +99,7 @@ from huginn.management.application.services.save_recommendation_service import (
 from huginn.management.application.services.service_offerings import (
     ServiceOfferingService,
 )
-from huginn.management.application.services.set_prospect_follow_up_service import (
-    SetProspectFollowUpService,
-)
 from huginn.management.application.services.signup_service import SignupService
-from huginn.management.application.services.update_prospect_notes_service import (
-    UpdateProspectNotesService,
-)
 from huginn.management.application.services.user_profile import UserProfileService
 from huginn.management.application.services.verify_email_service import (
     VerifyEmailService,
@@ -300,18 +268,8 @@ class ManagementDependencies:
     get_match_service: Any = None
     list_match_signals_service: Any = None
     get_matches_overview_service: Any = None
-    later_recommendation_service: Any = None
-    mark_recommendation_not_relevant_service: Any = None
-    reverse_recommendation_rejection_service: Any = None
-    cancel_recommendation_pause_service: Any = None
-    change_prospect_stage_service: Any = None
-    close_prospect_service: Any = None
-    reopen_prospect_service: Any = None
-    update_prospect_notes_service: Any = None
-    set_prospect_follow_up_service: Any = None
-    clear_prospect_follow_up_service: Any = None
-    record_proposal_draft_service: Any = None
-    correct_prospect_activity_time_service: Any = None
+    prospect_service: Any = None
+    recommendation_decision_service: Any = None
     record_recommendation_feedback_service: Any = None
     prepare_recommendation_offer_service: Any = None
     confirm_recommendation_offer_service: Any = None
@@ -380,18 +338,8 @@ def create_app(
     get_match_service: Any | None = None,
     list_match_signals_service: Any | None = None,
     get_matches_overview_service: Any | None = None,
-    later_recommendation_service: Any | None = None,
-    mark_recommendation_not_relevant_service: Any | None = None,
-    reverse_recommendation_rejection_service: Any | None = None,
-    cancel_recommendation_pause_service: Any | None = None,
-    change_prospect_stage_service: Any | None = None,
-    close_prospect_service: Any | None = None,
-    reopen_prospect_service: Any | None = None,
-    update_prospect_notes_service: Any | None = None,
-    set_prospect_follow_up_service: Any | None = None,
-    clear_prospect_follow_up_service: Any | None = None,
-    record_proposal_draft_service: Any | None = None,
-    correct_prospect_activity_time_service: Any | None = None,
+    prospect_service: Any | None = None,
+    recommendation_decision_service: Any | None = None,
     record_recommendation_feedback_service: Any | None = None,
     prepare_recommendation_offer_service: Any | None = None,
     confirm_recommendation_offer_service: Any | None = None,
@@ -418,6 +366,12 @@ def create_app(
     make_uow = unit_of_work_factory or (
         lambda: UnitOfWork(ManagementConnectionFactory(resolved_config.database_url))
     )
+
+    def make_prospecting_uow() -> PostgresProspectingUnitOfWork:
+        return PostgresProspectingUnitOfWork(
+            ManagementConnectionFactory(resolved_config.database_url)
+        )
+
     make_sessions = sessions_factory or (
         lambda uow: PostgresSessionRepository(uow.connection)
     )
@@ -477,139 +431,45 @@ def create_app(
         confirm_recommendation_offer_service=confirm_recommendation_offer_service
         if confirm_recommendation_offer_service is not None
         else ConfirmRecommendationOfferService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             source_factory=PostgresRecommendationGenerationSource,
             clock=clock,
         ),
         prepare_recommendation_offer_service=prepare_recommendation_offer_service
         if prepare_recommendation_offer_service is not None
         else PrepareRecommendationOfferService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             source_factory=PostgresRecommendationGenerationSource,
             clock=clock,
         ),
         record_recommendation_feedback_service=record_recommendation_feedback_service
         if record_recommendation_feedback_service is not None
         else RecordRecommendationFeedbackService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             clock=clock,
         ),
-        correct_prospect_activity_time_service=correct_prospect_activity_time_service
-        if correct_prospect_activity_time_service is not None
-        else CorrectProspectActivityTimeService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+        recommendation_decision_service=recommendation_decision_service
+        if recommendation_decision_service is not None
+        else RecommendationDecisionService(
+            make_prospecting_uow,
             clock=clock,
         ),
-        record_proposal_draft_service=record_proposal_draft_service
-        if record_proposal_draft_service is not None
-        else RecordProposalDraftService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        clear_prospect_follow_up_service=clear_prospect_follow_up_service
-        if clear_prospect_follow_up_service is not None
-        else ClearProspectFollowUpService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        set_prospect_follow_up_service=set_prospect_follow_up_service
-        if set_prospect_follow_up_service is not None
-        else SetProspectFollowUpService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        update_prospect_notes_service=update_prospect_notes_service
-        if update_prospect_notes_service is not None
-        else UpdateProspectNotesService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        reopen_prospect_service=reopen_prospect_service
-        if reopen_prospect_service is not None
-        else ReopenProspectService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        close_prospect_service=close_prospect_service
-        if close_prospect_service is not None
-        else CloseProspectService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        change_prospect_stage_service=change_prospect_stage_service
-        if change_prospect_stage_service is not None
-        else ChangeProspectStageService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        cancel_recommendation_pause_service=cancel_recommendation_pause_service
-        if cancel_recommendation_pause_service is not None
-        else CancelRecommendationPauseService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        reverse_recommendation_rejection_service=reverse_recommendation_rejection_service
-        if reverse_recommendation_rejection_service is not None
-        else ReverseRecommendationRejectionService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        mark_recommendation_not_relevant_service=mark_recommendation_not_relevant_service
-        if mark_recommendation_not_relevant_service is not None
-        else MarkRecommendationNotRelevantService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
-            clock=clock,
-        ),
-        later_recommendation_service=later_recommendation_service
-        if later_recommendation_service is not None
-        else LaterRecommendationService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+        prospect_service=prospect_service
+        if prospect_service is not None
+        else ProspectService(
+            make_prospecting_uow,
             clock=clock,
         ),
         save_recommendation_service=save_recommendation_service
         if save_recommendation_service is not None
         else SaveRecommendationService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             clock=clock,
         ),
         recommendation_generation_service=recommendation_generation_service
         if recommendation_generation_service is not None
         else RecommendationGenerationService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             source_factory=PostgresRecommendationGenerationSource,
             clock=clock,
         ),
@@ -655,9 +515,7 @@ def create_app(
         recover_weekly_digest_service=recover_weekly_digest_service
         if recover_weekly_digest_service is not None
         else RecoverWeeklyDigestService(
-            lambda: PostgresProspectingUnitOfWork(
-                ManagementConnectionFactory(resolved_config.database_url)
-            ),
+            make_prospecting_uow,
             delivery_repository_factory=lambda work: (
                 PostgresWeeklyDigestDeliveryRepository(work.connection)
             ),

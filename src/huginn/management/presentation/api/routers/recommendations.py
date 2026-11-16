@@ -248,7 +248,7 @@ def mark_not_relevant(
         body.reason,
     )
     return response_from_domain(
-        dependencies.mark_recommendation_not_relevant_service.execute(
+        dependencies.recommendation_decision_service.mark_not_relevant(
             authenticated.principal, command
         ),
         MarkRecommendationNotRelevantResponse,
@@ -279,7 +279,7 @@ def later(
         body.request_key,
     )
     return response_from_domain(
-        dependencies.later_recommendation_service.execute(
+        dependencies.recommendation_decision_service.later(
             authenticated.principal, command
         ),
         LaterRecommendationResponse,
