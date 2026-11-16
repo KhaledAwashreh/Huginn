@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import type { components } from '../../../api/generated/schema';
 import { safeSourceUrl } from '../../../shared/lib/externalCompanyUrl';
-import { record, retainedEvidence, strategyName, text } from '../models/assessmentEvidence';
+import {
+  record,
+  relevanceScore,
+  retainedEvidence,
+  strategyName,
+  text,
+} from '../models/assessmentEvidence';
 
 defineProps<{
   assessment: components['schemas']['AssessmentRevisionResponse'] | null;
@@ -44,6 +50,9 @@ function safeSource(value: unknown): string | null {
         class="strategy-assessment"
       >
         <h4 v-if="assessment.strategy_assessments.length > 1">{{ strategyName(item) }}</h4>
+        <p v-if="relevanceScore(item) !== null" class="relevance-score">
+          Relevance: {{ relevanceScore(item) }}/100
+        </p>
         <p>
           {{
             text(record(item.assessment_snapshot).rationale) ||
@@ -104,6 +113,11 @@ h5 {
 .evidence-state,
 .offering {
   color: var(--color-text-muted);
+}
+.relevance-score {
+  margin-bottom: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 .strategy-assessment {
   display: grid;

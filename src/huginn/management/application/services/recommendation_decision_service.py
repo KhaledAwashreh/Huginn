@@ -94,7 +94,9 @@ class RecommendationDecisionService:
                     if request.expected_pause_id
                     else None,
                     "expected_pause_version": request.expected_pause_version,
-                    "reason": request.reason,
+                    **(
+                        {"reason": request.reason} if request.reason is not None else {}
+                    ),
                 },
             ),
         )

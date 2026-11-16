@@ -38,6 +38,7 @@ export function useRecommendationWorkspace() {
       session.context.value?.csrf_token,
     ].join(':'),
   );
+  const strategyId = ref('');
   const search = ref('');
   const status = ref<RecommendationStatusFilter>('open');
   const offset = ref(0);
@@ -54,6 +55,7 @@ export function useRecommendationWorkspace() {
         'prospecting',
         identity.value,
         'recommendations',
+        strategyId.value,
         status.value,
         search.value.trim(),
         offset.value,
@@ -71,10 +73,11 @@ export function useRecommendationWorkspace() {
   );
   const recommendations = useQuery({
     queryKey: recommendationsKey,
-    enabled: computed(() => Boolean(session.context.value)),
+    enabled: computed(() => Boolean(session.context.value && strategyId.value)),
     queryFn: ({ signal }) =>
       listRecommendations(
         {
+          strategyId: strategyId.value,
           status: status.value,
           search: search.value.trim(),
           offset: offset.value,
@@ -118,24 +121,33 @@ export function useRecommendationWorkspace() {
     },
   });
 
-  watch([search, status], () => {
-    offset.value = 0;
-  });
+  watch(
+    [strategyId, search, status],
+    () => {
+      offset.value = 0;
+    },
+    { flush: 'sync' },
+  );
   watch([suppressionSearch], () => {
     suppressionOffset.value = 0;
   });
-  watch(identity, (nextIdentity, previousIdentity) => {
-    commandDraftRegistry.delete(previousIdentity);
-    commandDrafts.value = draftsForIdentity(nextIdentity);
-    search.value = '';
-    status.value = 'open';
-    offset.value = 0;
-    suppressionSearch.value = '';
-    suppressionOffset.value = 0;
-    generationError.value = '';
-    generationResult.value = null;
-    generating.value = false;
-  });
+  watch(
+    identity,
+    (nextIdentity, previousIdentity) => {
+      strategyId.value = '';
+      commandDraftRegistry.delete(previousIdentity);
+      commandDrafts.value = draftsForIdentity(nextIdentity);
+      search.value = '';
+      status.value = 'open';
+      offset.value = 0;
+      suppressionSearch.value = '';
+      suppressionOffset.value = 0;
+      generationError.value = '';
+      generationResult.value = null;
+      generating.value = false;
+    },
+    { flush: 'sync' },
+  );
 
   function commandDraftFor(recommendationId: string): RecommendationCommandDraft {
     const existing = commandDrafts.value.get(recommendationId);
@@ -225,6 +237,7 @@ export function useRecommendationWorkspace() {
     identity,
     commandDraftFor,
     commandRecoveries,
+    strategyId,
     search,
     status,
     offset,

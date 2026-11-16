@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue';
+import { computed, onBeforeUnmount, useId } from 'vue';
 import Button from 'primevue/button';
 import { ApiError } from '../../../api/apiError';
 import { recordRecommendationFeedback } from '../api/recordRecommendationFeedback';
@@ -70,6 +70,9 @@ function discard(): void {
   )
     commandDraft.value.snapshot = null;
 }
+onBeforeUnmount(() => {
+  if (!locked.value) discard();
+});
 function label(value: string): string {
   return value.replaceAll('_', ' ');
 }

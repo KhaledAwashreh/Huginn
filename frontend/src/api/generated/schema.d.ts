@@ -9518,6 +9518,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "converted" | "rejected" | "all";
+                strategy_id?: string | null;
                 search?: string;
                 offset?: number;
                 limit?: number;

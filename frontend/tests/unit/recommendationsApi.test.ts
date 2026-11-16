@@ -23,11 +23,17 @@ it('queries the full server-filtered recommendation page and preserves abort sig
     .mockImplementation(async () => new Response('{}', { status: 200 }));
   const controller = new AbortController();
   await listRecommendations(
-    { status: 'open', search: 'northstar.example', offset: 50, limit: 50 },
+    {
+      strategyId: 'strategy-1',
+      status: 'open',
+      search: 'northstar.example',
+      offset: 50,
+      limit: 50,
+    },
     controller.signal,
   );
   expect(fetcher.mock.calls[0]?.[0]).toBe(
-    '/api/v1/recommendations?offset=50&limit=50&status=open&search=northstar.example',
+    '/api/v1/recommendations?offset=50&limit=50&strategy_id=strategy-1&status=open&search=northstar.example',
   );
   expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
 });

@@ -133,6 +133,7 @@ function setup(items = [recommendation()]) {
   };
   const workspace = {
     identity: ref('account-1:user-1:csrf'),
+    strategyId: ref('strategy-1'),
     search: ref(''),
     status: ref('open'),
     offset: ref(0),
@@ -228,6 +229,15 @@ it('shows revision rationale and cited assessment-time evidence before decision 
     cardHtml.indexOf('data-test="decision-actions"'),
   );
   expect(wrapper.find('button[aria-label="Close recommendation"]').exists()).toBe(false);
+});
+
+it('prompts for a strategy without rendering cached list rows when none is selected', async () => {
+  const wrapper = setup();
+  const workspace = mocks.workspace as { strategyId: { value: string } };
+  workspace.strategyId.value = '';
+  await wrapper.vm.$nextTick();
+  expect(wrapper.text()).toContain('Choose a discovery strategy to view its recommendations.');
+  expect(wrapper.find('article.recommendation-card').exists()).toBe(false);
 });
 
 it('keeps resolved recommendations readable and removes all decision actions', () => {

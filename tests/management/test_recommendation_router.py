@@ -23,7 +23,7 @@ class Service:
     def get_recommendation(self, *args, **kwargs):
         raise NotFoundError("Recommendation not found")
 
-    def list_recommendations(self, principal, request, *, status):
+    def list_recommendations(self, principal, request, *, status, strategy_id=None):
         from huginn.management.domain.value_objects.common import Page
 
         self.calls.append((principal.user_id, request.limit, request.offset))

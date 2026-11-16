@@ -150,6 +150,7 @@ class PostgresProspectingQuery(ProspectingQuery):
         request: ListProspectingRequest,
         status: RecommendationStatus | None,
         at: datetime,
+        strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]:
         where = [
             "r.business_id=%s",
@@ -159,6 +160,11 @@ class PostgresProspectingQuery(ProspectingQuery):
         if status is not None:
             where.append("r.status=%s")
             parameters.append(status.value)
+        if strategy_id is not None:
+            where.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements(v.strategy_assessments) strategy WHERE strategy->>'strategy_id'=%s)"
+            )
+            parameters.append(str(strategy_id))
         if request.search:
             where.append(_SEARCH)
             parameters.extend((request.search, request.search))

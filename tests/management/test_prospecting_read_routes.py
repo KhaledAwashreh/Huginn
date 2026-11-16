@@ -74,6 +74,33 @@ def test_lists_pass_literal_search_and_pagination_to_scoped_service(
         assert observed[0][2][filter_name].value == filter_value
 
 
+def test_recommendation_strategy_selector_is_typed_and_forwarded_privately():
+    observed = []
+    strategy_id = uuid4()
+
+    class Reads:
+        def list_recommendations(self, principal, request, **filters):
+            observed.append((principal, filters))
+            return Page((), request.offset, request.limit, False)
+
+    client, principal = read_client(Reads())
+    with client:
+        response = client.get(
+            "/api/v1/recommendations", params={"strategy_id": str(strategy_id)}
+        )
+        invalid = client.get(
+            "/api/v1/recommendations", params={"strategy_id": "invalid"}
+        )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert len(observed) == 1
+    assert observed[0][0] == principal
+    assert observed[0][1]["strategy_id"] == strategy_id
+    assert invalid.status_code == 422
+    assert invalid.headers["cache-control"] == "no-store"
+    assert invalid.headers["vary"] == "Cookie"
+
+
 @pytest.mark.parametrize("path", ["recommendations", "prospects", "suppressions"])
 def test_invalid_list_inputs_are_private_and_do_not_reach_services(path):
     client, _ = read_client(object())

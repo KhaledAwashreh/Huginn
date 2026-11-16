@@ -28,6 +28,7 @@ class ProspectingQuery(Protocol):
         request: ListProspectingRequest,
         status: RecommendationStatus | None,
         at: datetime,
+        strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]: ...
     def get_recommendation(
         self,

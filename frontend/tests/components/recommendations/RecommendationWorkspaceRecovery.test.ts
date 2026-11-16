@@ -133,7 +133,12 @@ beforeEach(() => {
     repeat_interval_days: 30,
     updated_at: '2026-11-14T00:00:00Z',
   });
-  mocks.strategies.mockResolvedValue({ items: [], has_more: false, offset: 0, limit: 100 });
+  mocks.strategies.mockResolvedValue({
+    items: [{ id: 'strategy-1', name: 'Research teams' }],
+    has_more: false,
+    offset: 0,
+    limit: 100,
+  });
   mocks.suppressions.mockResolvedValue(page([]));
   vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'save-request-key') });
   vi.stubGlobal(
@@ -176,6 +181,12 @@ it('keeps a pinned exact-target recovery shelf after a committed Save loses its 
       plugins: [PrimeVue, router, [VueQueryPlugin, { queryClient: client }]],
     },
   });
+  await flushPromises();
+  const selectedStrategy = wrapper
+    .findAllComponents({ name: 'Select' })
+    .find((select) => select.props('inputId') === 'recommendation-strategy');
+  if (!selectedStrategy) throw new Error('Discovery strategy selector is unavailable');
+  selectedStrategy.vm.$emit('update:modelValue', 'strategy-1');
   await flushPromises();
   expect(wrapper.text()).toContain('Committed Northstar');
   await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
@@ -350,6 +361,12 @@ it.each(['fresh', 'newly selected repeat'] as const)(
         ],
       },
     });
+    await flushPromises();
+    const selectedStrategy = wrapper
+      .findAllComponents({ name: 'Select' })
+      .find((select) => select.props('inputId') === 'recommendation-strategy');
+    if (!selectedStrategy) throw new Error('Discovery strategy selector is unavailable');
+    selectedStrategy.vm.$emit('update:modelValue', 'strategy-1');
     await flushPromises();
     const email = wrapper.get('[aria-label="Recommendation from your email"]');
     expect(

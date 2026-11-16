@@ -50,11 +50,12 @@ class ProspectingReadService:
         request: ListProspectingRequest,
         *,
         status: RecommendationStatus | None = _OPEN,
+        strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]:
         with self._work() as work:
             business = business_id_for_principal(principal, work.businesses)
             return self._query(work).list_recommendations(
-                business, request, status, self._clock()
+                business, request, status, self._clock(), strategy_id
             )
 
     def get_recommendation(
