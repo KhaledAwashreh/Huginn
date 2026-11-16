@@ -201,7 +201,7 @@ function statusLabel(item: RecommendationResponse): string {
       </p>
       <p v-else-if="workspace.strategies.data.value?.length === 0" class="search-help">
         No active strategies are available.
-        <RouterLink to="/discovery-strategies">Manage discovery strategies</RouterLink>.
+        <RouterLink to="/strategies">Manage discovery strategies</RouterLink>.
       </p>
       <p v-if="workspace.generationError.value" class="error-inline" role="alert">
         {{ workspace.generationError.value }}
