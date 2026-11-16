@@ -106,7 +106,7 @@ _ExclusionRow = Annotated[
 
 class IdealClientProfileRow(_RowModel):
     id: UUID
-    user_id: UUID
+    business_id: UUID
     name: _NonBlank
     industries: list[_IndustryRow]
     company_sizes: list[_CompanySizeRow]
@@ -118,7 +118,7 @@ class IdealClientProfileRow(_RowModel):
 
 class ClientDiscoveryStrategyRow(_RowModel):
     id: UUID
-    user_id: UUID
+    business_id: UUID
     name: _NonBlank
     service_offering_id: UUID
     ideal_client_profile_id: UUID

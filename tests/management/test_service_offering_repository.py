@@ -52,17 +52,19 @@ def test_offering_repository_scopes_each_member_operation_and_whitelists_updates
     )
     repo.delete_owned(user_id, offering_id)
     for query, params in connection.calls:
-        assert "user_id = %s" in query
+        assert "business_id = %s" in query
         assert user_id in params
     update_sql = connection.calls[1][0]
     assert "name = %s" in update_sql and "updated_at = clock_timestamp()" in update_sql
-    assert all(value in update_sql for value in ("WHERE user_id", "AND id = %s"))
+    assert all(value in update_sql for value in ("WHERE business_id", "AND id = %s"))
     count = len(connection.calls)
     with pytest.raises(ValueError):
         repo.update_owned(
             user_id,
             offering_id,
-            ServiceOfferingChanges({"user_id": str(uuid4())}, frozenset({"user_id"})),
+            ServiceOfferingChanges(
+                {"business_id": str(uuid4())}, frozenset({"business_id"})
+            ),
         )
     assert len(connection.calls) == count
 
@@ -73,6 +75,6 @@ def test_offering_list_uses_created_id_order_and_fetches_one_extra():
     user_id = uuid4()
     repo.list_owned(user_id, limit=5, offset=8)
     query, params = connection.calls[0]
-    assert "WHERE user_id = %s" in query
+    assert "WHERE business_id = %s" in query
     assert "ORDER BY created_at, id" in query
     assert "LIMIT %s OFFSET %s" in query and params == (user_id, 6, 8)

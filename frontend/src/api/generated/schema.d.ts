@@ -438,6 +438,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/business": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Business Profile */
+        get: operations["get_business_profile_api_v1_me_business_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Business Profile */
+        patch: operations["update_business_profile_api_v1_me_business_patch"];
+        trace?: never;
+    };
+    "/api/v1/me/business/recommendation-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Business Recommendation Preferences */
+        get: operations["get_business_recommendation_preferences_api_v1_me_business_recommendation_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Business Recommendation Preferences */
+        patch: operations["update_business_recommendation_preferences_api_v1_me_business_recommendation_preferences_patch"];
+        trace?: never;
+    };
     "/api/v1/me/password": {
         parameters: {
             query?: never;
@@ -561,7 +597,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/recommendations": {
+    "/api/v1/prospects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Prospects */
+        get: operations["list_prospects_api_v1_prospects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Prospect */
+        get: operations["get_prospect_api_v1_prospects__prospect_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/activity-time-corrections": {
         parameters: {
             query?: never;
             header?: never;
@@ -569,6 +639,143 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        put?: never;
+        /** Correct Prospect Activity Time */
+        post: operations["correct_prospect_activity_time_api_v1_prospects__prospect_id__activity_time_corrections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/clear-follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear Prospect Follow Up */
+        post: operations["clear_prospect_follow_up_api_v1_prospects__prospect_id__clear_follow_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Prospect */
+        post: operations["close_prospect_api_v1_prospects__prospect_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Prospect Follow Up */
+        post: operations["set_prospect_follow_up_api_v1_prospects__prospect_id__follow_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Prospect Notes */
+        post: operations["update_prospect_notes_api_v1_prospects__prospect_id__notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/proposal-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record Proposal Draft */
+        post: operations["record_proposal_draft_api_v1_prospects__prospect_id__proposal_drafts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reopen Prospect */
+        post: operations["reopen_prospect_api_v1_prospects__prospect_id__reopen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospects/{prospect_id}/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Prospect Stage */
+        post: operations["change_prospect_stage_api_v1_prospects__prospect_id__stage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Recommendations */
+        get: operations["list_recommendations_api_v1_recommendations_get"];
         put?: never;
         /** Generate Recommendations */
         post: operations["generate_recommendations_api_v1_recommendations_post"];
@@ -578,15 +785,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/recommendations/latest": {
+    "/api/v1/recommendations/offer-preparations/{offer_cycle_id}/confirm": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Latest Recommendations */
-        get: operations["latest_recommendations_api_v1_recommendations_latest_get"];
+        get?: never;
+        put?: never;
+        /** Confirm Offer */
+        post: operations["confirm_offer_api_v1_recommendations_offer_preparations__offer_cycle_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recommendations/{recommendation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Recommendation */
+        get: operations["get_recommendation_api_v1_recommendations__recommendation_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -595,15 +819,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/recommendations/weekly": {
+    "/api/v1/recommendations/{recommendation_id}/assessments": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Weekly Matches */
-        get: operations["weekly_matches_api_v1_recommendations_weekly_get"];
+        /** List Assessments */
+        get: operations["list_assessments_api_v1_recommendations__recommendation_id__assessments_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -612,35 +836,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/recommendations/{batch_id}": {
+    "/api/v1/recommendations/{recommendation_id}/feedback": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Recommendations */
-        get: operations["get_recommendations_api_v1_recommendations__batch_id__get"];
+        get?: never;
         put?: never;
-        post?: never;
+        /** Record Feedback */
+        post: operations["record_feedback_api_v1_recommendations__recommendation_id__feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/recommendations/{batch_id}/feedback": {
+    "/api/v1/recommendations/{recommendation_id}/later": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Recommendation Feedback */
-        get: operations["list_recommendation_feedback_api_v1_recommendations__batch_id__feedback_get"];
+        get?: never;
         put?: never;
-        /** Save Recommendation Feedback */
-        post: operations["save_recommendation_feedback_api_v1_recommendations__batch_id__feedback_post"];
+        /** Later */
+        post: operations["later_api_v1_recommendations__recommendation_id__later_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recommendations/{recommendation_id}/not-relevant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Not Relevant */
+        post: operations["mark_not_relevant_api_v1_recommendations__recommendation_id__not_relevant_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recommendations/{recommendation_id}/offer-preparations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Offer */
+        post: operations["prepare_offer_api_v1_recommendations__recommendation_id__offer_preparations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recommendations/{recommendation_id}/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Recommendation */
+        post: operations["save_recommendation_api_v1_recommendations__recommendation_id__save_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -677,6 +951,74 @@ export interface paths {
         post?: never;
         /** Delete Current Session */
         delete: operations["delete_current_session_api_v1_sessions_current_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppressions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Suppressions */
+        get: operations["list_suppressions_api_v1_suppressions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppressions/{suppression_block_id}/cancel-pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Pause */
+        post: operations["cancel_pause_api_v1_suppressions__suppression_block_id__cancel_pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppressions/{suppression_block_id}/reverse-rejection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reverse Rejection */
+        post: operations["reverse_rejection_api_v1_suppressions__suppression_block_id__reverse_rejection_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/weekly-digests/{delivery_id}/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recover Weekly Digest */
+        post: operations["recover_weekly_digest_api_v1_weekly_digests__delivery_id__recovery_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -738,13 +1080,192 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** AllEligibleTargetBody */
-        AllEligibleTargetBody: {
+        /** AssessmentRevisionResponse */
+        AssessmentRevisionResponse: {
             /**
-             * @description discriminator enum property added by openapi-typescript
+             * Assessed At
+             * Format: date-time
+             */
+            assessed_at: string;
+            /** Assessed By User Id */
+            assessed_by_user_id: string | null;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /** Evaluation Seed */
+            evaluation_seed: string | null;
+            /** Evidence Observation Ids */
+            evidence_observation_ids: string[];
+            /** Evidence Snapshots */
+            evidence_snapshots: components["schemas"]["JsonObject"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Policy Versions */
+            policy_versions: string[];
+            professional_profile_snapshot: components["schemas"]["JsonObject"];
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /** Revision Number */
+            revision_number: number;
+            /** Strategy Assessments */
+            strategy_assessments: components["schemas"]["StrategyAssessmentResponse"][];
+        };
+        /** BusinessCapabilityResponse */
+        BusinessCapabilityResponse: {
+            /** Name */
+            name: string;
+        };
+        /** BusinessProfileResponse */
+        BusinessProfileResponse: {
+            /** Capabilities */
+            capabilities: components["schemas"]["BusinessCapabilityResponse"][] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Location */
+            location: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /** Tagline */
+            tagline: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Website */
+            website: string | null;
+        };
+        /** BusinessProfileUpdateRequest */
+        BusinessProfileUpdateRequest: {
+            /** Capabilities */
+            capabilities?: components["schemas"]["Skill"][] | null;
+            /** Description */
+            description?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Tagline */
+            tagline?: string | null;
+            /** Website */
+            website?: string | null;
+        };
+        /** BusinessRecommendationPreferencesResponse */
+        BusinessRecommendationPreferencesResponse: {
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /** Repeat Interval Days */
+            repeat_interval_days: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BusinessRecommendationPreferencesUpdateRequest */
+        BusinessRecommendationPreferencesUpdateRequest: {
+            /** Repeat Interval Days */
+            repeat_interval_days: number;
+        };
+        /** ChangeProspectStageRequest */
+        ChangeProspectStageRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Reason */
+            reason?: string | null;
+            /** Request Key */
+            request_key: string;
+            /**
+             * Target Stage
              * @enum {string}
              */
-            kind: "all_eligible";
+            target_stage: "saved" | "contacted" | "in_conversation" | "proposal_sent" | "won_client";
+        };
+        /** ClearProspectFollowUpRequest */
+        ClearProspectFollowUpRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Request Key */
+            request_key: string;
+        };
+        /** ClearRecommendationSuppressionRequest */
+        ClearRecommendationSuppressionRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /** Request Key */
+            request_key: string;
+        };
+        /** ClearRecommendationSuppressionResponse */
+        ClearRecommendationSuppressionResponse: {
+            /** Block Version */
+            block_version: number;
+            /**
+             * Cleared At
+             * Format: date-time
+             */
+            cleared_at: string;
+            /** Remaining Blockers */
+            remaining_blockers: string[];
+            /**
+             * Suppression Block Id
+             * Format: uuid
+             */
+            suppression_block_id: string;
+        };
+        /** CloseProspectRequest */
+        CloseProspectRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Reason */
+            reason: string;
+            /** Request Key */
+            request_key: string;
         };
         /** CompanyExclusion */
         CompanyExclusion: {
@@ -815,6 +1336,58 @@ export interface components {
             countries: components["schemas"]["ConfigurationOptionResponse"][];
             /** Industries */
             industries: components["schemas"]["ConfigurationOptionResponse"][];
+        };
+        /** ConfirmRecommendationOfferRequest */
+        ConfirmRecommendationOfferRequest: {
+            /** Claim Token */
+            claim_token: string;
+        };
+        /** ConfirmedRecommendationOfferResponse */
+        ConfirmedRecommendationOfferResponse: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /**
+             * Cooldown Expires At
+             * Format: date-time
+             */
+            cooldown_expires_at: string;
+            /**
+             * Offer Cycle Id
+             * Format: uuid
+             */
+            offer_cycle_id: string;
+            /**
+             * Presented At
+             * Format: date-time
+             */
+            presented_at: string;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+        };
+        /** CorrectProspectActivityTimeRequest */
+        CorrectProspectActivityTimeRequest: {
+            /** Expected Correction Head Id */
+            expected_correction_head_id: string | null;
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Original Activity Id
+             * Format: uuid
+             */
+            original_activity_id: string;
+            /**
+             * Replacement Occurred At
+             * Format: date-time
+             */
+            replacement_occurred_at: string;
+            /** Request Key */
+            request_key: string;
         };
         /** CountryGeography */
         CountryGeography: {
@@ -931,6 +1504,11 @@ export interface components {
         /** DiscoveryStrategyResponse */
         DiscoveryStrategyResponse: {
             /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -959,11 +1537,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
         };
         /** DiscoveryStrategyUpdateRequest */
         DiscoveryStrategyUpdateRequest: {
@@ -1104,6 +1677,31 @@ export interface components {
              */
             strategy_id: string;
         };
+        /** GenerateRecommendationsResponse */
+        GenerateRecommendationsResponse: {
+            /** References */
+            references: components["schemas"]["GeneratedRecommendationReferenceResponse"][];
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** GeneratedRecommendationReferenceResponse */
+        GeneratedRecommendationReferenceResponse: {
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /** Recommendation Version */
+            recommendation_version: number;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+        };
         /** GeographyExclusion */
         GeographyExclusion: {
             /** Geography */
@@ -1148,6 +1746,11 @@ export interface components {
         };
         /** IdealClientProfileResponse */
         IdealClientProfileResponse: {
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
             /** Company Sizes */
             company_sizes: components["schemas"]["CompanySizeResponse"][];
             /**
@@ -1173,11 +1776,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
         };
         /** IdealClientProfileUpdateRequest */
         IdealClientProfileUpdateRequest: {
@@ -1356,6 +1954,75 @@ export interface components {
             /** State */
             state: string;
         };
+        JsonObject: {
+            [key: string]: components["schemas"]["JsonValue"];
+        };
+        JsonValue: boolean | number | string | components["schemas"]["JsonValue"][] | {
+            [key: string]: components["schemas"]["JsonValue"];
+        } | null;
+        /** LaterRecommendationRequest */
+        LaterRecommendationRequest: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /** Expected Pause Id */
+            expected_pause_id: string | null;
+            /** Expected Pause Version */
+            expected_pause_version: number | null;
+            /**
+             * Expected Preference Updated At
+             * Format: date-time
+             */
+            expected_preference_updated_at: string;
+            /** Expected Recommendation Version */
+            expected_recommendation_version: number;
+            /** Expected Repeat Interval Days */
+            expected_repeat_interval_days: number;
+            /**
+             * Pause Choice
+             * @enum {string}
+             */
+            pause_choice: "x1" | "x2" | "x3" | "x4" | "indefinite";
+            /** Request Key */
+            request_key: string;
+        };
+        /** LaterRecommendationResponse */
+        LaterRecommendationResponse: {
+            /** Expires At */
+            expires_at: string | null;
+            /** Pause Choice */
+            pause_choice: string;
+            /**
+             * Preference Updated At
+             * Format: date-time
+             */
+            preference_updated_at: string;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /** Recommendation Version */
+            recommendation_version: number;
+            /** Remaining Blockers */
+            remaining_blockers: string[];
+            /** Repeat Interval Days */
+            repeat_interval_days: number;
+            /** Replaced Pause Id */
+            replaced_pause_id: string | null;
+            /**
+             * Selected At
+             * Format: date-time
+             */
+            selected_at: string;
+            /**
+             * Suppression Block Id
+             * Format: uuid
+             */
+            suppression_block_id: string;
+        };
         /** LifecycleReceiptResponse */
         LifecycleReceiptResponse: {
             /** Message */
@@ -1377,6 +2044,46 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /** MarkRecommendationNotRelevantRequest */
+        MarkRecommendationNotRelevantRequest: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /** Expected Recommendation Version */
+            expected_recommendation_version: number;
+            /** Reason */
+            reason?: string | null;
+            /** Request Key */
+            request_key: string;
+        };
+        /** MarkRecommendationNotRelevantResponse */
+        MarkRecommendationNotRelevantResponse: {
+            /** Reason */
+            reason: string | null;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /** Recommendation Status */
+            recommendation_status: string;
+            /** Recommendation Version */
+            recommendation_version: number;
+            /** Remaining Blockers */
+            remaining_blockers: string[];
+            /**
+             * Resolved At
+             * Format: date-time
+             */
+            resolved_at: string;
+            /**
+             * Suppression Block Id
+             * Format: uuid
+             */
+            suppression_block_id: string;
         };
         /** MatchesOverviewResponse */
         MatchesOverviewResponse: {
@@ -1439,6 +2146,28 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** PageResponse[ProspectResponse] */
+        PageResponse_ProspectResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["ProspectResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageResponse[RecommendationResponse] */
+        PageResponse_RecommendationResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["RecommendationResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** PageResponse[RunSummaryResponse] */
         PageResponse_RunSummaryResponse_: {
             /** Has More */
@@ -1472,6 +2201,17 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** PageResponse[SuppressionResponse] */
+        PageResponse_SuppressionResponse_: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["SuppressionResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** PageResponse[UserMatchResponse] */
         PageResponse_UserMatchResponse_: {
             /** Has More */
@@ -1500,6 +2240,45 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /** PrepareRecommendationOfferRequest */
+        PrepareRecommendationOfferRequest: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /** Request Key */
+            request_key: string;
+        };
+        /** PreparedRecommendationOfferResponse */
+        PreparedRecommendationOfferResponse: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /** Claim Token */
+            claim_token: string | null;
+            /** Lease Expires At */
+            lease_expires_at: string | null;
+            /**
+             * Offer Cycle Id
+             * Format: uuid
+             */
+            offer_cycle_id: string;
+            /** Presented At */
+            presented_at: string | null;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "preparing" | "sending" | "confirmed" | "abandoned" | "unknown";
         };
         /** PreviousProject */
         PreviousProject: {
@@ -1561,136 +2340,263 @@ export interface components {
             /** Skills */
             skills?: components["schemas"]["Skill"][] | null;
         };
-        /** RecommendationBatchResponse */
-        RecommendationBatchResponse: {
-            /** Algorithm Version */
-            algorithm_version: string;
-            /** Assessment Method */
-            assessment_method: string;
-            /** Candidate Count */
-            candidate_count: number;
+        /** ProspectActivityResponse */
+        ProspectActivityResponse: {
             /**
-             * Created At
+             * Actor User Id
+             * Format: uuid
+             */
+            actor_user_id: string;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /** Correction Head Id */
+            correction_head_id: string | null;
+            /** Correction Of Id */
+            correction_of_id: string | null;
+            /** Correction Sequence */
+            correction_sequence: number;
+            /**
+             * Effective Occurred At
              * Format: date-time
              */
-            created_at: string;
+            effective_occurred_at: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Items */
-            items: components["schemas"]["RecommendationItemResponse"][];
             /**
              * Kind
-             * @default on_demand
              * @enum {string}
              */
-            kind: "on_demand" | "weekly";
-            /** Retrieval Limit */
-            retrieval_limit: number;
+            kind: "prospect_saved" | "stage_changed" | "closed" | "reopened" | "note_added" | "follow_up_set" | "follow_up_cleared" | "proposal_drafted" | "proposal_sent" | "correction";
             /**
-             * Strategy Id
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            payload: components["schemas"]["JsonObject"];
+            /**
+             * Prospect Id
              * Format: uuid
              */
-            strategy_id: string;
+            prospect_id: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
         };
-        /** RecommendationBreakdownResponse */
-        RecommendationBreakdownResponse: {
-            /** Business Context */
-            business_context: number;
-            /** Company Preferences */
-            company_preferences: number;
-            /** Service Fit */
-            service_fit: number;
-            /** Timing */
-            timing: number;
-        };
-        /** RecommendationCompanyResponse */
-        RecommendationCompanyResponse: {
-            /** Business Sector */
-            business_sector?: string[] | null;
-            /** Company Scale */
-            company_scale?: string | null;
-            /** Country */
-            country?: string | null;
-            /** Domain */
-            domain: string;
+        /** ProspectCommandActivityResponse */
+        ProspectCommandActivityResponse: {
+            /**
+             * Actor User Id
+             * Format: uuid
+             */
+            actor_user_id: string;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /** Correction Of Id */
+            correction_of_id: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Name */
-            name: string;
-        };
-        /** RecommendationEvidenceResponse */
-        RecommendationEvidenceResponse: {
-            /** Observed At */
-            observed_at: string | null;
-            /** Occurred At */
-            occurred_at: string | null;
-            /** Quote */
-            quote: string;
-            /** Source Url */
-            source_url: string;
-        };
-        /** RecommendationFeedbackRequest */
-        RecommendationFeedbackRequest: {
+            /** Kind */
+            kind: string;
             /**
-             * Correction
-             * @default
+             * Occurred At
+             * Format: date-time
              */
-            correction: string;
+            occurred_at: string;
+            payload: components["schemas"]["JsonObject"];
             /**
-             * Next Step
-             * @default none
-             * @enum {string}
-             */
-            next_step: "research" | "contact" | "save" | "skip" | "none";
-            /**
-             * Notes
-             * @default
-             */
-            notes: string;
-            /**
-             * Outcome
-             * @default unknown
-             * @enum {string}
-             */
-            outcome: "not_contacted" | "contacted" | "replied" | "meeting" | "won" | "not_relevant" | "unknown";
-            /** Reasons */
-            reasons?: components["schemas"]["FeedbackReason"][];
-            /** Recommendation Id */
-            recommendation_id: string;
-            /**
-             * Usefulness
-             * @enum {string}
-             */
-            usefulness: "useful" | "not_useful" | "unsure";
-        };
-        /** RecommendationFeedbackResponse */
-        RecommendationFeedbackResponse: {
-            /**
-             * Batch Id
+             * Prospect Id
              * Format: uuid
              */
-            batch_id: string;
+            prospect_id: string;
             /**
-             * Correction
-             * @default
+             * Recorded At
+             * Format: date-time
              */
-            correction: string;
+            recorded_at: string;
+        };
+        /** ProspectCommandResponse */
+        ProspectCommandResponse: {
+            activity: components["schemas"]["ProspectCommandActivityResponse"];
+            prospect: components["schemas"]["ProspectSummaryResponse"];
+        };
+        /** ProspectOriginResponse */
+        ProspectOriginResponse: {
+            assessment: components["schemas"]["AssessmentRevisionResponse"];
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
             /**
+             * Created By User Id
+             * Format: uuid
+             */
+            created_by_user_id: string;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Prospect Id
+             * Format: uuid
+             */
+            prospect_id: string;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /**
+             * Recommendation Status
+             * @enum {string}
+             */
+            recommendation_status: "open" | "converted" | "rejected";
+            /** Recommendation Version */
+            recommendation_version: number;
+        };
+        /** ProspectResponse */
+        ProspectResponse: {
+            /** Activities */
+            activities: components["schemas"]["ProspectActivityResponse"][] | null;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            company: components["schemas"]["CurrentCompanyResponse"];
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Follow Up At */
+            follow_up_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Active Stage */
+            last_active_stage: ("saved" | "contacted" | "in_conversation" | "proposal_sent") | null;
+            /** Notes */
+            notes: string;
+            /** Origins */
+            origins: components["schemas"]["ProspectOriginResponse"][];
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "saved" | "contacted" | "in_conversation" | "proposal_sent" | "won_client" | "closed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /** ProspectSummaryResponse */
+        ProspectSummaryResponse: {
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Follow Up At */
+            follow_up_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Active Stage */
+            last_active_stage: ("saved" | "contacted" | "in_conversation" | "proposal_sent") | null;
+            /** Notes */
+            notes: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "saved" | "contacted" | "in_conversation" | "proposal_sent" | "won_client" | "closed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /** ProspectingSelectionStateResponse */
+        ProspectingSelectionStateResponse: {
+            /** Cooldown Until */
+            cooldown_until: string | null;
+            /** First Presented At */
+            first_presented_at: string | null;
+            /** Has Relationship */
+            has_relationship: boolean;
+            /** Paused Indefinitely */
+            paused_indefinitely: boolean;
+            /** Paused Until */
+            paused_until: string | null;
+            /** Pending Delivery */
+            pending_delivery: boolean;
+            /** Rejected */
+            rejected: boolean;
+            /** Uncertain Delivery */
+            uncertain_delivery: boolean;
+        };
+        /** RecommendationQualityFeedbackRequest */
+        RecommendationQualityFeedbackRequest: {
+            /**
+             * Correction
+             * @default
+             */
+            correction: string;
             /**
              * Next Step
              * @default none
@@ -1710,62 +2616,172 @@ export interface components {
             outcome: "not_contacted" | "contacted" | "replied" | "meeting" | "won" | "not_relevant" | "unknown";
             /** Reasons */
             reasons?: components["schemas"]["FeedbackReason"][];
-            /** Recommendation Id */
-            recommendation_id: string;
             /**
              * Usefulness
              * @enum {string}
              */
             usefulness: "useful" | "not_useful" | "unsure";
         };
-        /** RecommendationItemResponse */
-        RecommendationItemResponse: {
-            breakdown: components["schemas"]["RecommendationBreakdownResponse"];
-            company: components["schemas"]["RecommendationCompanyResponse"];
+        /** RecommendationResponse */
+        RecommendationResponse: {
+            /** Active Blocks */
+            active_blocks: components["schemas"]["SuppressionBlockResponse"][];
+            assessment: components["schemas"]["AssessmentRevisionResponse"] | null;
             /**
-             * Confidence
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            company: components["schemas"]["CurrentCompanyResponse"];
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Current Eligibility
              * @enum {string}
              */
-            confidence: "high" | "medium" | "low";
-            /** Evidence */
-            evidence: components["schemas"]["RecommendationEvidenceResponse"][];
-            /** Icp Fit */
-            icp_fit?: {
-                [key: string]: "match" | "unknown" | "mismatch";
-            };
-            /** Id */
-            id: string;
-            /** Rationale */
-            rationale: string;
-            /** Score */
-            score: number;
+            current_eligibility: "historical" | "blocked" | "unavailable" | "not_reassessed";
+            /** Current Revision Id */
+            current_revision_id: string | null;
             /**
-             * Selection Type
+             * Evidence State
              * @enum {string}
              */
-            selection_type: "exploration" | "exploitation";
-            /** Strategies */
-            strategies?: components["schemas"]["RecommendationStrategyResponse"][];
-            /** Unknowns */
-            unknowns: string[];
-        };
-        /** RecommendationStrategyResponse */
-        RecommendationStrategyResponse: {
-            /** Evidence */
-            evidence?: components["schemas"]["RecommendationEvidenceResponse"][];
+            evidence_state: "current" | "changed" | "unavailable" | "not_assessed";
+            /** First Presented At */
+            first_presented_at: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Name */
-            name: string;
-            /** Offering */
-            offering: string;
-            /** Rationale */
-            rationale?: string | null;
-            /** Score */
-            score?: number | null;
+            prospect: components["schemas"]["ProspectSummaryResponse"] | null;
+            /**
+             * Read At
+             * Format: date-time
+             */
+            read_at: string;
+            /** Resolution Reason */
+            resolution_reason: string | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved By User Id */
+            resolved_by_user_id: string | null;
+            /** Selection Blockers */
+            selection_blockers: string[];
+            selection_state: components["schemas"]["ProspectingSelectionStateResponse"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "converted" | "rejected";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /** RecordProposalDraftRequest */
+        RecordProposalDraftRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Request Key */
+            request_key: string;
+            /** Summary */
+            summary: string;
+        };
+        /** RecordRecommendationFeedbackRequest */
+        RecordRecommendationFeedbackRequest: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            feedback: components["schemas"]["RecommendationQualityFeedbackRequest"];
+            /** Request Key */
+            request_key: string;
+        };
+        /** RecordRecommendationFeedbackResponse */
+        RecordRecommendationFeedbackResponse: {
+            /**
+             * Actor User Id
+             * Format: uuid
+             */
+            actor_user_id: string;
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            feedback: components["schemas"]["RecommendationQualityFeedbackRequest"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+        };
+        /** RecoverWeeklyDigestRequest */
+        RecoverWeeklyDigestRequest: {
+            /** Accepted At */
+            accepted_at?: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "sent" | "failed";
+            /** Reason */
+            reason: string;
+        };
+        /** RecoveredWeeklyDigestResponse */
+        RecoveredWeeklyDigestResponse: {
+            /** Accepted At */
+            accepted_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Settled At
+             * Format: date-time
+             */
+            settled_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "sent" | "failed";
+            /** Version */
+            version: number;
         };
         /** RegionGeography */
         RegionGeography: {
@@ -1776,6 +2792,18 @@ export interface components {
             kind: "region";
             /** Value */
             value: string;
+        };
+        /** ReopenProspectRequest */
+        ReopenProspectRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Request Key */
+            request_key: string;
         };
         /** ResendVerificationRequest */
         ResendVerificationRequest: {
@@ -1857,32 +2885,6 @@ export interface components {
             /** Uncertain Count */
             uncertain_count: number;
         };
-        /** RunReceiptResponse */
-        RunReceiptResponse: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /**
-             * Cutoff
-             * Format: date-time
-             */
-            cutoff: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Requested At
-             * Format: date-time
-             */
-            requested_at: string;
-            state: components["schemas"]["RunState"];
-            /** Target Count */
-            target_count: number;
-        };
         /**
          * RunState
          * @enum {string}
@@ -1921,6 +2923,50 @@ export interface components {
             /** Target Count */
             target_count: number;
         };
+        /** SaveRecommendationRequest */
+        SaveRecommendationRequest: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /** Request Key */
+            request_key: string;
+        };
+        /** SaveRecommendationResponse */
+        SaveRecommendationResponse: {
+            /**
+             * Assessment Revision Id
+             * Format: uuid
+             */
+            assessment_revision_id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Origin Id
+             * Format: uuid
+             */
+            origin_id: string;
+            /**
+             * Prospect Id
+             * Format: uuid
+             */
+            prospect_id: string;
+            /** Prospect Stage */
+            prospect_stage: string;
+            /** Prospect Version */
+            prospect_version: number;
+            /**
+             * Recommendation Id
+             * Format: uuid
+             */
+            recommendation_id: string;
+            /** Recommendation Status */
+            recommendation_status: string;
+        };
         /** ServiceOfferingCreateRequest */
         ServiceOfferingCreateRequest: {
             /** Description */
@@ -1930,6 +2976,11 @@ export interface components {
         };
         /** ServiceOfferingResponse */
         ServiceOfferingResponse: {
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
             /**
              * Created At
              * Format: date-time
@@ -1949,11 +3000,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
         };
         /** ServiceOfferingUpdateRequest */
         ServiceOfferingUpdateRequest: {
@@ -1961,6 +3007,23 @@ export interface components {
             description?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /** SetProspectFollowUpRequest */
+        SetProspectFollowUpRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Follow Up At
+             * Format: date-time
+             */
+            follow_up_at: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Request Key */
+            request_key: string;
         };
         /** SignupRequest */
         SignupRequest: {
@@ -1980,19 +3043,6 @@ export interface components {
             timezone?: string | null;
             /** Username */
             username: string;
-        };
-        /** SingleUserTargetBody */
-        SingleUserTargetBody: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "user";
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
         };
         /** Skill */
         Skill: {
@@ -2068,6 +3118,93 @@ export interface components {
             /** State */
             state: string;
         };
+        /** StrategyAssessmentResponse */
+        StrategyAssessmentResponse: {
+            assessment_snapshot: components["schemas"]["JsonObject"];
+            /**
+             * Ideal Client Profile Id
+             * Format: uuid
+             */
+            ideal_client_profile_id: string;
+            ideal_client_profile_snapshot: components["schemas"]["JsonObject"];
+            /**
+             * Offering Id
+             * Format: uuid
+             */
+            offering_id: string;
+            offering_snapshot: components["schemas"]["JsonObject"];
+            /**
+             * Strategy Id
+             * Format: uuid
+             */
+            strategy_id: string;
+            strategy_snapshot: components["schemas"]["JsonObject"];
+        };
+        /** SuppressionBlockResponse */
+        SuppressionBlockResponse: {
+            /**
+             * Business Id
+             * Format: uuid
+             */
+            business_id: string;
+            /** Cleared At */
+            cleared_at: string | null;
+            /** Cleared By User Id */
+            cleared_by_user_id: string | null;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /**
+             * Effective At
+             * Format: date-time
+             */
+            effective_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "cooldown" | "pause" | "rejection";
+            /** Reason */
+            reason: string | null;
+            /** Version */
+            version: number;
+        };
+        /** SuppressionResponse */
+        SuppressionResponse: {
+            /** Active Blocks */
+            active_blocks: components["schemas"]["SuppressionBlockResponse"][];
+            company: components["schemas"]["CurrentCompanyResponse"];
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            prospect: components["schemas"]["ProspectSummaryResponse"] | null;
+            /**
+             * Read At
+             * Format: date-time
+             */
+            read_at: string;
+            /** Selection Blockers */
+            selection_blockers: string[];
+            selection_state: components["schemas"]["ProspectingSelectionStateResponse"];
+        };
         /**
          * TargetState
          * @enum {string}
@@ -2110,22 +3247,19 @@ export interface components {
              */
             request_id: string;
         };
-        /** TriggerRunBody */
-        TriggerRunBody: {
-            /** As Of */
-            as_of?: string | null;
+        /** UpdateProspectNotesRequest */
+        UpdateProspectNotesRequest: {
+            /** Expected Version */
+            expected_version: number;
             /**
-             * Cutoff
+             * Occurred At
              * Format: date-time
              */
-            cutoff: string;
-            /**
-             * Request Id
-             * Format: uuid
-             */
-            request_id: string;
-            /** Target */
-            target: components["schemas"]["SingleUserTargetBody"] | components["schemas"]["AllEligibleTargetBody"];
+            occurred_at: string;
+            /** Replacement Notes */
+            replacement_notes: string;
+            /** Request Key */
+            request_key: string;
         };
         /** UserMatchResponse */
         UserMatchResponse: {
@@ -2466,19 +3600,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TriggerRunBody"];
+                "application/json": {
+                    [key: string]: unknown;
+                };
             };
         };
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunReceiptResponse"];
-                };
-            };
             /** @description Request failed */
             401: {
                 headers: {
@@ -2525,7 +3652,7 @@ export interface operations {
                 };
             };
             /** @description Request failed */
-            409: {
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2552,21 +3679,6 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Request failed */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];
@@ -5625,6 +6737,395 @@ export interface operations {
             };
         };
     };
+    get_business_profile_api_v1_me_business_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    update_business_profile_api_v1_me_business_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessProfileUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileResponse"];
+                };
+            };
+            /** @description Request failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_business_recommendation_preferences_api_v1_me_business_recommendation_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRecommendationPreferencesResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    update_business_recommendation_preferences_api_v1_me_business_recommendation_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessRecommendationPreferencesUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRecommendationPreferencesResponse"];
+                };
+            };
+            /** @description Request failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     change_current_password_api_v1_me_password_patch: {
         parameters: {
             query?: never;
@@ -6790,6 +8291,1268 @@ export interface operations {
             };
         };
     };
+    list_prospects_api_v1_prospects_get: {
+        parameters: {
+            query?: {
+                stage?: ("saved" | "contacted" | "in_conversation" | "proposal_sent" | "won_client" | "closed") | null;
+                search?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_ProspectResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_prospect_api_v1_prospects__prospect_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    correct_prospect_activity_time_api_v1_prospects__prospect_id__activity_time_corrections_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectProspectActivityTimeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    clear_prospect_follow_up_api_v1_prospects__prospect_id__clear_follow_up_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearProspectFollowUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    close_prospect_api_v1_prospects__prospect_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseProspectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    set_prospect_follow_up_api_v1_prospects__prospect_id__follow_up_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProspectFollowUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    update_prospect_notes_api_v1_prospects__prospect_id__notes_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProspectNotesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    record_proposal_draft_api_v1_prospects__prospect_id__proposal_drafts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProposalDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    reopen_prospect_api_v1_prospects__prospect_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReopenProspectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    change_prospect_stage_api_v1_prospects__prospect_id__stage_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                prospect_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProspectStageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectCommandResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_recommendations_api_v1_recommendations_get: {
+        parameters: {
+            query?: {
+                status?: "open" | "converted" | "rejected" | "all";
+                search?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_RecommendationResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     generate_recommendations_api_v1_recommendations_post: {
         parameters: {
             query?: never;
@@ -6811,7 +9574,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecommendationBatchResponse"];
+                    "application/json": components["schemas"]["GenerateRecommendationsResponse"];
                 };
             };
             /** @description Request failed */
@@ -6895,60 +9658,8 @@ export interface operations {
                     };
                 };
             };
-            /** @description Unexpected application error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    latest_recommendations_api_v1_recommendations_latest_get: {
-        parameters: {
-            query: {
-                strategy_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecommendationBatchResponse"];
-                };
-            };
             /** @description Request failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Request failed */
-            404: {
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6979,217 +9690,30 @@ export interface operations {
             };
         };
     };
-    weekly_matches_api_v1_recommendations_weekly_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecommendationBatchResponse"][];
-                };
-            };
-            /** @description Request failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Unexpected application error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    get_recommendations_api_v1_recommendations__batch_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                batch_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecommendationBatchResponse"];
-                };
-            };
-            /** @description Request failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Request failed */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Unexpected application error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    list_recommendation_feedback_api_v1_recommendations__batch_id__feedback_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                batch_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecommendationFeedbackResponse"][];
-                };
-            };
-            /** @description Request failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Request failed */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-            /** @description Unexpected application error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            details: unknown[];
-                            message: string;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    save_recommendation_feedback_api_v1_recommendations__batch_id__feedback_post: {
+    confirm_offer_api_v1_recommendations_offer_preparations__offer_cycle_id__confirm_post: {
         parameters: {
             query?: never;
             header?: {
                 "X-CSRF-Token"?: string | null;
             };
             path: {
-                batch_id: string;
+                offer_cycle_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RecommendationFeedbackRequest"];
+                "application/json": components["schemas"]["ConfirmRecommendationOfferRequest"];
             };
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecommendationFeedbackResponse"];
+                    "application/json": components["schemas"]["ConfirmedRecommendationOfferResponse"];
                 };
             };
             /** @description Request failed */
@@ -7224,6 +9748,849 @@ export interface operations {
             };
             /** @description Request failed */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    get_recommendation_api_v1_recommendations__recommendation_id__get: {
+        parameters: {
+            query?: {
+                assessment_revision_id?: string | null;
+            };
+            header?: never;
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_assessments_api_v1_recommendations__recommendation_id__assessments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssessmentRevisionResponse"][];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    record_feedback_api_v1_recommendations__recommendation_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordRecommendationFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordRecommendationFeedbackResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    later_api_v1_recommendations__recommendation_id__later_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaterRecommendationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaterRecommendationResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    mark_not_relevant_api_v1_recommendations__recommendation_id__not_relevant_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkRecommendationNotRelevantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkRecommendationNotRelevantResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    prepare_offer_api_v1_recommendations__recommendation_id__offer_preparations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareRecommendationOfferRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparedRecommendationOfferResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    save_recommendation_api_v1_recommendations__recommendation_id__save_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveRecommendationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveRecommendationResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7484,6 +10851,468 @@ export interface operations {
             };
             /** @description Request failed */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    list_suppressions_api_v1_suppressions_get: {
+        parameters: {
+            query?: {
+                search?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_SuppressionResponse_"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    cancel_pause_api_v1_suppressions__suppression_block_id__cancel_pause_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                suppression_block_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearRecommendationSuppressionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearRecommendationSuppressionResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    reverse_rejection_api_v1_suppressions__suppression_block_id__reverse_rejection_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                suppression_block_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearRecommendationSuppressionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearRecommendationSuppressionResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    recover_weekly_digest_api_v1_weekly_digests__delivery_id__recovery_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverWeeklyDigestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveredWeeklyDigestResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

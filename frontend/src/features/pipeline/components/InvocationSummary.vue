@@ -26,7 +26,9 @@ const stale = computed(
 <template>
   <section class="invocation-summary" aria-label="Invocation summary">
     <div class="summary-heading">
-      <StatusLabel :status="invocation.state" /><span>{{ finished }} of 9 stages finished</span>
+      <StatusLabel :status="invocation.state" /><span
+        >{{ finished }} of {{ invocation.stages.length }} stages finished</span
+      >
     </div>
     <dl>
       <div>

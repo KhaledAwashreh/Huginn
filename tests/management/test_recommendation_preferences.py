@@ -3,12 +3,14 @@ from dataclasses import replace
 import pytest
 
 from huginn.management.application.policies.recommendation_preferences import (
-    country_preference,
-    excluded_from_research,
     validate_exclusions,
 )
 from huginn.management.domain.errors.errors import ValidationDomainError
-from tests.management.test_recommendation_service import Store
+from huginn.matchmaking.domain.policies.business_company_fit import (
+    country_preference,
+    is_explicitly_excluded,
+)
+from tests.management.application.recommendation_fixtures import recommendation_company
 
 
 def test_country_aliases_share_preference_and_exclusion_identity():
@@ -17,9 +19,11 @@ def test_country_aliases_share_preference_and_exclusion_identity():
             country_preference(actual, [{"kind": "country", "value": "United States"}])
             == "match"
         )
-        company = replace(Store().company, country=actual)
-        assert excluded_from_research(
-            company,
+        company = replace(recommendation_company(), country=actual)
+        assert is_explicitly_excluded(
+            company.company_id,
+            company.business_sector,
+            company.country,
             [{"kind": "geography", "geography": {"kind": "country", "value": "USA"}}],
         )
     assert country_preference(None, [{"kind": "country", "value": "US"}]) == "unknown"

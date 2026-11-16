@@ -7,12 +7,24 @@ export const matchmakingRoutes: RouteRecordRaw[] = [
     path: '/admin/matchmaking',
     name: 'admin-matchmaking-history',
     component: MatchmakingHistoryPage,
-    meta: { requiresAuth: true, requiresAdmin: true, navigationLabel: 'Matchmaking' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      navigationLabel: 'Matchmaking',
+      breadcrumbs: [{ label: 'Admin', to: '/admin' }],
+    },
   },
   {
     path: '/admin/matchmaking/runs/:id',
     name: 'admin-matchmaking-run',
     component: MatchmakingRunPage,
-    meta: { requiresAuth: true, requiresAdmin: true },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      breadcrumbs: [
+        { label: 'Admin', to: '/admin' },
+        { label: 'Matchmaking', to: '/admin/matchmaking' },
+      ],
+    },
   },
 ];

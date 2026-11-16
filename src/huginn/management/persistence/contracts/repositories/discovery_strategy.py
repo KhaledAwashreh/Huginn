@@ -18,15 +18,18 @@ class ClientDiscoveryStrategyRepository(Protocol):
         self, strategy: NewClientDiscoveryStrategy
     ) -> ClientDiscoveryStrategy: ...
     def get_owned(
-        self, user_id: UUID, strategy_id: UUID
+        self, business_id: UUID, strategy_id: UUID
     ) -> ClientDiscoveryStrategy | None: ...
     def list_owned(
-        self, user_id: UUID, *, limit: int, offset: int, active: bool | None = None
+        self, business_id: UUID, *, limit: int, offset: int, active: bool | None = None
     ) -> Page[ClientDiscoveryStrategy]: ...
     def update_owned(
-        self, user_id: UUID, strategy_id: UUID, changes: ClientDiscoveryStrategyChanges
+        self,
+        business_id: UUID,
+        strategy_id: UUID,
+        changes: ClientDiscoveryStrategyChanges,
     ) -> ClientDiscoveryStrategy | None: ...
-    def delete_owned(self, user_id: UUID, strategy_id: UUID) -> bool: ...
+    def delete_owned(self, business_id: UUID, strategy_id: UUID) -> bool: ...
 
 
 class OwnedResourceValidator(Protocol):

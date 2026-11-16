@@ -56,4 +56,10 @@ describe('shared UI states', () => {
     expect(wrapper.text()).toBe('Paused');
     expect(wrapper.get('[role="status"]').text()).toBe('Paused');
   });
+
+  it('keeps an unrecognized status readable with the neutral fallback', () => {
+    const wrapper = mount(StatusLabel, { props: { status: 'awaiting_review' } });
+    expect(wrapper.get('[role="status"]').text()).toBe('awaiting_review');
+    expect(wrapper.get('[role="status"]').classes()).toContain('status-label--neutral');
+  });
 });

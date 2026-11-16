@@ -352,8 +352,15 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
                 "ON a.id = u.account_id WHERE a.username = %s), "
                 "(SELECT count(*) FROM operational.professional_profiles p JOIN "
                 "operational.users u ON u.id = p.user_id JOIN operational.accounts a "
-                "ON a.id = u.account_id WHERE a.username = %s)",
-                (username, username, username),
+                "ON a.id = u.account_id WHERE a.username = %s), "
+                "(SELECT count(*) FROM operational.businesses b JOIN "
+                "operational.users u ON u.id=b.owner_user_id JOIN operational.accounts a "
+                "ON a.id=u.account_id WHERE a.username=%s), "
+                "(SELECT count(*) FROM operational.business_recommendation_preferences p "
+                "JOIN operational.businesses b ON b.id=p.business_id JOIN "
+                "operational.users u ON u.id=b.owner_user_id JOIN operational.accounts a "
+                "ON a.id=u.account_id WHERE a.username=%s)",
+                (username, username, username, username, username),
             ).fetchone()
 
     try:
@@ -362,7 +369,7 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
             ProvisionIdentity(**provision_values(successful))
         )
         assert identity.username == successful
-        assert counts(successful) == (1, 1, 1)
+        assert counts(successful) == (1, 1, 1, 1, 1)
         with psycopg.connect(management_database_url) as connection:
             defaults = connection.execute(
                 "SELECT headline, professional_summary, skills, experience, previous_projects "
@@ -377,7 +384,7 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
                 service(stage).provision(
                     ProvisionIdentity(**provision_values(username))
                 )
-            assert counts(username) == (0, 0, 0)
+            assert counts(username) == (0, 0, 0, 0, 0)
     finally:
         with psycopg.connect(management_database_url) as connection:
             for table, trigger in zip(stages, triggers, strict=True):

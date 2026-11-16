@@ -27,6 +27,25 @@ def test_load_config_reads_management_database_url_only(monkeypatch):
     assert loaded.database_url == management_url
 
 
+@pytest.mark.parametrize(
+    ("value", "enabled"), [("true", True), ("false", False), (" FALSE ", False)]
+)
+def test_load_config_parses_explicit_discovery_rollback_gate(
+    monkeypatch, value, enabled
+):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "unused")
+    monkeypatch.setenv("HUGINN_DISCOVERY_NEW_WORK_ENABLED", value)
+    assert config.load_config().discovery_new_work_enabled is enabled
+
+
+@pytest.mark.parametrize("value", ["", "yes", "0", "disabled"])
+def test_load_config_rejects_ambiguous_discovery_rollback_setting(monkeypatch, value):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "unused")
+    monkeypatch.setenv("HUGINN_DISCOVERY_NEW_WORK_ENABLED", value)
+    with pytest.raises(RuntimeError, match="invalid management configuration"):
+        config.load_config()
+
+
 def test_load_config_strips_management_database_url(monkeypatch):
     database_url = "postgresql://manager:secret@management.test/huginn"
     monkeypatch.setenv(

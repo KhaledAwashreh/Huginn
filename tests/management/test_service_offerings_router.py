@@ -18,7 +18,6 @@ from huginn.management.domain.value_objects.common import (
     Principal,
 )
 from huginn.management.domain.value_objects.service_offering import (
-    NewServiceOffering,
     ServiceOfferingChanges,
 )
 from huginn.management.presentation.api.routers.service_offerings import router
@@ -59,12 +58,12 @@ class FakeOfferingService:
         self.referenced: set[UUID] = set()
 
     def create(
-        self, principal: Principal, offering: NewServiceOffering
+        self, principal: Principal, *, name: str, description: str
     ) -> ServiceOffering:
-        self.calls.append(("create", principal.user_id, offering))
+        self.calls.append(("create", principal.user_id, name, description))
         now = datetime.now(UTC)
         created = ServiceOffering(
-            uuid4(), principal.user_id, offering.name, offering.description, now, now
+            uuid4(), principal.user_id, name, description, now, now
         )
         self.records[created.id] = created
         return created
@@ -75,7 +74,7 @@ class FakeOfferingService:
             (
                 item
                 for item in self.records.values()
-                if item.user_id == principal.user_id
+                if item.business_id == principal.user_id
             ),
             key=lambda item: (item.created_at, item.id),
         )
@@ -95,7 +94,7 @@ class FakeOfferingService:
         current = self._owned(principal, offering_id)
         updated = ServiceOffering(
             current.id,
-            current.user_id,
+            current.business_id,
             changes.values.get("name", current.name),
             changes.values.get("description", current.description),
             current.created_at,
@@ -113,7 +112,7 @@ class FakeOfferingService:
 
     def _owned(self, principal: Principal, offering_id: UUID) -> ServiceOffering:
         item = self.records.get(offering_id)
-        if item is None or item.user_id != principal.user_id:
+        if item is None or item.business_id != principal.user_id:
             raise NotFoundError("Offering not found")
         return item
 
@@ -144,7 +143,7 @@ def test_offering_crud_statuses_typed_models_and_bounded_pagination():
             headers=_csrf_headers(),
         )
         assert created.status_code == 201
-        assert created.json()["user_id"] == str(owner_id)
+        assert created.json()["business_id"] == str(owner_id)
         offering_id = UUID(created.json()["id"])
 
         fetched = client.get(f"/api/v1/offerings/{offering_id}")

@@ -1,66 +1,63 @@
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import { onScopeDispose, provide, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import AppNavigation from './AppNavigation.vue';
-import LogoutAction from '../../features/session/components/LogoutAction.vue';
+import SettingsDialog from './SettingsDialog.vue';
+import TopBar from './TopBar.vue';
+import { pageTitleKey, type PageTitle } from '../../shared/navigation/pageTitle';
+import { openSettingsKey, type SettingsSection } from '../../shared/navigation/settingsSections';
+import { useSession } from '../../features/session/composables/useSession';
+
+provide(pageTitleKey, ref<PageTitle | null>(null));
+const settingsVisible = ref(false);
+const settingsSection = ref<SettingsSection>('account');
+const selectedIcpId = ref<string>();
+const settingsDialog = ref<InstanceType<typeof SettingsDialog> | null>(null);
+const session = useSession();
+const router = useRouter();
+
+// The shell sits outside RouterView, so its dialog needs its own navigation guard.
+const removeGuard = router.beforeEach((to) => {
+  if (to.meta.requiresAuth || !session.isAuthenticated.value || !settingsVisible.value) return;
+  return settingsDialog.value?.canClose();
+});
+onScopeDispose(removeGuard);
+
+function openSettings(section: SettingsSection, icpId?: string): void {
+  selectedIcpId.value = icpId;
+  settingsSection.value = section;
+  settingsVisible.value = true;
+}
+provide(openSettingsKey, openSettings);
 </script>
 
 <template>
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="app-shell">
-    <aside class="sidebar">
-      <RouterLink class="brand" to="/">Huginn</RouterLink>
-      <AppNavigation />
-      <div class="sidebar-footer"><LogoutAction /></div>
-    </aside>
-
-    <div class="main-column">
-      <header class="mobile-header">
-        <RouterLink class="brand" to="/">Huginn</RouterLink>
-        <AppNavigation />
-        <LogoutAction />
-      </header>
-      <main id="main-content" class="workspace-content" tabindex="-1"><slot /></main>
-    </div>
+    <header class="app-header"><AppNavigation @open-settings="openSettings" /></header>
+    <main id="main-content" tabindex="-1">
+      <TopBar />
+      <div class="workspace-content"><slot /></div>
+    </main>
   </div>
+  <SettingsDialog
+    ref="settingsDialog"
+    v-model:visible="settingsVisible"
+    v-model:section="settingsSection"
+    :selected-icp-id="selectedIcpId"
+  />
 </template>
 
 <style scoped>
 .app-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
 }
-.sidebar {
+.app-header {
   position: sticky;
   top: 0;
-  height: 100vh;
-  min-height: 520px;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
+  z-index: 20;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
-}
-.brand {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-6);
-  color: var(--color-primary);
-  font-size: 20px;
-  font-weight: 700;
-  text-decoration: none;
-}
-.sidebar-footer {
-  margin-top: auto;
-  padding: var(--space-4);
-  border-top: 1px solid var(--color-border);
-}
-.main-column {
-  min-width: 0;
-}
-.mobile-header {
-  display: none;
+  border-bottom: 1px solid var(--color-border);
 }
 .workspace-content {
   width: min(100%, var(--content-max-width));
@@ -81,26 +78,6 @@ import LogoutAction from '../../features/session/components/LogoutAction.vue';
 }
 
 @media (max-width: 899px) {
-  .app-shell {
-    display: block;
-  }
-  .sidebar {
-    display: none;
-  }
-  .mobile-header {
-    min-height: 72px;
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    background: var(--color-surface);
-    border-bottom: 1px solid var(--color-border);
-  }
-  .mobile-header .brand {
-    min-height: 44px;
-    padding: 0;
-    margin-right: auto;
-  }
   .workspace-content {
     padding: var(--space-4);
   }

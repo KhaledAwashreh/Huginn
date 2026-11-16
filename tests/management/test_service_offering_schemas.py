@@ -63,7 +63,7 @@ def test_offering_read_model_exposes_owner_and_timestamps():
     model = OfferingRead.model_validate(
         {
             "id": uuid4(),
-            "user_id": uuid4(),
+            "business_id": uuid4(),
             "name": "Consulting",
             "description": "Audit",
             "created_at": now,

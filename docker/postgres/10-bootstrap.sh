@@ -15,5 +15,7 @@ psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 \
   -f /schema/ops-matchmaking-control.sql \
   -f /schema/silver-source-currentness.sql \
   -f /schema/gold-current-source-evidence.sql \
+  -f /schema/operational-prospecting.sql \
   -f /schema/operational-recommendations.sql \
-  -f /schema/operational-weekly-digest.sql
+  -f /schema/operational-weekly-digest.sql \
+  -f /schema/operational-weekly-digest-content.sql

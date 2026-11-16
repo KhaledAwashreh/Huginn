@@ -11,7 +11,15 @@ from huginn.elt.gold.repositories.attribute_assessment_repository import (
 from huginn.elt.gold.services.attribute_assessment import run_assessment
 from huginn.matchmaking.domain.value_objects.compiled_criteria import CompiledCriteria
 from huginn.matchmaking.domain.value_objects.signal_window import SignalWindow
-from tests.matchmaking.test_evidence_integration import NOW, _reconcile, _seed_company
+from tests.matchmaking.evidence_fixtures import (
+    NOW,
+)
+from tests.matchmaking.evidence_fixtures import (
+    reconcile as _reconcile,
+)
+from tests.matchmaking.evidence_fixtures import (
+    seed_company as _seed_company,
+)
 from tests.postgres_harness import provisioned_postgres
 
 

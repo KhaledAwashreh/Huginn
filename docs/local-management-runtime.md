@@ -1,6 +1,12 @@
-# Local management runtime
+# Historical local management runtime
 
-Open <http://127.0.0.1:4173/> to use configuration, Matches and admin screens against the
+These notes record the pre-cutover runtime in the named older worktrees. They
+do not start the new recommendation/prospect implementation. Follow the
+[cutover procedure](recommendation-prospect-cutover.md) before activating new
+code against an existing target, and do not restart old matching writers after
+cutover. No persistent runtime is changed by the implementation branch.
+
+In that recorded runtime, open <http://127.0.0.1:4173/> to use configuration, Matches and admin screens against the
 existing Huginn PostgreSQL database. Create your own account through signup,
 then open <http://127.0.0.1:8025/> and copy the verification link into your
 browser. Account passwords are chosen by you. Separate preview accounts were

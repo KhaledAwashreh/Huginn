@@ -23,7 +23,7 @@ const serviceResponse = (
   description: string,
 ): components['schemas']['ServiceOfferingResponse'] => ({
   id: '80c438da-245b-450a-8ad2-9677308bf4d8',
-  user_id: '74a38621-ddf4-433a-bd92-a15e90532dbf',
+  business_id: '74a38621-ddf4-433a-bd92-a15e90532dbf',
   name,
   description,
   created_at: '2026-10-08T00:00:00Z',

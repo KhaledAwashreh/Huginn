@@ -1,7 +1,7 @@
 """Reject contradictory selected and excluded ICP values before commit."""
 
-from huginn.management.application.policies.country_identity import normalize_country
 from huginn.management.domain.errors.errors import ValidationDomainError
+from huginn.matchmaking.domain.policies.business_company_fit import normalize_country
 
 
 def _geography_key(geo):

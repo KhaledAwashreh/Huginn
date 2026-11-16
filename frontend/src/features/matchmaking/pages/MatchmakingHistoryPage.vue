@@ -11,7 +11,6 @@ import StatusLabel from '../../../shared/ui/StatusLabel.vue';
 import { useSession } from '../../session/composables/useSession';
 import { useMatchmakingHistory } from '../composables/useMatchmakingHistory';
 import { validateMatchmakingQuery } from '../navigation/validateMatchmakingQuery';
-import MatchmakingTriggerForm from '../components/MatchmakingTriggerForm.vue';
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
@@ -62,7 +61,6 @@ function setState(state: string | undefined) {
     <p>Your session cannot view matchmaking history.</p>
   </section>
   <template v-else>
-    <MatchmakingTriggerForm />
     <section class="history">
       <div class="filter">
         <h2>Run history</h2>

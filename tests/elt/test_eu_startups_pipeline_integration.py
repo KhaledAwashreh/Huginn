@@ -7,21 +7,11 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from huginn.elt.gold.company import CompanyWriter
-from huginn.elt.gold.company_signal import CompanySignalWriter
-from huginn.elt.gold.repositories.company_repository import PostgresCompanyRepository
-from huginn.elt.gold.repositories.company_signal_repository import (
-    PostgresCompanySignalRepository,
-)
+from huginn.config import Config
+from huginn.elt import materialization
+from huginn.elt.materialization import build_eu_startups_materialization_stages
 from huginn.elt.silver import signal_resolution
-from huginn.elt.silver.eu_startups_staging import EuStartupsStagingLoader
-from huginn.elt.silver.repositories.eu_startups_staging_repository import (
-    PostgresEuStartupsStagingRepository,
-)
-from huginn.elt.silver.repositories.signal_resolution_repository import (
-    PostgresSignalResolutionRepository,
-)
-from huginn.elt.silver.signal_resolution import SignalResolver
+from huginn.elt.stage_runner import Stage, run_stages
 from tests.postgres_harness import provisioned_postgres
 
 _FIXTURE = (
@@ -47,6 +37,7 @@ def test_eu_startups_listing_flows_from_bronze_through_gold(
     stable_id = f"pipeline-{suffix}"
     company_name = f"EU Pipeline {suffix}"
     domain = f"eu-pipeline-{suffix}.example"
+    other_domain = f"eu-other-{suffix}.example"
     listing_url = f"https://www.eu-startups.com/directory/{stable_id}/"
     html = (
         _FIXTURE.read_text(encoding="utf-8")
@@ -80,94 +71,209 @@ def test_eu_startups_listing_flows_from_bronze_through_gold(
             ),
         )
 
-    try:
-        staged = EuStartupsStagingLoader(
-            PostgresEuStartupsStagingRepository(database_url)
-        ).load()
-        resolved = SignalResolver(
-            PostgresSignalResolutionRepository(database_url)
-        ).resolve_all()
-        companies = CompanyWriter(PostgresCompanyRepository(database_url)).write_all()
-        facts = CompanySignalWriter(
-            PostgresCompanySignalRepository(database_url)
-        ).write_all()
+    stages = build_eu_startups_materialization_stages(
+        Config(database_url=database_url, yc_algolia_api_key="test"),
+        include_manual_review=False,
+        resolve_eu_startups_only=True,
+    )
+    stage_counts = {stage.name: stage.run() for stage in stages}
+    assert stage_counts == {
+        "silver.eu_startups_staging": 1,
+        "silver.signal_resolution": 1,
+        "gold.company": 1,
+        "gold.company_signal": 1,
+        "silver.source_currentness.eu_startups": 1,
+    }
 
-        assert staged >= 1
-        assert resolved >= 1
-        assert companies >= 1
-        assert facts >= 1
+    with psycopg.connect(database_url) as conn:
+        other_company_id = conn.execute(
+            "INSERT INTO gold.company (domain, name) VALUES (%s, 'Other') RETURNING id",
+            (other_domain,),
+        ).fetchone()[0]
 
-        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT company_name_raw, website, founded, total_funding, "
-                "company_status FROM silver.eu_startups_listings "
-                "WHERE stable_id = %s",
-                (stable_id,),
-            )
-            assert cur.fetchone() == (
-                company_name,
-                f"https://{domain}",
-                "2024",
-                "No funding announced yet",
-                "Active",
-            )
+    with psycopg.connect(database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT company_name_raw, website, founded, total_funding, "
+            "company_status FROM silver.eu_startups_listings "
+            "WHERE stable_id = %s",
+            (stable_id,),
+        )
+        assert cur.fetchone() == (
+            company_name,
+            f"https://{domain}",
+            "2024",
+            "No funding announced yet",
+            "Active",
+        )
 
-            cur.execute(
-                "SELECT resolved_company_key, key_derivation, company_status, "
-                "founded, total_funding "
-                "FROM silver.resolved_signals "
-                "WHERE source = 'eu_startups' AND source_stable_id = %s",
-                (stable_id,),
-            )
-            assert cur.fetchone() == (
-                domain,
-                "domain_normalized",
-                "Active",
-                "2024",
-                "No funding announced yet",
-            )
+        cur.execute(
+            "SELECT resolved_company_key, key_derivation, company_status, "
+            "founded, total_funding "
+            "FROM silver.resolved_signals "
+            "WHERE source = 'eu_startups' AND source_stable_id = %s",
+            (stable_id,),
+        )
+        assert cur.fetchone() == (
+            domain,
+            "domain_normalized",
+            "Active",
+            "2024",
+            "No funding announced yet",
+        )
 
-            cur.execute(
-                "SELECT c.name, c.company_status, c.notes, cs.source_url "
-                "FROM gold.company c "
-                "JOIN gold.company_signal cs ON cs.company_id = c.id "
-                "WHERE c.domain = %s AND cs.source = 'eu_startups' "
-                "AND cs.source_stable_id = %s",
-                (domain, stable_id),
-            )
-            assert cur.fetchone() == (
-                company_name,
-                "Active",
-                "EU Startups Founded 2024; EU Startups Funding "
-                "No funding announced yet",
-                listing_url,
-            )
-    finally:
-        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM gold.company_signal "
-                "WHERE source = 'eu_startups' AND source_stable_id = %s",
-                (stable_id,),
-            )
-            cur.execute(
-                "DELETE FROM silver.manual_review_queue WHERE resolved_signal_id IN "
-                "(SELECT id FROM silver.resolved_signals "
-                "WHERE source = 'eu_startups' AND source_stable_id = %s)",
-                (stable_id,),
-            )
-            cur.execute(
-                "DELETE FROM silver.resolved_signals "
-                "WHERE source = 'eu_startups' AND source_stable_id = %s",
-                (stable_id,),
-            )
-            cur.execute("DELETE FROM gold.company_history WHERE domain = %s", (domain,))
-            cur.execute("DELETE FROM gold.company WHERE domain = %s", (domain,))
-            cur.execute(
-                "DELETE FROM silver.eu_startups_listings WHERE stable_id = %s",
-                (stable_id,),
-            )
-            cur.execute(
-                "DELETE FROM bronze.web_scrape_ingest "
-                "WHERE source = 'eu_startups' AND stable_id = %s",
-                (stable_id,),
-            )
+        cur.execute(
+            "SELECT c.name, c.company_status, c.notes, cs.source_url "
+            "FROM gold.company c "
+            "JOIN gold.company_signal cs ON cs.company_id = c.id "
+            "WHERE c.domain = %s AND cs.source = 'eu_startups' "
+            "AND cs.source_stable_id = %s",
+            (domain, stable_id),
+        )
+        assert cur.fetchone() == (
+            company_name,
+            "Active",
+            "EU Startups Founded 2024; EU Startups Funding No funding announced yet",
+            listing_url,
+        )
+
+        cur.execute(
+            "SELECT observation.id, pointer.current_observation_id, "
+            "observation.listing_state, observation.identity_state, "
+            "observation.company_id FROM silver.source_lifecycle_observation "
+            "observation JOIN silver.source_currentness pointer USING (source, stable_id) "
+            "WHERE source = 'eu_startups' AND stable_id = %s",
+            (stable_id,),
+        )
+        observation_id, current_id, listing_state, identity_state, company_id = (
+            cur.fetchone()
+        )
+        assert observation_id == current_id
+        assert (listing_state, identity_state) == ("available", "consistent")
+
+        cur.execute(
+            "SELECT source, evidence_kind, source_url, company_id "
+            "FROM gold.current_source_evidence WHERE source_stable_id = %s",
+            (stable_id,),
+        )
+        assert cur.fetchone() == (
+            "eu_startups",
+            "directory_context",
+            listing_url,
+            company_id,
+        )
+
+        cur.execute(
+            "UPDATE bronze.web_scrape_ingest SET payload = '{}'::jsonb "
+            "WHERE source = 'eu_startups' AND stable_id = %s",
+            (stable_id,),
+        )
+        conn.commit()
+        cur.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        )
+        assert cur.fetchone() == (0,)
+
+    reports = []
+    original_run_reconcile = materialization.run_reconcile
+
+    def capture_partial_report(source, repository):
+        report = original_run_reconcile(source, repository)
+        reports.append(report)
+        return report
+
+    monkeypatch.setattr(materialization, "run_reconcile", capture_partial_report)
+    currentness_stage = stages[-1]
+    with pytest.raises(RuntimeError, match="reconciliation incomplete"):
+        currentness_stage.run()
+    assert reports[-1]["status"] == "partial"
+    assert reports[-1]["completed_count"] == 1
+    with psycopg.connect(database_url) as conn:
+        partial_observation_id, partial_state = conn.execute(
+            "SELECT observation.id, observation.listing_state "
+            "FROM silver.source_lifecycle_observation observation "
+            "JOIN silver.source_currentness pointer USING (source, stable_id) "
+            "WHERE source = 'eu_startups' AND stable_id = %s "
+            "AND pointer.current_observation_id = observation.id",
+            (stable_id,),
+        ).fetchone()
+        assert partial_observation_id != observation_id
+        assert partial_state == "invalid"
+        assert conn.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        ).fetchone() == (0,)
+
+    with psycopg.connect(database_url) as conn:
+        conn.execute(
+            "UPDATE bronze.web_scrape_ingest SET payload = %s "
+            "WHERE source = 'eu_startups' AND stable_id = %s",
+            (psycopg.types.json.Jsonb(payload), stable_id),
+        )
+    monkeypatch.setattr(materialization, "run_reconcile", original_run_reconcile)
+    assert currentness_stage.run() == 1
+    with psycopg.connect(database_url) as conn:
+        restored_observation_id = conn.execute(
+            "SELECT current_observation_id FROM silver.source_currentness "
+            "WHERE source = 'eu_startups' AND stable_id = %s",
+            (stable_id,),
+        ).fetchone()[0]
+        assert restored_observation_id != partial_observation_id
+        assert conn.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        ).fetchone() == (1,)
+    with psycopg.connect(database_url) as conn:
+        conn.execute(
+            "UPDATE gold.company_signal SET company_id = %s "
+            "WHERE source = 'eu_startups' AND source_stable_id = %s",
+            (other_company_id, stable_id),
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        ).fetchone() == (0,)
+        conn.execute(
+            "UPDATE gold.company_signal SET company_id = %s "
+            "WHERE source = 'eu_startups' AND source_stable_id = %s",
+            (company_id, stable_id),
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        ).fetchone() == (1,)
+
+        class RecordingWriter:
+            def write(self, _job_run):
+                pass
+
+        def fail_hn_reconciliation():
+            raise RuntimeError("HN reconciliation partial")
+
+        statuses = run_stages(
+            [
+                Stage("gold.company_signal", lambda: 0),
+                Stage(
+                    "silver.source_currentness.hn",
+                    fail_hn_reconciliation,
+                    depends_on=("gold.company_signal",),
+                ),
+                currentness_stage,
+            ],
+            RecordingWriter(),
+        )
+        assert statuses == {
+            "gold.company_signal": "succeeded",
+            "silver.source_currentness.hn": "failed",
+            "silver.source_currentness.eu_startups": "succeeded",
+        }
+        assert conn.execute(
+            "SELECT count(*) FROM gold.current_source_evidence "
+            "WHERE source_stable_id = %s",
+            (stable_id,),
+        ).fetchone() == (1,)

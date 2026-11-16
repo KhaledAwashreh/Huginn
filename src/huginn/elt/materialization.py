@@ -20,7 +20,12 @@ from huginn.elt.silver.repositories.manual_review_repository import (
 from huginn.elt.silver.repositories.signal_resolution_repository import (
     PostgresSignalResolutionRepository,
 )
+from huginn.elt.silver.repositories.source_currentness_repository import (
+    PostgresLifecycleRepository,
+)
+from huginn.elt.silver.services.source_currentness import run_reconcile
 from huginn.elt.silver.signal_resolution import SignalResolver
+from huginn.elt.silver.types.source_context import SourceName
 from huginn.elt.stage_runner import Stage
 
 
@@ -53,6 +58,24 @@ def build_eu_startups_materialization_stages(
         PostgresCompanySignalRepository(config.database_url)
     )
 
+    def currentness_stage(source: SourceName) -> Stage:
+        repository = PostgresLifecycleRepository(config.database_url)
+
+        def reconcile() -> int:
+            report = run_reconcile(source, repository)
+            if report["status"] != "complete":
+                raise RuntimeError(
+                    f"source currentness reconciliation incomplete for {source}: "
+                    f"{report.get('error_type', 'partial report')}"
+                )
+            return int(report["completed_count"])
+
+        return Stage(
+            name=f"silver.source_currentness.{source}",
+            run=reconcile,
+            depends_on=("gold.company_signal",),
+        )
+
     stages = [
         Stage(
             name="silver.eu_startups_staging",
@@ -74,7 +97,11 @@ def build_eu_startups_materialization_stages(
             run=company_signal_writer.write_all,
             depends_on=("silver.signal_resolution", "gold.company"),
         ),
+        currentness_stage("eu_startups" if resolve_eu_startups_only else "hn"),
     ]
+    if not resolve_eu_startups_only:
+        stages.append(currentness_stage("yc"))
+        stages.append(currentness_stage("eu_startups"))
     if include_manual_review:
         manual_review_queuer = ManualReviewQueuer(
             PostgresManualReviewRepository(config.database_url)

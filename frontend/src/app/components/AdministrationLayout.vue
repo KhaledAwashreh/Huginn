@@ -30,7 +30,6 @@ function selectSection(value: string | number): void {
 </script>
 <template>
   <template v-if="session.isAdministrator.value">
-    <p class="administration-context">Administration</p>
     <Tabs scrollable :value="activeSection" @update:value="selectSection">
       <TabList aria-label="Administration sections">
         <Tab v-for="section in sections" :key="section.path" :value="section.path">{{
@@ -50,10 +49,3 @@ function selectSection(value: string | number): void {
     description="Your session cannot access administration tools."
   />
 </template>
-<style scoped>
-.administration-context {
-  margin-block: var(--space-4);
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-</style>

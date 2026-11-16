@@ -91,8 +91,8 @@ def _service(
     return TriggerInvocationService(lambda: _Uow(store), plan, clock=lambda: NOW)
 
 
-def test_supported_plan_has_exact_nine_stage_graph_and_round_trips():
-    assert len(SUPPORTED_STAGE_PLAN.stages) == 9
+def test_supported_plan_has_exact_twelve_stage_graph_and_round_trips():
+    assert len(SUPPORTED_STAGE_PLAN.stages) == 12
     assert StagePlan.from_json(SUPPORTED_STAGE_PLAN.to_json()) == SUPPORTED_STAGE_PLAN
     assert SUPPORTED_STAGE_PLAN.stages[6].dependencies == ("silver.signal_resolution",)
 

@@ -9,7 +9,7 @@ from huginn.management.domain.value_objects.common import JsonObject
 
 @dataclass(frozen=True)
 class NewIdealClientProfile:
-    user_id: UUID
+    business_id: UUID
     name: str
     industries: tuple[JsonObject, ...]
     company_sizes: tuple[JsonObject, ...]

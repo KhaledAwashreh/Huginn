@@ -1,4 +1,4 @@
-Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. The creation-only matchmaking module supports explicit operator batches; an authenticated research recommendation flow now connects broad source retrieval, built-in ranking and stored feedback; a simple opt-in weekly SMTP digest is implemented. Architecture decided across a series of design sessions, September 2026.
+Status: DRAFT, partially implemented. Ingestion and the Bronze write path are built for HN, YC, OpenCorporates, and EU-Startups. Silver and Gold are wired end to end for HN, YC, and EU-Startups via `python -m huginn.elt`; OpenCorporates reaches Bronze but is not yet wired into Silver/Gold. Business-owned recommendations now share immutable assessments and offer cycles across the authenticated workspace and opt-in weekly SMTP delivery. Explicit Save creates a prospect relationship with retained origins and activity history. The creation-only Match writer and its admission/worker paths are retired. This describes source implementation, not deployment activation. Architecture decided across a series of design sessions, September 2026.
 Author: Khaled Awashreh
 
 Supersedes [Huginn Diagrams](https://kawashreh.atlassian.net/wiki/spaces/Huginn/pages/950273/Huginn+Diagrams) v1.3 wherever its "Not yet specified" table has since been resolved below. Its diagrams are the historical source for this document's graphs. This document is the authoritative, current-state architecture.
@@ -10,9 +10,9 @@ Architecture at a glance:
 1. Storage: one Postgres database. Three ELT schemas (bronze, silver, gold) feed a separate operational schema.
 2. Ingestion: ports and adapters, three sources at launch, HN "Who's Hiring", the YC directory, and OpenCorporates.
 3. Entity resolution: runs at silver, domain-key first, Jaro-Winkler/token-Jaccard fallback.
-4. Matching: a synchronous operator batch creates missing per-User Matches from current ICPs and recent Gold signals. A separate authenticated recommendation flow ranks broader source candidates and stores feedback (section 7).
+4. Discovery: management orchestrates Business-owned recommendation generation over guarded source evidence using shared matchmaking assessment policies. App and weekly email select the same stable identities and immutable revisions (section 7).
 5. Delivery: a weekly email digest is the product direction; opt-in weekly composition and SMTP delivery are implemented by an explicit scheduled command.
-6. Out of scope this phase: everything above the domain layer (chatbot, dashboard, memory).
+6. Presentation: the authenticated workspace supports recommendations, prospects and Profile configuration. Chat-based profile building, outreach automation and memory remain outside this workflow.
 
 ---
 
@@ -64,39 +64,40 @@ flowchart TB
         PG["bronze / silver / gold schemas<br/>+ operational schema"]
     end
 
-    subgraph DOMAIN["Domain"]
+    subgraph DOMAIN["Application and domain"]
         direction LR
-        AUTH["Auth"] ~~~ CRUD["CRUD and business processes"] ~~~ SCORE["Match creation; scoring future"]
+        AUTH["Auth"] ~~~ CRUD["CRUD and business processes"] ~~~ SCORE["Shared fit, assessment and ranking"]
     end
 
     subgraph AGENT["Agentic workflow, deferred"]
         direction LR
-        CHAT["Chatbot agent"] ~~~ DIGEST["Digest composition"]
+        CHAT["Chatbot agent"]
     end
 
-    subgraph PRES["Presentation, deferred"]
+    subgraph PRES["Presentation"]
         direction LR
         MAIL["Email"] ~~~ DASH["Dashboard"]
     end
 
     USR["User"]
 
-    SRC --> PIPE --> STORE --> DOMAIN --> AGENT --> PRES --> USR
+    SRC --> PIPE --> STORE --> DOMAIN --> PRES --> USR
+    DOMAIN -.-> AGENT -.-> PRES
 
     classDef deferred stroke-dasharray: 5 5
-    class CHAT,DIGEST,MAIL,DASH deferred
+    class CHAT deferred
 ```
 
-Collection is shared infrastructure, matching is personal. The pipeline and the gold pool serve every user and are expensive to re-run, since sources rate-limit and some content becomes unavailable over time. Everything from the domain layer up is specific to one user and re-runnable at no cost.
+Collection and the Gold pool are shared infrastructure. Discovery assessments, suppression and pursuit belong to the owning Business. Generation and delivery have distinct clocks and transaction boundaries.
 
 Management is a separate application boundary, not a second production data
 domain. Production retains the shared Postgres model shown above. Local
 development uses `HUGINN_MANAGEMENT_DATABASE_URL` with a dedicated disposable
 database so management bootstrap work does not disturb concurrent ELT work;
-that database receives all six bootstrap files because operational foreign
-keys still reference Gold.
+that database receives the schema prerequisites because operational foreign
+keys reference Gold. Current workflow setup and readiness are described in the cutover guide.
 
-Scoring belongs in the domain layer: it is batch work, it must stay explainable per feature because a future digest may render its reasoning, and future consumers should read its output rather than each other's.
+Assessment and ranking decisions belong in pure policy modules. Application services orchestrate them through ports and preserve explainable snapshots for workspace and email presentation.
 
 ## 4. Data pipeline: bronze, silver, gold
 
@@ -124,14 +125,12 @@ flowchart TB
         GD -.->|"superseded values move here"| GH
     end
 
-    MATCH["Match creation, current; scoring deferred"]
+    MATCH["Business-owned assessment and discovery"]
 
     SRC --> BR --> SS
     SR --> GF
     GD -.-> MATCH
 
-    classDef deferred stroke-dasharray: 5 5
-    class MATCH deferred
 ```
 
 The generic medallion, schema-on-read, dimensional-modelling, and SCD patterns behind these layers are not restated here. The primary sources are collected in `architecture-notes/industry-references-elt-medallion.md`. What follows is only where Huginn makes a choice.
@@ -160,14 +159,14 @@ packages containing an entire effort. See `AGENTS.md` for the review rules.
 2. One cross-source `resolved_signals` table then runs entity resolution (section 6) at event grain, one row per original signal, raw company name replaced by a resolved canonical identifier.
 3. No dimension/fact split at this layer. That is Gold's job, per Databricks and Kimball.
 4. The source-specific staging and resolved-signal tables remain current-state upserts. Bronze also holds only the latest raw payload per entity (section 4.1 point 4).
-5. `silver.source_context_snapshot` is a narrow exception: an explicit preservation command stores versioned, source-keyed text and fields before further projection. Its run and outcome tables record exclusions and observations independently of company identity. This sidecar does not change staging, resolution, Gold, or Match eligibility. It cannot recover raw versions that Bronze already overwrote. See [source-context.md](source-context.md).
+5. `silver.source_context_snapshot` is a narrow exception: an explicit preservation command stores versioned, source-keyed text and fields before further projection. Its run and outcome tables record exclusions and observations independently of company identity. This sidecar does not change staging, resolution, Gold, or discovery eligibility. It cannot recover raw versions that Bronze already overwrote. See [source-context.md](source-context.md).
 6. `silver.source_lifecycle_observation` and `silver.source_currentness` extend that sidecar with immutable source lifecycle/identity observations and one current pointer per source key. Explicit reconciliation validates full stored payload and resolution identity tokens under row locks before atomically appending history and updating the pointer. `gold.current_source_evidence` guards current-context reads against live input and company-association drift, projecting claim/text/time from preserved observations. It is an availability projection, not a match-qualification policy. See [source-currentness.md](source-currentness.md).
 
 ### 4.3 Gold
 
 A Kimball dimensional model over Silver's resolved signals: `Company` (dimension) and `CompanySignal` (fact), plus enrichment on the dimension (the team-composition/soft-signal heuristic, a Type 2 tracked field). That enrichment is not gated on an ICP verdict, because no verdict is held on this layer at all (ADR-0012, below).
 
-`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict itself is per-user, so it is not held on this shared dimension at all. ADR-0012 removed `IcpFilterPass` for exactly that reason; durable Match identity belongs to the per-User `Match` rows, with one row per User and Company enforced by `match_user_company_unique`.
+`Company` covers every company Silver has resolved, whether or not it has been evaluated against a filter, and the row is never gated on passing: a company that later stops passing keeps its record. The pass/fail verdict belongs to the owning Business and its configuration, so it is not held on this shared dimension. ADR-0012 removed `IcpFilterPass`; ADR-0019 establishes stable recommendations, immutable assessments and one Prospect relationship per Business/Company pair.
 
 History is a current-plus-history split rather than a single SCD Type 2 table (ADR-0002):
 
@@ -179,39 +178,29 @@ The reason for the split: every scoring read needs current state, and a single T
 
 Column-by-column Type 1 / Type 2 classification is pending the concrete schema (Jira KAN-20). Enrichment's placement in Gold is provisional and may move in a later architecture pass.
 
-### 4.4 Matching
+### 4.4 Shared assessment and discovery
 
-The first matching slice is a synchronous Python batch capability in
-`huginn.matchmaking`. It reads each requested User's active discovery
-strategies and current ICPs, checks shared Gold companies against a required
-signal window, and inserts new rows into `operational.match`. One transaction
-covers each User; a unique `(user_id, company_id)` constraint makes repeated
-runs safe and preserves existing Match status and notes.
+`huginn.matchmaking` owns reusable fit, eligibility, lexical assessment, ranking
+and distinct-company selection policies. `huginn.management` owns Business scope,
+shared recommendation generation, immutable assessment persistence, explicit user
+commands and delivery orchestration. Models/policies remain pure; application
+services depend on repository Protocols, SQL stays in concrete adapters, and
+HTTP/CLI/composition select adapters.
 
-Matchmaking is a sibling of management and ELT. Its explicit application APIs
-are `MatchmakingService.execute(MatchmakingRequest) -> MatchmakingResponse`
-and `MatchmakingBatchService.execute(BatchMatchmakingRequest) -> BatchMatchmakingResponse`.
-`StrategyConfiguration`, `UserAvailability`, and `CompanyCandidate` are
-application read models. SQL adapters own row validation; domain rules consume
-criteria values and do not depend on application projections.
+On-demand generation uses one explicitly selected active owned strategy; weekly
+generation considers all valid active owned strategies. Both use guarded current
+source evidence after relevant materialization and reconciliation. Known
+mismatches and exclusions prevent selection; missing attributes remain unverified.
+Company-level relationship, rejection, pause, cooldown and pending/uncertain-offer
+blocks apply before assessment and again under the Business/Company lock before
+persisting a selected revision. Source changes cannot bypass those blocks.
 
-This slice does not rank candidates or deliver a digest. Existing Matches are
-left unchanged, so this is creation-only matching and does not implement
-resurfacing, sent-history checks, ranking snapshots, or reevaluation. The
-operator entry point and required schema setup are documented in
-[`matchmaking.md`](matchmaking.md). Scheduler integration remains future work.
-
-Management Match reads preserve durable records even when current source context
-is unavailable. They report current source availability separately from stored
-creation-evidence availability. `operational.match_source_evidence` stores immutable
-observation links and original matching windows without reconstructing legacy
-history. Match ID/owner/company identity and context snapshot contents are
-protected. The creation-only matcher selects guarded observation IDs in the
-original inclusive source-event window, unions them across qualifying strategies,
-and stores them atomically with each new Match. Existing Matches receive no
-reconstructed evidence. Directory context remains eligible under the existing
-any-kind prospecting rule; source availability is not inferred consulting demand.
-See [`source-currentness.md`](source-currentness.md).
+The creation-only Match service, insert adapter, operator execution and queued
+worker are retired. Old bootstrap/CLI diagnostics fail closed; administrator POST
+admission returns a private authenticated 410. Read-only run audit and exact
+stopped-executor reconciliation remain because the shared execution guard consumes
+them. Obsolete workflow rows have an explicit guarded cleanup procedure; they are
+not migrated into prospects. See [the cutover guide](recommendation-prospect-cutover.md).
 
 ## 5. Ingestion
 
@@ -287,14 +276,13 @@ This recipe was researched and adopted without the author's own background in en
 
 ## 7. Digest and scoring
 
-An explicit assessed-input research ranker is implemented separately from the
-creation-only matching batch. Its JSON operator entry point is
+An explicit assessed-input research ranker supplies the shared discovery workflow. Its JSON operator entry point is
 `python -m huginn.matchmaking.presentation.ranking_cli`; see
 [`research-ranking.md`](research-ranking.md) for input, evidence, CLI and replay
 contracts. It does not connect to a database, update Matches, automatically
 assess business context, integrate with the live matcher, persist feedback,
-compose digest items or send email. The matcher still returns new Matches in
-deterministic Company UUID order without scoring them.
+compose digest items or send email. The connected workflow supplies assessed inputs
+and persists its own exact assessment history.
 
 The ranker consumes a profile snapshot, supplied assessments, complete source
 descriptions, exact evidence quotes and `as_of`. `research-ranking-v1` sums
@@ -313,141 +301,80 @@ Weights, transform and model choice are research decision candidates pending
 real-data quality evaluation. Actual CPU inference has passed a smoke check;
 recommendation quality has not been validated.
 
-The authenticated `/recommendations` workspace now connects an owned strategy
-to current guarded source evidence, the built-in ranker and immutable
-`operational.recommendation_batches` snapshots. Detailed feedback appends to
-`operational.recommendation_feedback` against an owned batch and recommendation
-identity. See [`research-recommendations.md`](research-recommendations.md) for
-the runtime, migration and conservative topic-overlap assessment contract.
-Weekly Matches share the recommendation evaluator: OR within ICP fields, AND across populated fields, known mismatches excluded, missing values explicitly unverified. A scheduled selection scores candidates across all valid active strategies, deduplicates companies and selects up to seven total. On-demand Recommendations remain scoped to one strategy. Opt-in weekly SMTP delivery saves that frozen selection and email reference, reserves one automatic attempt per User/week, excludes previously sent companies, and supports signed unsubscribe. See [`weekly-digest.md`](weekly-digest.md) for the cron command, existing SMTP settings and deliberate no-automatic-retry semantics. New Matches retain selected
-immutable source observations and matching windows; later matching runs
-preserve workflow status, notes and original evidence. Matches have no score
-snapshot or sent-state freeze. The standalone operator writes local research JSON; the connected workspace
-stores separate recommendation history, without creating a MatchScore or
-sent-digest record.
+The authenticated `/recommendations` workspace uses one Business-owned collection
+with at most one open occurrence per target Company. Eligible reranking appends an
+immutable assessment revision and advances the current selection; old feedback,
+email members and prospect origins retain the revision actually shown. Save
+atomically creates/reuses one Prospect and resolves discovery. Not Relevant
+rejects discovery and adds an indefinite Company block; Later replaces the current
+pause from its new acceptance time without discarding history or independent blocks.
+Prospects have explicit adjacent stages, notes, reminders and append-only corrections.
+No command infers outreach from a reminder or proposal draft.
 
-## 8. Agentic workflow, retrieval, presentation: deferred
+Weekly delivery selects the strongest seven distinct Companies across active
+strategies, preserving separate assessments without summed scores or per-offering
+quotas. Immutable content versions reference exact recommendation/revision/cycle
+members. One Business/week reservation and a serialized daily budget prevent
+competing attempts. Final authorization locks consent, verified recipient, the
+reservation and Company pairs, validates current evidence/configuration/blocks,
+and atomically marks the attempt and all selected cycles Sending. SMTP occurs
+after the transaction closes. Actual acceptance confirms presentation and starts
+the authorization-frozen repeat interval; observation time remains separate.
+
+The first confirmed app presentation or SMTP handoff starts cooldown, default
+30 days. Routine reads, reopening and generation do not start/reset it. A later
+eligible run after expiry may select a fresh revision and cycle. Preparing claims
+have bounded leases; Sending/Unknown protection never expires into automatic
+resend. Explicit owner-attributed recovery preserves the original accepted cadence,
+actual acceptance time, independent blocks and frozen content.
+
+See [ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md),
+[the API/workspace guide](research-recommendations.md), [weekly delivery](weekly-digest.md)
+and [deployment/rollback ordering](recommendation-prospect-cutover.md). Schemas and
+initial source reconciliation are explicit operator steps, never startup or GET work.
+
+## 8. Deferred agentic workflow and retrieval
 
 Out of scope for this phase and deliberately abstract pending a decision later. Carried forward for continuity:
 
 1. A chatbot agent and digest composition would sit on a shared harness: an explicit, named tool contract, plus the model routing in section 10. Two experimental memory side-channels, MuninnDB and Letta, are named as candidates for soft context only, and the system has to keep working with both absent.
 2. Retrieval, if a chatbot ships, would narrow with a structured filter before re-ranking by vector similarity, on the `pgvector` storage in section 10.
-3. User-facing presentation remains deferred. A JSON operator CLI exists for
-   explicitly requested batch runs; it is not a digest or dashboard. Dashboard
-   scope is undecided.
+3. Chat-based profile building and additional agentic presentation remain deferred.
+   The current recommendation/prospect workspace is described in section 7.
 
 ## 9. Data model
 
-`docs/entities.md` holds the domain schema and is the source for the diagram below, which shows identifying fields only. Its "Gold" heading predates this document's pipeline layering and mixes two things this document separates: the ELT Gold layer (section 4), which is `Company`, `CompanyHistory`, and `CompanySignal`, and the operational schema below them, including Match rows written by the matching module rather than the ELT pipeline.
+`docs/entities.md` holds the domain schema and is the source for the diagram below, which shows identifying fields only. Its "Gold" heading predates this document's pipeline layering and mixes two things this document separates: the ELT Gold layer (section 4), which is `Company`, `CompanyHistory`, and `CompanySignal`, and the operational schema below them, including Business-owned recommendations and prospect relationships written by management application services rather than the ELT pipeline.
 
 ```mermaid
 erDiagram
-    Account ||--o| User : "owns identity for"
-    User ||--o| ProfessionalProfile : "has"
-    User ||--o{ Match : "receives"
-    Company ||--o{ Match : "shared pool, matched per user"
-    Company ||--o{ CompanySignal : "emits"
-    Company ||--o{ CompanyHistory : "superseded values move to"
-    Company ||--o{ Employee : "employs"
-    Match ||--o| MatchScore : "scored by"
-    Match ||--o{ MatchFeedback : "rated by"
-    Match ||--o{ Activity : "notes and follow-ups"
-    Match ||--o{ Communication : "outreach draft"
-    Employee |o--o{ Activity : "optionally about"
-    Communication ||--o{ CommunicationVersion : "versioned as"
-    CommunicationVersion ||--o{ CommunicationRevision : "revised by"
-    CommunicationRevision ||--o{ CommunicationTurn : "composed of"
-
-    Account {
-        GUID Id PK
-        String Username "case-insensitive unique index"
-        String PasswordHash
-        Enum Status "active or disabled"
-    }
-    User {
-        GUID Id PK
-        GUID AccountId FK "unique"
-        String FirstName
-        String LastName
-        String Email
-        String PhoneNumber
-        String CountryOfResidence
-    }
-    ProfessionalProfile {
-        GUID Id PK
-        GUID UserId FK "unique"
-        JSON Skills "structured collection"
-        JSON Experience "structured collection"
-        JSON PreviousProjects "structured collection"
-    }
-    Company {
-        GUID Id PK
-        String Domain "resolved natural key, section 6"
-        String BusinessSector "Type 2 tracked"
-        Enum TeamCompositionSignal "Type 2 tracked"
-    }
-    CompanyHistory {
-        GUID Id PK
-        GUID CompanyId FK
-        DateTimeOffset ValidFrom
-        DateTimeOffset ValidTo "row written only on a Type 2 change, ADR-0002"
-    }
-    CompanySignal {
-        GUID Id PK
-        GUID CompanyId FK
-        Enum SignalType "Funding, Hiring, ProgramMilestone, and so on"
-        String Source
-        DateTimeOffset OccurredOn
-    }
-    Employee {
-        GUID Id PK
-        GUID CompanyId FK "person-level, sourced only per section 2 non-goals"
-    }
-    Match {
-        GUID Id PK
-        GUID UserId FK "one row per user x company"
-        GUID CompanyId FK
-        Enum Status
-    }
-    MatchScore {
-        GUID Id PK
-        GUID MatchId FK
-        Enum ScoringAlgorithm
-        Integer Score
-        JSON FeatureBreakdown "per-feature breakdown"
-    }
-    MatchFeedback {
-        GUID Id PK
-        GUID MatchId FK
-        Enum Rating "Positive, Negative"
-    }
-    Activity {
-        GUID Id PK
-        GUID MatchId FK
-        GUID EmployeeId FK "nullable"
-        Enum Type
-    }
-    Communication {
-        GUID Id PK
-        GUID MatchId FK
-        Enum Channel
-        Enum Status
-    }
-    CommunicationVersion {
-        GUID Id PK
-        GUID CommunicationId FK
-        Integer VersionNumber
-    }
-    CommunicationRevision {
-        GUID Id PK
-        GUID CommunicationVersionId FK
-        Enum AgentType "User, AI"
-    }
-    CommunicationTurn {
-        GUID Id PK
-        GUID CommunicationRevisionId FK
-        Enum Role "User, Assistant"
-    }
+    Account ||--o| User : authenticates
+    User ||--|| Business : owns
+    User ||--o| ProfessionalProfile : maintains
+    Business ||--o{ ServiceOffering : offers
+    Business ||--o{ IdealClientProfile : defines
+    Business ||--o{ ClientDiscoveryStrategy : configures
+    ServiceOffering ||--o{ ClientDiscoveryStrategy : pairs
+    IdealClientProfile ||--o{ ClientDiscoveryStrategy : pairs
+    Company ||--o{ CompanySignal : emits
+    Company ||--o{ CompanyHistory : preserves
+    Business ||--o{ Recommendation : discovers
+    Company ||--o{ Recommendation : targets
+    Recommendation ||--o{ AssessmentRevision : assesses
+    AssessmentRevision ||--o{ OfferCycle : selects
+    OfferCycle ||--o{ OfferCycleEvent : records
+    Business ||--o{ SuppressionBlock : applies
+    Company ||--o{ SuppressionBlock : restricts
+    Business ||--o{ Prospect : pursues
+    Company ||--o{ Prospect : relates
+    Prospect ||--o{ ProspectOrigin : preserves
+    AssessmentRevision ||--o{ ProspectOrigin : explains
+    Prospect ||--o{ ProspectActivity : records
+    Business ||--o{ WeeklyDigestDelivery : reserves
+    WeeklyDigestDelivery ||--o{ WeeklyDigestContent : freezes
+    WeeklyDigestContent ||--|{ WeeklyDigestMember : includes
+    AssessmentRevision ||--o{ WeeklyDigestMember : explains
+    OfferCycle ||--o| WeeklyDigestMember : authorizes
 ```
 
 The management API uses FastAPI with Uvicorn, generated OpenAPI, native
@@ -466,14 +393,21 @@ concrete adapters without startup I/O. Persistence is a first-class layer.
 The replaceable client boundary preserves the fixed PostgreSQL dialect,
 handwritten SQL, JSONB, constraints, and row locks. See the
 [management package tree](management-foundation.md#management-package-layers).
-Unique foreign keys enforce at most one User per Account and at most one
-ProfessionalProfile per User; owner provisioning creates the full aggregate
-atomically. Its login throttle is process-local, so the runtime is
+Unique foreign keys enforce at most one User per Account, one personal
+ProfessionalProfile per User and one Business per User. Owner provisioning
+creates the aggregate atomically; credential-only Accounts remain valid, and
+new User creation includes Business and default repeat preferences. Offerings,
+ICPs, manual strategies and digest subscriptions are Business-owned. Business
+profile fields remain unset until provided; personal/profile values are not
+copied into them. Explicit repeatable ownership setup preserves existing IDs,
+values, configuration links and consent. See
+[ADR-0019](../adr/0019-business-owned-recommendation-and-prospect-history.md)
+for the accepted shared recommendation, assessment, offer and prospect decision;
+its remaining implementation is tracked in the approved change. The login
+throttle is process-local, so the runtime is
 single-process until throttle state is shared. These management stages do not
 alter or run the ELT pipeline.
-`Match.UserId` remains a reference to User, not Account.
-
-`MatchScore` as currently sketched is a single row per match. Section 7's recompute design will need it to grow into a versioned history before v1 scoring ships.
+Legacy Match-related storage is documented for explicit cleanup and historical inspection; it has no active creation or scoring writer. New pursuit history is stored in the Business-owned Prospect aggregate.
 
 ## 10. Cross-cutting concerns
 

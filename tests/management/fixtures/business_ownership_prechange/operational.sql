@@ -1,0 +1,314 @@
+-- Operational schema: management-owned account/profile data and matching-owned
+-- workflow data. See KAN-71 and ADR-0011.
+
+CREATE SCHEMA IF NOT EXISTS operational;
+
+CREATE TABLE operational.accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT NOT NULL CHECK (username <> '' AND username !~ '(^[[:space:]])|([[:space:]]$)'),
+    password_hash TEXT NOT NULL CHECK (password_hash ~ '[^[:space:]]'),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX accounts_username_lower_key
+    ON operational.accounts (lower(username));
+
+-- Public-account lifecycle storage. See openspec/changes/public-account-lifecycle/design.md.
+CREATE TABLE operational.account_recovery_identity (
+    account_id UUID PRIMARY KEY REFERENCES operational.accounts (id),
+    verification_required BOOLEAN NOT NULL,
+    pending_email TEXT CHECK (pending_email <> '' AND pending_email !~ '(^[[:space:]])|([[:space:]]$)'),
+    verified_email TEXT CHECK (verified_email <> '' AND verified_email !~ '(^[[:space:]])|([[:space:]]$)'),
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((verified_email IS NULL) = (verified_at IS NULL)),
+    CHECK (pending_email IS NULL OR verified_email IS NULL),
+    CHECK (NOT verification_required OR pending_email IS NOT NULL OR verified_email IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX account_recovery_identity_email_lower_key
+    ON operational.account_recovery_identity (lower(btrim(COALESCE(pending_email, verified_email))));
+
+CREATE TABLE operational.account_lifecycle_proofs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL REFERENCES operational.accounts (id),
+    token_digest TEXT NOT NULL UNIQUE CHECK (token_digest ~ '^[0-9a-f]{64}$'),
+    purpose TEXT NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
+    destination TEXT NOT NULL CHECK (destination <> '' AND destination !~ '(^[[:space:]])|([[:space:]]$)'),
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    superseded BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (id, account_id, purpose),
+    CHECK (expires_at > created_at),
+    CHECK (consumed_at IS NULL OR consumed_at >= created_at)
+);
+
+CREATE INDEX account_lifecycle_proofs_account_purpose_idx
+    ON operational.account_lifecycle_proofs (account_id, purpose, created_at);
+
+-- The authenticated ciphertext envelope holds both recipient snapshot and token.
+-- Terminal rows retain safe metadata only; claim ownership fences stale settlement.
+CREATE TABLE operational.lifecycle_mail_outbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL REFERENCES operational.accounts (id),
+    proof_id UUID NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
+    encrypted_payload BYTEA,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'claimed', 'sent', 'failed', 'suppressed')),
+    failure_code TEXT CHECK (failure_code IN (
+        'transport_unavailable', 'attempts_exhausted', 'obsolete_proof',
+        'expired_proof', 'invalid_payload'
+    )),
+    claim_token UUID,
+    claimed_at TIMESTAMPTZ,
+    lease_until TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (proof_id, account_id, purpose)
+        REFERENCES operational.account_lifecycle_proofs (id, account_id, purpose),
+    CHECK (
+        (state IN ('pending', 'claimed') AND encrypted_payload IS NOT NULL AND octet_length(encrypted_payload) > 0)
+        OR (state IN ('sent', 'failed', 'suppressed') AND encrypted_payload IS NULL)
+    ),
+    CHECK (
+        (state = 'claimed' AND claim_token IS NOT NULL AND claimed_at IS NOT NULL
+            AND lease_until IS NOT NULL AND lease_until > claimed_at AND attempt_count > 0)
+        OR (state <> 'claimed' AND claim_token IS NULL AND claimed_at IS NULL AND lease_until IS NULL)
+    ),
+    CHECK ((state = 'sent') = (sent_at IS NOT NULL)),
+    CHECK (state <> 'pending' OR attempt_count < 5)
+);
+
+CREATE INDEX lifecycle_mail_outbox_due_idx
+    ON operational.lifecycle_mail_outbox (next_attempt_at, id) WHERE state = 'pending';
+CREATE INDEX lifecycle_mail_outbox_lease_idx
+    ON operational.lifecycle_mail_outbox (lease_until, id) WHERE state = 'claimed';
+CREATE INDEX lifecycle_mail_outbox_account_created_idx
+    ON operational.lifecycle_mail_outbox (account_id, created_at);
+
+-- Digests only: public throttling never persists a submitted username or raw IP.
+CREATE TABLE operational.lifecycle_throttle (
+    scope TEXT NOT NULL CHECK (scope IN ('receipt_username', 'receipt_email', 'receipt_ip', 'proof_ip')),
+    key_digest TEXT NOT NULL CHECK (key_digest ~ '^[0-9a-f]{64}$'),
+    window_started_at TIMESTAMPTZ NOT NULL,
+    request_count INTEGER NOT NULL CHECK (request_count >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (scope, key_digest)
+);
+
+CREATE TABLE operational.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL UNIQUE REFERENCES operational.accounts (id),
+    first_name TEXT NOT NULL CHECK (first_name <> '' AND first_name !~ '(^[[:space:]])|([[:space:]]$)'),
+    last_name TEXT NOT NULL CHECK (last_name <> '' AND last_name !~ '(^[[:space:]])|([[:space:]]$)'),
+    email TEXT NOT NULL CHECK (email <> '' AND email !~ '(^[[:space:]])|([[:space:]]$)'),
+    phone_number TEXT NOT NULL CHECK (phone_number <> '' AND phone_number !~ '(^[[:space:]])|([[:space:]]$)'),
+    country_of_residence TEXT NOT NULL CHECK (country_of_residence <> '' AND country_of_residence !~ '(^[[:space:]])|([[:space:]]$)'),
+    timezone TEXT CHECK (timezone <> '' AND timezone !~ '(^[[:space:]])|([[:space:]]$)'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX users_email_lower_key ON operational.users (lower(btrim(email)));
+
+CREATE TABLE operational.professional_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE REFERENCES operational.users (id),
+    headline TEXT CHECK (headline <> '' AND headline !~ '(^[[:space:]])|([[:space:]]$)'),
+    professional_summary TEXT CHECK (professional_summary <> '' AND professional_summary !~ '(^[[:space:]])|([[:space:]]$)'),
+    skills JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(skills) = 'array'
+        AND NOT jsonb_path_exists(skills, 'strict $[*] ? (@.type() != "object")')
+    ),
+    experience JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(experience) = 'array'
+        AND NOT jsonb_path_exists(experience, 'strict $[*] ? (@.type() != "object")')
+    ),
+    previous_projects JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(previous_projects) = 'array'
+        AND NOT jsonb_path_exists(previous_projects, 'strict $[*] ? (@.type() != "object")')
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL REFERENCES operational.accounts (id) ON DELETE NO ACTION,
+    token_digest TEXT NOT NULL UNIQUE CHECK (token_digest ~ '^[0-9a-f]{64}$'),
+    csrf_digest TEXT NOT NULL CHECK (csrf_digest ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX sessions_account_id_idx
+    ON operational.sessions (account_id);
+
+CREATE TABLE operational.service_offerings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
+    description TEXT NOT NULL CHECK (
+        description <> '' AND description !~ '(^[[:space:]])|([[:space:]]$)'
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, id)
+);
+
+CREATE INDEX service_offerings_user_created_idx
+    ON operational.service_offerings (user_id, created_at, id);
+
+CREATE TABLE operational.ideal_client_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
+    industries JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(industries) = 'array'
+        AND NOT jsonb_path_exists(industries, 'strict $[*] ? (@.type() != "object")')
+    ),
+    company_sizes JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(company_sizes) = 'array'
+        AND NOT jsonb_path_exists(company_sizes, 'strict $[*] ? (@.type() != "object")')
+        AND NOT jsonb_path_exists(
+            company_sizes,
+            '$[*] ? (@.band.type() == "string" && @.band != "0-10" '
+            '&& @.band != "11-100" && @.band != "101-1000" && @.band != "1001+")'
+        )
+    ),
+    geographies JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(geographies) = 'array'
+        AND NOT jsonb_path_exists(geographies, 'strict $[*] ? (@.type() != "object")')
+    ),
+    exclusions JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (
+        jsonb_typeof(exclusions) = 'array'
+        AND NOT jsonb_path_exists(exclusions, 'strict $[*] ? (@.type() != "object")')
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, id)
+);
+
+CREATE INDEX ideal_client_profiles_user_created_idx
+    ON operational.ideal_client_profiles (user_id, created_at, id);
+
+CREATE TABLE operational.client_discovery_strategies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES operational.users (id) ON DELETE NO ACTION,
+    name TEXT NOT NULL CHECK (name <> '' AND name !~ '(^[[:space:]])|([[:space:]]$)'),
+    service_offering_id UUID NOT NULL,
+    ideal_client_profile_id UUID NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (user_id, service_offering_id)
+        REFERENCES operational.service_offerings (user_id, id) ON DELETE NO ACTION,
+    FOREIGN KEY (user_id, ideal_client_profile_id)
+        REFERENCES operational.ideal_client_profiles (user_id, id) ON DELETE NO ACTION
+);
+
+CREATE INDEX client_discovery_strategies_user_created_idx
+    ON operational.client_discovery_strategies (user_id, created_at, id);
+
+CREATE INDEX client_discovery_strategies_user_active_created_idx
+    ON operational.client_discovery_strategies (user_id, is_active, created_at, id);
+
+CREATE TABLE operational.employee (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES gold.company (id),
+    name TEXT NOT NULL,
+    position TEXT,
+    phone_number TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.match (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES operational.users (id),
+    company_id UUID NOT NULL REFERENCES gold.company (id),
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'responded', 'dismissed', 'converted')),
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT match_user_company_unique UNIQUE (user_id, company_id)
+);
+
+-- A single row per match today. Section 7's recompute design needs this
+-- to grow into a versioned history before v1 scoring ships (Jira KAN-8).
+CREATE TABLE operational.match_score (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID NOT NULL REFERENCES operational.match (id),
+    scoring_algorithm TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    feature_breakdown JSONB,
+    scored_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.match_feedback (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID NOT NULL REFERENCES operational.match (id),
+    rating TEXT NOT NULL CHECK (rating IN ('positive', 'negative')),
+    given_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- `type` is intentionally unconstrained: docs/entities.md leaves this list
+-- open-ended (Note, EmailSent, CallMade, FollowUpPlanned, and so on).
+CREATE TABLE operational.activity (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID NOT NULL REFERENCES operational.match (id),
+    employee_id UUID REFERENCES operational.employee (id),
+    type TEXT NOT NULL,
+    due_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    notes TEXT,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.communication (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID NOT NULL REFERENCES operational.match (id),
+    channel TEXT NOT NULL CHECK (channel IN ('email', 'linkedin', 'other')),
+    subject TEXT,
+    status TEXT NOT NULL DEFAULT 'drafting' CHECK (status IN ('drafting', 'finalized', 'sent')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.communication_version (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    communication_id UUID NOT NULL REFERENCES operational.communication (id),
+    version_number INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    is_final BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.communication_revision (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    communication_version_id UUID NOT NULL REFERENCES operational.communication_version (id),
+    derived_from_version_id UUID REFERENCES operational.communication_version (id),
+    agent_type TEXT NOT NULL CHECK (agent_type IN ('user', 'ai')),
+    change_summary TEXT,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE operational.communication_turn (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    communication_revision_id UUID NOT NULL REFERENCES operational.communication_revision (id),
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

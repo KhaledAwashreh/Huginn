@@ -8,7 +8,7 @@ from huginn.management.presentation.api.responses.common import NonBlank, Respon
 
 class DiscoveryStrategyResponse(ResponseModel):
     id: UUID
-    user_id: UUID
+    business_id: UUID
     name: NonBlank
     service_offering_id: UUID
     ideal_client_profile_id: UUID

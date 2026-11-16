@@ -5,6 +5,7 @@ x-app-environment: &app-environment
   HUGINN_MANAGEMENT_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
   HUGINN_MATCHMAKING_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
   HUGINN_MANAGEMENT_ENVIRONMENT: ${HUGINN_MANAGEMENT_ENVIRONMENT:-local}
+  HUGINN_DISCOVERY_NEW_WORK_ENABLED: ${HUGINN_DISCOVERY_NEW_WORK_ENABLED:-true}
   HUGINN_LIFECYCLE_PROOF_KEY: ${HUGINN_LIFECYCLE_PROOF_KEY:?Run python3 scripts/configure-compose.py first}
   HUGINN_WEB_ORIGIN: ${HUGINN_WEB_ORIGIN:-http://localhost:8080}
   HUGINN_SMTP_HOST: ${HUGINN_SMTP_HOST:-mailpit}
@@ -51,7 +52,9 @@ services:
         - >-
           pg_isready -h 127.0.0.1 -U huginn -d huginn &&
           test "$$(psql -U huginn -d huginn -Atc
-          "SELECT to_regclass('operational.weekly_digest_deliveries') IS NOT NULL")" = t
+          "SELECT to_regclass('operational.weekly_digest_contents') IS NOT NULL
+          AND to_regclass('operational.prospects') IS NOT NULL
+          AND to_regclass('gold.current_source_evidence') IS NOT NULL")" = t
       interval: 5s
       timeout: 5s
       retries: 20
@@ -141,10 +144,6 @@ services:
   collection-worker:
     <<: *app
     command: ["python", "-m", "huginn.pipeline_control", "worker"]
-
-  matching-worker:
-    <<: *app
-    command: ["python", "-m", "huginn.matchmaking_control", "worker"]
 
   mailpit:
     image: axllent/mailpit:v1.27.10

@@ -40,16 +40,28 @@ class ProfileService:
         self.values = {}
         self.calls = []
 
-    def create(self, principal, value):
-        self.calls.append(("create", principal.user_id, value))
+    def create(
+        self, principal, *, name, industries, company_sizes, geographies, exclusions
+    ):
+        self.calls.append(
+            (
+                "create",
+                principal.user_id,
+                name,
+                industries,
+                company_sizes,
+                geographies,
+                exclusions,
+            )
+        )
         profile = IdealClientProfile(
             uuid4(),
             principal.user_id,
-            value.name,
-            value.industries,
-            value.company_sizes,
-            value.geographies,
-            value.exclusions,
+            name,
+            industries,
+            company_sizes,
+            geographies,
+            exclusions,
             NOW,
             NOW,
         )
@@ -63,13 +75,13 @@ class ProfileService:
         owned = [
             value
             for value in self.values.values()
-            if value.user_id == principal.user_id
+            if value.business_id == principal.user_id
         ]
         return Page(tuple(owned[offset : offset + limit]), offset, limit, False)
 
     def get(self, principal, profile_id):
         value = self.values.get(profile_id)
-        if value is None or value.user_id != principal.user_id:
+        if value is None or value.business_id != principal.user_id:
             raise NotFoundError("not found")
         return value
 
@@ -83,7 +95,7 @@ class ProfileService:
     def delete(self, principal, profile_id):
         if (
             profile_id not in self.values
-            or self.values[profile_id].user_id != principal.user_id
+            or self.values[profile_id].business_id != principal.user_id
         ):
             raise NotFoundError("not found")
         raise ConflictError("referenced")
@@ -94,15 +106,32 @@ class StrategyService:
         self.values = {}
         self.calls = []
 
-    def create(self, principal, value):
-        self.calls.append(("create", principal.user_id, value))
+    def create(
+        self,
+        principal,
+        *,
+        name,
+        service_offering_id,
+        ideal_client_profile_id,
+        is_active=False,
+    ):
+        self.calls.append(
+            (
+                "create",
+                principal.user_id,
+                name,
+                service_offering_id,
+                ideal_client_profile_id,
+                is_active,
+            )
+        )
         strategy = ClientDiscoveryStrategy(
             uuid4(),
             principal.user_id,
-            value.name,
-            value.service_offering_id,
-            value.ideal_client_profile_id,
-            value.is_active,
+            name,
+            service_offering_id,
+            ideal_client_profile_id,
+            is_active,
             NOW,
             NOW,
         )
@@ -116,14 +145,14 @@ class StrategyService:
         owned = [
             value
             for value in self.values.values()
-            if value.user_id == principal.user_id
+            if value.business_id == principal.user_id
             and (active is None or value.is_active is active)
         ]
         return Page(tuple(owned[offset : offset + limit]), offset, limit, False)
 
     def get(self, principal, strategy_id):
         value = self.values.get(strategy_id)
-        if value is None or value.user_id != principal.user_id:
+        if value is None or value.business_id != principal.user_id:
             raise NotFoundError("not found")
         return value
 
@@ -163,10 +192,10 @@ def test_icp_routes_map_typed_collections_pages_uuid_and_errors():
     with client:
         created = client.post("/api/v1/ideal-client-profiles", json={"name": "Target"})
         assert created.status_code == 201
-        assert created.json()["user_id"] == str(principal.user_id)
+        assert created.json()["business_id"] == str(principal.user_id)
         assert created.json()["industries"] == []
         profile_id = created.json()["id"]
-        assert isinstance(service.calls[-1][2].industries, tuple)
+        assert isinstance(service.calls[-1][3], tuple)
 
         replaced = client.patch(
             f"/api/v1/ideal-client-profiles/{profile_id}",
@@ -199,6 +228,30 @@ def test_icp_routes_map_typed_collections_pages_uuid_and_errors():
         assert client.get("/api/v1/ideal-client-profiles?limit=101").status_code == 422
 
 
+def test_icp_create_and_patch_pass_json_safe_company_exclusions():
+    service = ProfileService()
+    client, _ = _client(profile_service=service)
+    company_id = str(uuid4())
+    exclusions = [{"kind": "company", "company_id": company_id}]
+    with client:
+        created = client.post(
+            "/api/v1/ideal-client-profiles",
+            json={"name": "Excluded company", "exclusions": exclusions},
+        )
+        assert created.status_code == 201
+        assert service.calls[-1][-1] == tuple(exclusions)
+        assert created.json()["exclusions"] == exclusions
+        profile_id = created.json()["id"]
+
+        replaced = client.patch(
+            f"/api/v1/ideal-client-profiles/{profile_id}",
+            json={"exclusions": exclusions},
+        )
+        assert replaced.status_code == 200
+        assert service.calls[-1][1].values["exclusions"] == tuple(exclusions)
+        assert replaced.json()["exclusions"] == exclusions
+
+
 def test_strategy_routes_default_inactive_filter_activate_and_hide_other_owner():
     service = StrategyService()
     client, principal = _client(strategy_service=service)
@@ -212,7 +265,7 @@ def test_strategy_routes_default_inactive_filter_activate_and_hide_other_owner()
         assert created.status_code == 201
         strategy_id = created.json()["id"]
         assert created.json()["is_active"] is False
-        assert service.calls[-1][2].is_active is False
+        assert service.calls[-1][5] is False
 
         activated = client.patch(
             f"/api/v1/discovery-strategies/{strategy_id}", json={"is_active": True}

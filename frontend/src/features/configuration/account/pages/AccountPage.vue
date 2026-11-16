@@ -3,6 +3,7 @@ import PageHeader from '../../../../shared/ui/PageHeader.vue';
 import LoadingState from '../../../../shared/ui/LoadingState.vue';
 import ErrorState from '../../../../shared/ui/ErrorState.vue';
 import AccountForm from '../components/AccountForm.vue';
+import AccountSecurityPanel from '../components/AccountSecurityPanel.vue';
 import { useAccount } from '../composables/useAccount';
 const { account } = useAccount();
 </script>
@@ -21,6 +22,7 @@ const { account } = useAccount();
       message="Account details could not be loaded. Reload before trying again."
     />
     <AccountForm v-else-if="account.data.value" :account="account.data.value" />
+    <AccountSecurityPanel />
   </div>
 </template>
 <style scoped>

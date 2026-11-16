@@ -1,0 +1,54 @@
+import { flushPromises, mount } from '@vue/test-utils';
+import PrimeVue from 'primevue/config';
+import { expect, it, vi } from 'vitest';
+import type { IdealClientProfileDraft } from '@/features/configuration/ideal-client-profiles/forms/idealClientProfileDraft';
+import IdealClientProfileForm from '@/features/configuration/ideal-client-profiles/components/IdealClientProfileForm.vue';
+
+vi.mock(
+  '@/features/configuration/ideal-client-profiles/composables/useConfigurationOptions',
+  () => ({
+    useConfigurationOptions: () => ({
+      data: {
+        value: { industries: [], countries: [], company_sizes: [] },
+      },
+      isPending: { value: false },
+      isError: { value: false },
+    }),
+  }),
+);
+
+const initial: IdealClientProfileDraft = {
+  name: '',
+  industries: [],
+  company_sizes: [],
+  geographies: [],
+  exclusions: [],
+};
+
+it('does not retry an uncertain create after a successful list refresh', async () => {
+  const save = vi.fn().mockRejectedValue(new TypeError('network unavailable'));
+  const wrapper = mount(IdealClientProfileForm, {
+    props: {
+      initial,
+      existing: false,
+      save,
+      refreshSaved: async () => null,
+      afterSave: vi.fn(),
+    },
+    global: { plugins: [PrimeVue] },
+  });
+
+  await wrapper.get('#icp-name').setValue('Second ICP');
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(wrapper.text()).toContain('outcome is uncertain');
+  expect(save).toHaveBeenCalledOnce();
+
+  await wrapper.get('button[aria-label="Refresh saved data"]').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('create result is still uncertain');
+  expect((wrapper.get('#icp-name').element as HTMLInputElement).value).toBe('Second ICP');
+  expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+  await wrapper.get('form').trigger('submit');
+  expect(save).toHaveBeenCalledOnce();
+});

@@ -2,254 +2,203 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { defineComponent, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { ApiError } from '../../src/api/apiError';
-import { useRecommendations } from '../../src/features/recommendations/composables/useRecommendations';
-import type { RecommendationBatch } from '../../src/features/recommendations/models/recommendation';
+import { useRecommendationWorkspace } from '../../src/features/recommendations/composables/useRecommendationWorkspace';
+import type {
+  RecommendationPage,
+  RecommendationView,
+} from '../../src/features/recommendations/models/prospecting';
+
 const mocks = vi.hoisted(() => ({
   session: { value: null as unknown },
-  latest: vi.fn(),
-  saved: vi.fn(),
-  generate: vi.fn(),
+  list: vi.fn(),
+  suppressions: vi.fn(),
+  preferences: vi.fn(),
   strategies: vi.fn(),
-  feedback: vi.fn(),
-  weekly: vi.fn(),
-}));
-vi.mock('../../src/features/recommendations/api/listWeeklyMatches', () => ({
-  listWeeklyMatches: mocks.weekly,
+  generate: vi.fn(),
 }));
 vi.mock('../../src/features/session/composables/useSession', () => ({
   useSession: () => ({ context: mocks.session }),
 }));
-vi.mock('../../src/features/recommendations/api/getLatestRecommendations', () => ({
-  getLatestRecommendations: mocks.latest,
+vi.mock('../../src/features/recommendations/api/listRecommendations', () => ({
+  listRecommendations: mocks.list,
 }));
-vi.mock('../../src/features/recommendations/api/getRecommendationBatch', () => ({
-  getRecommendationBatch: mocks.saved,
+vi.mock('../../src/features/recommendations/api/listSuppressions', () => ({
+  listSuppressions: mocks.suppressions,
 }));
-vi.mock('../../src/features/recommendations/api/generateRecommendations', () => ({
-  generateRecommendations: mocks.generate,
-}));
-vi.mock('../../src/features/recommendations/api/listRecommendationFeedback', () => ({
-  listRecommendationFeedback: mocks.feedback,
+vi.mock('../../src/features/recommendations/api/getBusinessRecommendationPreferences', () => ({
+  getBusinessRecommendationPreferences: mocks.preferences,
 }));
 vi.mock(
   '../../src/features/configuration/discovery-strategies/api/listDiscoveryStrategies',
-  () => ({ listDiscoveryStrategies: mocks.strategies }),
+  () => ({
+    listDiscoveryStrategies: mocks.strategies,
+  }),
 );
-function batch(id: string, strategy_id: string): RecommendationBatch {
-  return {
-    id,
-    kind: 'on_demand',
-    strategy_id,
-    created_at: '2026-10-28T00:00:00Z',
-    algorithm_version: 'v1',
-    assessment_method: 'Research relevance',
-    candidate_count: 0,
-    retrieval_limit: 10,
-    items: [],
-  };
+vi.mock('../../src/features/recommendations/api/generateRecommendations', () => ({
+  generateRecommendations: mocks.generate,
+}));
+
+function emptyPage(offset = 0): RecommendationPage {
+  return { items: [], offset, limit: 25, has_more: false };
 }
-function setup(
-  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-  requestedBatch = ref(''),
-  weekly = ref(false),
-) {
-  let workspace!: ReturnType<typeof useRecommendations>;
+function setup() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let workspace!: ReturnType<typeof useRecommendationWorkspace>;
   mount(
     defineComponent({
       setup() {
-        workspace = useRecommendations(requestedBatch, weekly);
+        workspace = useRecommendationWorkspace();
         return () => null;
       },
     }),
-    {
-      global: {
-        plugins: [[VueQueryPlugin, { queryClient: client }]],
-      },
-    },
+    { global: { plugins: [[VueQueryPlugin, { queryClient: client }]] } },
   );
-  return workspace;
+  return { client, workspace };
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.session = ref({ account_id: 'account-1', user_id: 'user-1', csrf_token: 'proof-1' });
-  mocks.strategies.mockResolvedValue({
-    items: [{ id: 'strategy-1', name: 'One' }],
-    has_more: false,
+  mocks.session = ref({ account_id: 'account-1', user_id: 'user-1', csrf_token: 'csrf-1' });
+  mocks.list.mockImplementation(async ({ offset }: { offset: number }) => emptyPage(offset));
+  mocks.suppressions.mockResolvedValue(emptyPage());
+  mocks.preferences.mockResolvedValue({
+    repeat_interval_days: 30,
+    updated_at: '2026-11-14T10:00:00Z',
   });
-  mocks.feedback.mockResolvedValue([]);
+  mocks.strategies.mockResolvedValue({ items: [], has_more: false, offset: 0, limit: 100 });
 });
 
-it('weekly history opens its saved selection without generating or fetching on-demand latest', async () => {
-  mocks.weekly.mockResolvedValue([batch('weekly-batch', 'strategy-1')]);
-  mocks.saved.mockResolvedValue({ ...batch('weekly-batch', 'strategy-1'), kind: 'weekly' });
-  const workspace = setup(undefined, ref(''), ref(true));
+it('searches and filters on the server and resets pagination on each query change', async () => {
+  const { workspace } = setup();
   await flushPromises();
-  await workspace.generate();
-  expect(workspace.batch.data.value?.id).toBe('weekly-batch');
-  expect(mocks.generate).not.toHaveBeenCalled();
-  expect(mocks.latest).not.toHaveBeenCalled();
-  expect(mocks.strategies).not.toHaveBeenCalled();
-});
-it('treats a missing latest batch as empty and resumes another selected strategy', async () => {
-  mocks.latest
-    .mockRejectedValueOnce(new ApiError(404, 'not_found', 'Missing'))
-    .mockResolvedValueOnce(batch('batch-2', 'strategy-2'));
-  const workspace = setup();
-  workspace.strategyId.value = 'strategy-1';
+  workspace.setOffset(50);
   await flushPromises();
-  expect(workspace.batch.data.value).toBeNull();
-  expect(workspace.batch.isError.value).toBe(false);
-  workspace.strategyId.value = 'strategy-2';
+  workspace.search.value = 'northstar.example';
   await flushPromises();
-  expect(workspace.batch.data.value?.id).toBe('batch-2');
-});
-it('discards a late generation result after strategy selection changes', async () => {
-  mocks.latest.mockResolvedValue(null);
-  let resolve!: (batch: RecommendationBatch) => void;
-  mocks.generate.mockImplementation(
-    () =>
-      new Promise<RecommendationBatch>((done) => {
-        resolve = done;
-      }),
+  workspace.status.value = 'converted';
+  await flushPromises();
+  expect(workspace.offset.value).toBe(0);
+  expect(mocks.list).toHaveBeenLastCalledWith(
+    { status: 'converted', search: 'northstar.example', offset: 0, limit: 25 },
+    expect.any(AbortSignal),
   );
-  const workspace = setup();
-  workspace.strategyId.value = 'strategy-1';
-  await flushPromises();
-  const pending = workspace.generate();
-  workspace.strategyId.value = 'strategy-2';
-  await flushPromises();
-  resolve(batch('old-batch', 'strategy-1'));
-  await pending;
-  expect(workspace.batch.data.value).toBeNull();
-  expect(workspace.generating.value).toBe(false);
-});
-it('clears the selection on identity or session proof change', async () => {
-  mocks.latest.mockResolvedValue(batch('batch-1', 'strategy-1'));
-  const workspace = setup();
-  workspace.strategyId.value = 'strategy-1';
-  await flushPromises();
-  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'proof-2' };
-  await flushPromises();
-  expect(workspace.strategyId.value).toBe('');
-  expect(workspace.batch.data.value).toBeUndefined();
 });
 
-it('explains rejected strategy settings without discarding the previous assessment', async () => {
-  mocks.latest.mockResolvedValue(batch('batch-1', 'strategy-1'));
-  mocks.generate.mockRejectedValue(new ApiError(422, 'validation_error', 'Unsafe server details'));
-  const workspace = setup();
-  workspace.strategyId.value = 'strategy-1';
+it('posts a generation request then refreshes the canonical list without inserting returned references', async () => {
+  const { workspace, client } = setup();
   await flushPromises();
-  await workspace.generate();
-  expect(workspace.generationError.value).toContain('offering topics');
-  expect(workspace.generationError.value).toContain('explicit countries');
-  expect(workspace.generationError.value).not.toContain('Unsafe server details');
-  expect(workspace.batch.data.value?.id).toBe('batch-1');
+  const generated = {
+    run_id: 'run-1',
+    references: [{ recommendation_id: 'rec-1', revision_id: 'rev-1', recommendation_version: 2 }],
+  };
+  mocks.generate.mockResolvedValue(generated);
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const setData = vi.spyOn(client, 'setQueryData');
+  await workspace.generate('strategy-1');
+  expect(mocks.generate).toHaveBeenCalledWith('strategy-1', 10);
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: workspace.recommendationsKey.value });
+  expect(setData).not.toHaveBeenCalled();
+  expect(workspace.generationResult.value).toEqual(generated);
 });
 
-it('does not repopulate cleared session cache if identity changes while generation cancels an old read', async () => {
-  mocks.latest.mockResolvedValue(null);
-  mocks.generate.mockResolvedValue(batch('old-batch', 'strategy-1'));
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const workspace = setup(client);
-  workspace.strategyId.value = 'strategy-1';
+it('resets server rows and search state when the authenticated identity changes', async () => {
+  mocks.list.mockResolvedValueOnce({ ...emptyPage(), items: [{ id: 'private-rec' }] });
+  const { workspace, client } = setup();
   await flushPromises();
-  let release!: () => void;
-  vi.spyOn(client, 'cancelQueries').mockImplementation(
-    () =>
-      new Promise<void>((done) => {
-        release = done;
-      }),
+  workspace.search.value = 'private';
+  await flushPromises();
+  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'csrf-2' };
+  await flushPromises();
+  expect(workspace.search.value).toBe('');
+  expect(client.getQueryData(workspace.recommendationsKey.value)).not.toEqual(
+    expect.objectContaining({ items: [{ id: 'private-rec' }] }),
   );
-  const pending = workspace.generate();
-  await flushPromises();
-  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'proof-2' };
-  await flushPromises();
-  client.clear();
-  release();
-  await pending;
-  expect(
-    client.getQueryData([
-      'recommendations',
-      'account-1:user-1:proof-1',
-      'latest',
-      'strategy-1',
-      'on_demand',
-    ]),
-  ).toBeUndefined();
 });
 
-it('opens the exact saved batch without requesting the latest assessment', async () => {
-  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
-  const workspace = setup(undefined, ref('sent-batch'));
+it('retains a recommendation action draft across row removal and pagination, but scopes it to identity', async () => {
+  const { workspace } = setup();
   await flushPromises();
-  expect(mocks.saved).toHaveBeenCalledWith('sent-batch', expect.any(AbortSignal));
-  expect(mocks.latest).not.toHaveBeenCalled();
-  expect(workspace.batch.data.value?.id).toBe('sent-batch');
-  expect(workspace.strategyId.value).toBe('strategy-1');
-});
-it('keeps an unavailable saved batch as an error without falling back to latest', async () => {
-  mocks.saved.mockRejectedValue(new ApiError(404, 'not_found', 'Missing'));
-  const workspace = setup(undefined, ref('missing-batch'));
+  const draft = workspace.commandDraftFor('rec-1');
+  draft.reason = 'The purchasing role is not verified.';
+  draft.snapshot = { id: 'rec-1', status: 'open' } as RecommendationView;
+  draft.pauseChoice = 'x3';
+  draft.status = 'uncertain';
+  draft.feedback.notes = 'Retain this report draft too.';
+  draft.feedback.status = 'uncertain';
+  draft.feedback.intent = {
+    identity: workspace.identity.value,
+    recommendationId: 'rec-1',
+    request: {
+      assessment_revision_id: 'revision-1',
+      request_key: 'fixed-feedback-key',
+      feedback: {
+        usefulness: 'not_useful',
+        reasons: ['evidence_wrong'],
+        outcome: 'unknown',
+        next_step: 'none',
+        correction: '',
+        notes: 'Retain this report draft too.',
+      },
+    },
+  };
+  draft.intent = {
+    identity: workspace.identity.value,
+    recommendationId: 'rec-1',
+    kind: 'not_relevant',
+    request: {
+      assessment_revision_id: 'revision-1',
+      expected_recommendation_version: 4,
+      reason: 'The purchasing role is not verified.',
+      request_key: 'fixed-request-key',
+    },
+  };
+
+  workspace.setOffset(25);
   await flushPromises();
-  expect(workspace.batch.isError.value).toBe(true);
-  expect(mocks.latest).not.toHaveBeenCalled();
-});
-it('loads saved batches again under a changed identity', async () => {
-  mocks.saved
-    .mockResolvedValueOnce(batch('sent-batch', 'strategy-1'))
-    .mockRejectedValueOnce(new ApiError(404, 'not_found', 'Missing'));
-  const workspace = setup(undefined, ref('sent-batch'));
+  expect(workspace.commandDraftFor('rec-1')).toMatchObject({
+    reason: 'The purchasing role is not verified.',
+    pauseChoice: 'x3',
+    status: 'uncertain',
+    intent: { recommendationId: 'rec-1', request: { request_key: 'fixed-request-key' } },
+    feedback: {
+      notes: 'Retain this report draft too.',
+      status: 'uncertain',
+      intent: { request: { request_key: 'fixed-feedback-key' } },
+    },
+  });
+  expect(workspace.commandRecoveries.value).toMatchObject([
+    { recommendationId: 'rec-1', snapshot: { id: 'rec-1' }, decisionDraft: true },
+  ]);
+
+  const remounted = setup().workspace;
+  expect(remounted.commandDraftFor('rec-1')).toMatchObject({
+    reason: 'The purchasing role is not verified.',
+    intent: { request: { request_key: 'fixed-request-key' } },
+  });
+
+  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'csrf-2' };
   await flushPromises();
-  mocks.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'proof-2' };
-  await flushPromises();
-  expect(mocks.saved).toHaveBeenCalledTimes(2);
-  expect(workspace.batch.data.value).toBeUndefined();
-  expect(workspace.batch.isError.value).toBe(true);
-});
-it('resumes latest after explicitly changing strategy from a saved batch', async () => {
-  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
-  mocks.latest.mockResolvedValue(batch('new-batch', 'strategy-2'));
-  const workspace = setup(undefined, ref('sent-batch'));
-  await flushPromises();
-  workspace.strategyId.value = 'strategy-2';
-  await flushPromises();
-  expect(workspace.batch.data.value?.id).toBe('new-batch');
+  expect(workspace.commandDraftFor('rec-1')).not.toMatchObject({
+    reason: 'The purchasing role is not verified.',
+    intent: { request: { request_key: 'fixed-request-key' } },
+  });
+  expect(workspace.commandDraftFor('rec-1')).toMatchObject({
+    reason: '',
+    pauseChoice: 'x1',
+    status: 'idle',
+    intent: null,
+    feedback: { notes: '', status: 'idle', intent: null },
+  });
+  expect(workspace.commandRecoveries.value).toEqual([]);
 });
 
-it('generates a new batch and stays on it when the saved link is cleared', async () => {
-  mocks.saved.mockResolvedValue(batch('sent-batch', 'strategy-1'));
-  mocks.latest.mockResolvedValue(batch('old-latest', 'strategy-1'));
-  mocks.generate.mockResolvedValue(batch('new-batch', 'strategy-1'));
-  const requested = ref('sent-batch');
-  const workspace = setup(undefined, requested);
+it('does not read suppressions until the user opens their manager', async () => {
+  const { workspace } = setup();
   await flushPromises();
-  expect(await workspace.generate()).toBe(true);
-  requested.value = '';
+  expect(mocks.suppressions).not.toHaveBeenCalled();
+  workspace.suppressionsVisible.value = true;
   await flushPromises();
-  expect(workspace.pinnedBatch.value).toBe('');
-  expect(workspace.strategyId.value).toBe('strategy-1');
-  expect(workspace.batch.data.value?.id).toBe('new-batch');
-});
-
-it('preserves a pinned assessment when generation fails', async () => {
-  mocks.saved.mockResolvedValue(batch('historical', 'strategy-1'));
-  mocks.generate.mockRejectedValue(new Error('offline'));
-  const requested = ref('historical');
-  const workspace = setup(undefined, requested);
-  await flushPromises();
-  expect(await workspace.generate()).toBe(false);
-  expect(workspace.pinnedBatch.value).toBe('historical');
-  expect(workspace.batch.data.value?.id).toBe('historical');
-  expect(mocks.latest).not.toHaveBeenCalled();
-});
-
-it('rejects an on-demand batch pinned to weekly matches', async () => {
-  mocks.saved.mockResolvedValue(batch('on-demand', 'strategy-1'));
-  mocks.weekly.mockResolvedValue([]);
-  const workspace = setup(undefined, ref('on-demand'), ref(true));
-  await flushPromises();
-  expect(workspace.batch.isError.value).toBe(true);
-  expect(workspace.batch.data.value).toBeUndefined();
+  expect(mocks.suppressions).toHaveBeenCalledWith(
+    { search: '', offset: 0, limit: 25 },
+    expect.any(AbortSignal),
+  );
 });

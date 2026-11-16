@@ -26,6 +26,9 @@ from huginn.management.persistence.database.client import (
 )
 from huginn.management.persistence.database.unit_of_work import UnitOfWork
 from huginn.management.persistence.repositories.account import PostgresAccountRepository
+from huginn.management.persistence.repositories.business import (
+    PostgresBusinessRepository,
+)
 from huginn.management.persistence.repositories.discovery_strategy import (
     PostgresClientDiscoveryStrategyRepository,
 )
@@ -42,6 +45,11 @@ from huginn.management.presentation.api.requests.discovery_strategy import (
 from huginn.management.presentation.api.requests.discovery_strategy import (
     DiscoveryStrategyUpdateRequest as StrategyPatch,
 )
+
+
+class BusinessLookup:
+    def get_by_owner_user_id(self, owner_user_id):
+        return SimpleNamespace(id=owner_user_id)
 
 
 def test_strategy_models_are_strict_and_default_inactive():
@@ -91,27 +99,60 @@ def test_strategy_repository_supports_shared_active_references_and_filtering(
         )
         offering = PostgresServiceOfferingRepository(
             PsycopgDatabaseSession(connection)
-        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
+        ).create(
+            NewServiceOffering(
+                PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+                .get_by_owner_user_id(owner.id)
+                .id,
+                "Consulting",
+                "Audit",
+            )
+        )
         profile = PostgresIdealClientProfileRepository(
             PsycopgDatabaseSession(connection)
-        ).create(NewIdealClientProfile(owner.id, "Target", (), (), (), ()))
+        ).create(
+            NewIdealClientProfile(
+                PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+                .get_by_owner_user_id(owner.id)
+                .id,
+                "Target",
+                (),
+                (),
+                (),
+                (),
+            )
+        )
+        owner_business_id = (
+            PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+            .get_by_owner_user_id(owner.id)
+            .id
+        )
         repo = PostgresClientDiscoveryStrategyRepository(
             PsycopgDatabaseSession(connection)
         )
         first = repo.create(
-            NewClientDiscoveryStrategy(owner.id, "One", offering.id, profile.id, True)
+            NewClientDiscoveryStrategy(
+                owner_business_id, "One", offering.id, profile.id, True
+            )
         )
         second = repo.create(
-            NewClientDiscoveryStrategy(owner.id, "Two", offering.id, profile.id, True)
+            NewClientDiscoveryStrategy(
+                owner_business_id, "Two", offering.id, profile.id, True
+            )
         )
-        active = repo.list_owned(owner.id, limit=10, offset=0, active=True)
+        active = repo.list_owned(owner_business_id, limit=10, offset=0, active=True)
         assert {item.id for item in active.items} == {first.id, second.id}
-        assert repo.get_owned(other.id, first.id) is None
+        other_business_id = (
+            PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+            .get_by_owner_user_id(other.id)
+            .id
+        )
+        assert repo.get_owned(other_business_id, first.id) is None
         connection.execute("SAVEPOINT cross_owner_strategy")
         with pytest.raises(NotFoundError):
             repo.create(
                 NewClientDiscoveryStrategy(
-                    other.id, "Injected", offering.id, profile.id, False
+                    other_business_id, "Injected", offering.id, profile.id, False
                 )
             )
         connection.execute("ROLLBACK TO SAVEPOINT cross_owner_strategy")
@@ -142,6 +183,7 @@ def test_strategy_service_preflights_owned_references_before_write():
 
     service = ClientDiscoveryStrategyService(
         Uow,
+        businesses_factory=lambda _uow: BusinessLookup(),
         strategies_factory=lambda _uow: Strategies(),
         offerings_factory=lambda _uow: Missing(),
         profiles_factory=lambda _uow: Missing(),
@@ -149,11 +191,9 @@ def test_strategy_service_preflights_owned_references_before_write():
     with pytest.raises(NotFoundError):
         service.create(
             Principal(uuid4(), uuid4()),
-            StrategyCreate(
-                name="Nope",
-                service_offering_id=uuid4(),
-                ideal_client_profile_id=uuid4(),
-            ),
+            name="Nope",
+            service_offering_id=uuid4(),
+            ideal_client_profile_id=uuid4(),
         )
 
 
@@ -183,6 +223,7 @@ def test_strategy_service_maps_update_lost_after_preflight_to_not_found():
     uow = Uow()
     service = ClientDiscoveryStrategyService(
         lambda: uow,
+        businesses_factory=lambda _uow: BusinessLookup(),
         strategies_factory=lambda _uow: Strategies(),
         offerings_factory=lambda _uow: None,
         profiles_factory=lambda _uow: None,
@@ -218,17 +259,22 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
                 "US",
             )
         )
+        business_id = (
+            PostgresBusinessRepository(PsycopgDatabaseSession(connection))
+            .get_by_owner_user_id(owner.id)
+            .id
+        )
         offering = PostgresServiceOfferingRepository(
             PsycopgDatabaseSession(connection)
-        ).create(NewServiceOffering(owner.id, "Consulting", "Audit"))
+        ).create(NewServiceOffering(business_id, "Consulting", "Audit"))
         profile = PostgresIdealClientProfileRepository(
             PsycopgDatabaseSession(connection)
-        ).create(NewIdealClientProfile(owner.id, "Target", (), (), (), ()))
+        ).create(NewIdealClientProfile(business_id, "Target", (), (), (), ()))
         strategy = PostgresClientDiscoveryStrategyRepository(
             PsycopgDatabaseSession(connection)
         ).create(
             NewClientDiscoveryStrategy(
-                owner.id, "Weekly", offering.id, profile.id, False
+                business_id, "Weekly", offering.id, profile.id, False
             )
         )
 
@@ -278,6 +324,7 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
 
     service = ClientDiscoveryStrategyService(
         lambda: UnitOfWork(factory),
+        businesses_factory=lambda uow: PostgresBusinessRepository(uow.connection),
         strategies_factory=lambda uow: RacingStrategies(uow.connection),
         offerings_factory=lambda uow: CheckedOfferings(uow.connection),
         profiles_factory=lambda uow: CheckedProfiles(uow.connection),
@@ -311,6 +358,14 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
             cleanup_connection.execute(
                 "DELETE FROM operational.service_offerings WHERE id = %s",
                 (offering.id,),
+            )
+            cleanup_connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences "
+                "WHERE business_id=%s",
+                (business_id,),
+            )
+            cleanup_connection.execute(
+                "DELETE FROM operational.businesses WHERE id=%s", (business_id,)
             )
             cleanup_connection.execute(
                 "DELETE FROM operational.users WHERE id = %s", (owner.id,)

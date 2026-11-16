@@ -31,24 +31,48 @@ _PROBES = (
     "SELECT id, account_id, first_name, last_name, email, phone_number, "
     "country_of_residence, timezone, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.users LIMIT 0",
+    "SELECT id, owner_user_id, name, tagline, website, location, description, "
+    "capabilities, created_at, updated_at "
+    f"FROM {MANAGEMENT_SCHEMA}.businesses LIMIT 0",
+    "SELECT business_id, repeat_interval_days, updated_at "
+    f"FROM {MANAGEMENT_SCHEMA}.business_recommendation_preferences LIMIT 0",
     "SELECT id, user_id, headline, professional_summary, skills, experience, "
     "previous_projects, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.professional_profiles LIMIT 0",
     "SELECT id, account_id, token_digest, csrf_digest, created_at, expires_at, "
     f"revoked_at FROM {MANAGEMENT_SCHEMA}.sessions LIMIT 0",
-    "SELECT id, user_id, name, description, created_at, updated_at "
+    "SELECT id, business_id, name, description, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.service_offerings LIMIT 0",
-    "SELECT id, user_id, name, industries, company_sizes, geographies, "
+    "SELECT id, business_id, name, industries, company_sizes, geographies, "
     "exclusions, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.ideal_client_profiles LIMIT 0",
-    "SELECT id, user_id, name, service_offering_id, ideal_client_profile_id, "
+    "SELECT id, business_id, name, service_offering_id, ideal_client_profile_id, "
     "is_active, created_at, updated_at "
     f"FROM {MANAGEMENT_SCHEMA}.client_discovery_strategies LIMIT 0",
     "SELECT id, company_id, observation_id, signal_type, source, source_stable_id, "
     "source_url, description, stage, occurred_at, ingested_at, observed_at, "
     "evidence_kind, hiring_state FROM gold.current_source_evidence LIMIT 0",
-    "SELECT match_id, observation_id, cutoff, as_of "
-    f"FROM {MANAGEMENT_SCHEMA}.match_source_evidence LIMIT 0",
+    *(
+        f"SELECT business_id FROM {MANAGEMENT_SCHEMA}.{table} LIMIT 0"
+        for table in (
+            "recommendations",
+            "assessment_revisions",
+            "offer_cycles",
+            "offer_cycle_events",
+            "prospects",
+            "prospect_origins",
+            "prospect_activities",
+            "suppression_blocks",
+            "command_receipts",
+            "recommendation_assessment_feedback",
+            "weekly_digest_subscriptions",
+            "weekly_digest_contents",
+            "weekly_digest_members",
+            "weekly_digest_delivery_events",
+        )
+    ),
+    "SELECT id, business_id, current_content_id, version, sending_started_at, accepted_at, settled_at "
+    f"FROM {MANAGEMENT_SCHEMA}.weekly_digest_deliveries LIMIT 0",
 )
 
 

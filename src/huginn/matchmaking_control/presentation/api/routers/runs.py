@@ -4,7 +4,7 @@ from dataclasses import asdict
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from huginn.management.presentation.api.dependencies.administrator import Administrator
@@ -27,18 +27,6 @@ from huginn.matchmaking_control.application.requests.list_target_users_request i
 from huginn.matchmaking_control.application.requests.list_user_results_request import (
     ListUserResultsRequest,
 )
-from huginn.matchmaking_control.application.requests.trigger_run_request import (
-    TriggerRunRequest,
-)
-from huginn.matchmaking_control.domain.errors.run import (
-    ActiveRunConflictError,
-    NoEligibleUsersError,
-    RequestIdentityConflictError,
-    TargetUserDisabledError,
-    TargetUserNotFoundError,
-    TriggerRateLimitError,
-)
-from huginn.matchmaking_control.domain.value_objects.requester import Requester
 from huginn.matchmaking_control.domain.value_objects.run_state import RunState
 from huginn.matchmaking_control.domain.value_objects.target_state import TargetState
 from huginn.matchmaking_control.presentation.api.requests.list_runs import ListRunsQuery
@@ -51,14 +39,8 @@ from huginn.matchmaking_control.presentation.api.requests.list_target_users impo
 from huginn.matchmaking_control.presentation.api.requests.list_user_results import (
     ListUserResultsQuery,
 )
-from huginn.matchmaking_control.presentation.api.requests.trigger_run import (
-    TriggerRunBody,
-)
 from huginn.matchmaking_control.presentation.api.responses.run_detail import (
     RunDetailResponse,
-)
-from huginn.matchmaking_control.presentation.api.responses.run_receipt import (
-    RunReceiptResponse,
 )
 from huginn.matchmaking_control.presentation.api.responses.run_summary import (
     RunSummaryResponse,
@@ -121,55 +103,14 @@ def users(
     }
 
 
-@router.post(
-    "/runs",
-    status_code=202,
-    response_model=RunReceiptResponse,
-    responses=error_responses(409, 429),
-)
+@router.post("/runs", status_code=410, responses=error_responses(410))
 def trigger(
-    body: TriggerRunBody,
+    _body: dict,
     administrator: Administrator,
     _csrf: CsrfProtected,
-    dependencies: Management,
-    response: Response,
 ):
-    try:
-        result = dependencies.matchmaking_services.trigger.execute(
-            TriggerRunRequest(
-                Requester(administrator.principal.account_id),
-                body.request_id,
-                body.target.kind,
-                body.cutoff,
-                body.as_of,
-                getattr(body.target, "user_id", None),
-            )
-        )
-    except ActiveRunConflictError as exc:
-        return _error(
-            409,
-            "active_matching_run",
-            "Another matching run is active",
-            {"active_matching_run_id": str(exc.active_run_id)},
-        )
-    except RequestIdentityConflictError:
-        return _error(
-            409, "request_identity_conflict", "Request identity has different input"
-        )
-    except TargetUserNotFoundError:
-        return _error(404, "not_found", "Target user was not found")
-    except TargetUserDisabledError:
-        return _error(422, "disabled_user", "Target user is disabled")
-    except NoEligibleUsersError:
-        return _error(422, "no_eligible_users", "No eligible users were found")
-    except TriggerRateLimitError:
-        response = _error(429, "rate_limited", "Too many matching requests")
-        response.headers["Retry-After"] = "3600"
-        return response
-    except ValueError:
-        return _error(422, "invalid_input", "Invalid matching window or target")
-    response.headers["Location"] = f"{router.prefix}/runs/{result.id}"
-    return RunReceiptResponse.model_validate(asdict(result))
+    del _body, administrator, _csrf
+    return _error(410, "matchmaking_retired", "Match creation has been retired")
 
 
 @router.get("/runs", response_model=PageResponse[RunSummaryResponse])

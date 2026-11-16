@@ -115,7 +115,7 @@ describe('pipeline stage views', () => {
       sources,
     };
     const wrapper = mount(InvocationSummary, { props: { invocation } });
-    expect(wrapper.text()).toContain('3 of 9 stages finished');
+    expect(wrapper.text()).toContain('3 of 6 stages finished');
     expect(wrapper.text()).toContain('Failed stages');
     expect(wrapper.text()).toContain('Dependency skips');
     expect(wrapper.text()).toContain('Tracking is stale.');

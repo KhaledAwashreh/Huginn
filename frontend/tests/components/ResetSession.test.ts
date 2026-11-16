@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import PrimeVue from 'primevue/config';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import App from '../../src/app/App.vue';
 import { queryClient } from '../../src/app/queryClient';
 import ResetPasswordPage from '../../src/features/account-lifecycle/pages/ResetPasswordPage.vue';
@@ -33,6 +34,13 @@ function resetPage() {
     .push('/reset-password')
     .then(() => mount(ResetPasswordPage, { global: { plugins: [router, PrimeVue] } }));
 }
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+});
 
 afterEach(() => {
   useSession().clear();
@@ -88,7 +96,10 @@ it('renders authenticated public routes outside the workspace shell', async () =
     ],
   });
   await router.push('/public');
-  const wrapper = mount(App, { global: { plugins: [router] } });
+  // The shell's user menu reads account details, so it needs the app's query client.
+  const wrapper = mount(App, {
+    global: { plugins: [router, PrimeVue, [VueQueryPlugin, { queryClient }]] },
+  });
 
   expect(wrapper.findAll('main')).toHaveLength(1);
   expect(wrapper.find('.app-shell').exists()).toBe(false);

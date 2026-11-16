@@ -1,4 +1,4 @@
-"""Current User-owned configuration queries, design section 2."""
+"""Resolve the acting User's Business-owned configuration."""
 
 from uuid import UUID
 
@@ -41,16 +41,17 @@ class SqlConfigurationRepository:
     ) -> tuple[StrategyConfiguration, ...]:
         rows = self._connection.execute(
             """
-            SELECT s.id AS strategy_id, s.user_id, s.name, s.service_offering_id,
+            SELECT s.id AS strategy_id, b.owner_user_id, s.name, s.service_offering_id,
                    s.ideal_client_profile_id AS icp_id,
                    o.id AS offering_row_id, p.id AS icp_row_id,
                    p.industries, p.company_sizes, p.geographies, p.exclusions
             FROM operational.client_discovery_strategies AS s
+            JOIN operational.businesses AS b ON b.id = s.business_id
             LEFT JOIN operational.service_offerings AS o
-              ON o.user_id = s.user_id AND o.id = s.service_offering_id
+              ON o.business_id = s.business_id AND o.id = s.service_offering_id
             LEFT JOIN operational.ideal_client_profiles AS p
-              ON p.user_id = s.user_id AND p.id = s.ideal_client_profile_id
-            WHERE s.user_id = %s AND s.is_active IS TRUE
+              ON p.business_id = s.business_id AND p.id = s.ideal_client_profile_id
+            WHERE b.owner_user_id = %s AND s.is_active IS TRUE
             ORDER BY s.id ASC;
         """,
             (user_id,),

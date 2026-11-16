@@ -13,7 +13,6 @@ from huginn.management.domain.value_objects.common import (
     Principal,
 )
 from huginn.management.domain.value_objects.service_offering import (
-    NewServiceOffering,
     ServiceOfferingChanges,
 )
 
@@ -52,7 +51,7 @@ class Repo:
         self.calls.append(("get", user_id, offering_id))
         return (
             self.record
-            if (user_id, offering_id) == (self.record.user_id, self.record.id)
+            if (user_id, offering_id) == (self.record.business_id, self.record.id)
             else None
         )
 
@@ -64,27 +63,39 @@ class Repo:
         self.calls.append(("update", user_id, offering_id, changes))
         return (
             self.record
-            if (user_id, offering_id) == (self.record.user_id, self.record.id)
+            if (user_id, offering_id) == (self.record.business_id, self.record.id)
             else None
         )
 
     def delete_owned(self, user_id, offering_id):
         self.calls.append(("delete", user_id, offering_id))
-        return (user_id, offering_id) == (self.record.user_id, self.record.id)
+        return (user_id, offering_id) == (self.record.business_id, self.record.id)
+
+
+class BusinessRepo:
+    def __init__(self, owner_id, business_id):
+        self.owner_id, self.business_id = owner_id, business_id
+
+    def get_by_owner_user_id(self, owner_user_id):
+        if owner_user_id != self.owner_id:
+            return None
+        return type("OwnedBusiness", (), {"id": self.business_id})()
 
 
 def test_offering_service_derives_owner_commits_mutations_and_uses_paged_reads():
-    user_id = uuid4()
+    user_id, business_id = uuid4(), uuid4()
     now = datetime.now(UTC)
-    record = ServiceOffering(uuid4(), user_id, "Consulting", "Audit", now, now)
+    record = ServiceOffering(uuid4(), business_id, "Consulting", "Audit", now, now)
     uow, repo = Uow(), Repo(record)
-    service = ServiceOfferingService(lambda: uow, offerings_factory=lambda _: repo)
-    principal = Principal(uuid4(), user_id)
-    created = service.create(
-        principal, NewServiceOffering(user_id, "Consulting", "Audit")
+    service = ServiceOfferingService(
+        lambda: uow,
+        businesses_factory=lambda _: BusinessRepo(user_id, business_id),
+        offerings_factory=lambda _: repo,
     )
-    assert created.id == record.id and repo.calls[-1][1].user_id == user_id
-    assert service.get(principal, record.id).user_id == user_id
+    principal = Principal(uuid4(), user_id)
+    created = service.create(principal, name="Consulting", description="Audit")
+    assert created.id == record.id and repo.calls[-1][1].business_id == business_id
+    assert service.get(principal, record.id).business_id == business_id
     page = service.list(principal, limit=3, offset=4)
     assert page.offset == 4 and page.items[0].name == "Consulting"
     service.update(
@@ -99,9 +110,12 @@ def test_offering_service_derives_owner_commits_mutations_and_uses_paged_reads()
 
 def test_offering_service_hides_cross_owner_and_missing_as_not_found():
     now = datetime.now(UTC)
-    record = ServiceOffering(uuid4(), uuid4(), "Name", "Description", now, now)
+    owner_id, business_id = uuid4(), uuid4()
+    record = ServiceOffering(uuid4(), business_id, "Name", "Description", now, now)
     service = ServiceOfferingService(
-        lambda: Uow(), offerings_factory=lambda _: Repo(record)
+        lambda: Uow(),
+        businesses_factory=lambda _: BusinessRepo(owner_id, business_id),
+        offerings_factory=lambda _: Repo(record),
     )
     with pytest.raises(NotFoundError):
         service.get(Principal(uuid4(), uuid4()), record.id)

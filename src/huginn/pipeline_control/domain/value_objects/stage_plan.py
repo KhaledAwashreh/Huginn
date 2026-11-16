@@ -80,5 +80,23 @@ SUPPORTED_STAGE_PLAN = StagePlan(
             ("silver.signal_resolution", "gold.company"),
             "gold",
         ),
+        StageDescriptor(
+            "silver.source_currentness.hn",
+            9,
+            ("gold.company_signal",),
+            "silver",
+        ),
+        StageDescriptor(
+            "silver.source_currentness.yc",
+            10,
+            ("gold.company_signal",),
+            "silver",
+        ),
+        StageDescriptor(
+            "silver.source_currentness.eu_startups",
+            11,
+            ("gold.company_signal",),
+            "silver",
+        ),
     )
 )

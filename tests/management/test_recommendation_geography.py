@@ -4,11 +4,11 @@ from uuid import uuid4
 from huginn.management.application.policies.recommendation_geography import (
     resolve_country_evidence,
 )
-from tests.management.test_recommendation_service import Store
+from tests.management.application.recommendation_fixtures import recommendation_company
 
 
 def test_explicit_directory_country_is_used_when_gold_country_is_missing():
-    company = Store().company
+    company = recommendation_company()
     observation = replace(
         company.observations[0],
         source="eu_startups",
@@ -26,7 +26,7 @@ def test_explicit_directory_country_is_used_when_gold_country_is_missing():
 
 
 def test_hiring_locations_ambiguous_labels_and_conflicting_sources_do_not_invent_country():
-    company = Store().company
+    company = recommendation_company()
     observation = replace(
         company.observations[0],
         description="Technical role in Greece.\ncategory: Greece",

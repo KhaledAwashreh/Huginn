@@ -165,6 +165,10 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
         csrf_token = login.json()["csrf_token"]
         session_token = client.cookies.get("huginn_management_session")
         with psycopg.connect(management_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             digests = connection.execute(
                 "SELECT token_digest, csrf_digest FROM operational.sessions "
                 "WHERE account_id = %s",
@@ -193,6 +197,10 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
         assert replay.status_code == 401
     finally:
         with psycopg.connect(management_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             connection.execute(
                 "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
                 (identity.account_id,),
@@ -204,6 +212,13 @@ def test_live_login_csrf_logout_and_rejected_token_replay(management_database_ur
             connection.execute(
                 "DELETE FROM operational.professional_profiles WHERE user_id = %s",
                 (identity.user_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences WHERE business_id=%s",
+                (business_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.businesses WHERE id=%s", (business_id,)
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE id = %s", (identity.user_id,)
@@ -257,6 +272,10 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
         assert changed.status_code == 204
         assert client.cookies.get("huginn_management_session") is None
         with psycopg.connect(management_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             revoked = connection.execute(
                 "SELECT revoked_at FROM operational.sessions WHERE account_id = %s",
                 (identity.account_id,),
@@ -284,6 +303,10 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
         )
     finally:
         with psycopg.connect(management_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             connection.execute(
                 "DELETE FROM operational.account_recovery_identity WHERE account_id = %s",
                 (identity.account_id,),
@@ -295,6 +318,13 @@ def test_live_password_change_revokes_all_account_sessions(management_database_u
             connection.execute(
                 "DELETE FROM operational.professional_profiles WHERE user_id = %s",
                 (identity.user_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences WHERE business_id=%s",
+                (business_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.businesses WHERE id=%s", (business_id,)
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE id = %s", (identity.user_id,)
@@ -435,17 +465,24 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
         with psycopg.connect(management_database_url) as connection:
             account_ids = tuple(identity.account_id for identity in identities)
             user_ids = tuple(identity.user_id for identity in identities)
-            connection.execute(
-                "DELETE FROM operational.client_discovery_strategies WHERE user_id=ANY(%s)",
-                (list(user_ids),),
+            business_ids = tuple(
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM operational.businesses WHERE owner_user_id=ANY(%s)",
+                    (list(user_ids),),
+                ).fetchall()
             )
             connection.execute(
-                "DELETE FROM operational.ideal_client_profiles WHERE user_id=ANY(%s)",
-                (list(user_ids),),
+                "DELETE FROM operational.client_discovery_strategies WHERE business_id=ANY(%s)",
+                (list(business_ids),),
             )
             connection.execute(
-                "DELETE FROM operational.service_offerings WHERE user_id=ANY(%s)",
-                (list(user_ids),),
+                "DELETE FROM operational.ideal_client_profiles WHERE business_id=ANY(%s)",
+                (list(business_ids),),
+            )
+            connection.execute(
+                "DELETE FROM operational.service_offerings WHERE business_id=ANY(%s)",
+                (list(business_ids),),
             )
             connection.execute(
                 "DELETE FROM operational.sessions WHERE account_id=ANY(%s)",
@@ -458,6 +495,14 @@ def test_live_two_user_management_crud_end_to_end(management_database_url):
             connection.execute(
                 "DELETE FROM operational.account_recovery_identity WHERE account_id=ANY(%s)",
                 (list(account_ids),),
+            )
+            connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences WHERE business_id=ANY(%s)",
+                (list(business_ids),),
+            )
+            connection.execute(
+                "DELETE FROM operational.businesses WHERE id=ANY(%s)",
+                (list(business_ids),),
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE id=ANY(%s)", (list(user_ids),)

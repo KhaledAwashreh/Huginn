@@ -1,330 +1,513 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import {
-  onBeforeRouteLeave,
-  onBeforeRouteUpdate,
-  useRoute,
-  useRouter,
-  RouterLink,
-} from 'vue-router';
-import { useQueryClient } from '@tanstack/vue-query';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
+import { onBeforeRouteLeave, RouterLink, useRoute } from 'vue-router';
 import PageHeader from '../../../shared/ui/PageHeader.vue';
 import ErrorState from '../../../shared/ui/ErrorState.vue';
 import EmptyState from '../../../shared/ui/EmptyState.vue';
 import LoadingState from '../../../shared/ui/LoadingState.vue';
-import RecommendationList from '../components/RecommendationList.vue';
-import { useRecommendations } from '../composables/useRecommendations';
-import type { RecommendationFeedback } from '../models/recommendationFeedback';
+import { useRecommendationWorkspace } from '../composables/useRecommendationWorkspace';
+import RecommendationEvidence from '../components/RecommendationEvidence.vue';
+import RecommendationCommandActions from '../components/RecommendationCommandActions.vue';
+import SuppressionManagement from '../components/SuppressionManagement.vue';
+import RecommendationQualityFeedback from '../components/RecommendationQualityFeedback.vue';
+import LinkedRecommendation from '../components/LinkedRecommendation.vue';
+import RecommendationPresentation from '../components/RecommendationPresentation.vue';
+import type { components } from '../../../api/generated/schema';
+type RecommendationResponse = components['schemas']['RecommendationResponse'];
+
+const workspace = useRecommendationWorkspace();
 const route = useRoute();
-const router = useRouter();
-const requestedBatch = computed(() =>
-  typeof route.query.batch === 'string' ? route.query.batch : '',
+const emailLink = computed(() => {
+  const recommendationId = route?.query.recommendation_id;
+  const assessmentRevisionId = route?.query.assessment_revision_id;
+  return typeof recommendationId === 'string' &&
+    typeof assessmentRevisionId === 'string' &&
+    recommendationId &&
+    assessmentRevisionId
+    ? { recommendationId, assessmentRevisionId }
+    : null;
+});
+const linkedAvailable = ref(false);
+const queryRecommendationIds = computed(() => {
+  const ids = new Set(
+    workspace.recommendations.data.value?.items
+      .filter((item) => item.id !== emailLink.value?.recommendationId)
+      .map((item) => item.id) ?? [],
+  );
+  if (emailLink.value && linkedAvailable.value) ids.add(emailLink.value.recommendationId);
+  return ids;
+});
+const recoveryShelf = computed(() =>
+  workspace.commandRecoveries.value.filter(
+    (recovery) => !queryRecommendationIds.value.has(recovery.recommendationId),
+  ),
 );
-const weekly = computed(() => route.path === '/weekly-matches');
-const workspace = useRecommendations(requestedBatch, weekly);
-watch(
-  () => route.query.strategy,
-  (value) => {
-    if (!weekly.value && !requestedBatch.value && typeof value === 'string')
-      workspace.strategyId.value = value;
-  },
-  { immediate: true },
-);
-const displayedBatch = computed(() => {
-  const batch = workspace.batch.data.value;
-  if (!batch || !weekly.value || typeof route.query.strategy !== 'string') return batch;
-  return {
-    ...batch,
-    items: batch.items.filter((item) =>
-      item.strategies?.some((strategy) => strategy.id === route.query.strategy),
-    ),
-  };
+function beforeUnload(event: BeforeUnloadEvent): void {
+  if (!workspace.commandRecoveries.value.length) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+onBeforeRouteLeave(() => {
+  if (!workspace.commandRecoveries.value.length) return true;
+  return window.confirm(
+    'Recommendation drafts or unresolved reports are waiting in the recovery list. Leave this workspace?',
+  );
 });
-function selectWeek(value: string) {
-  if (!canLeave()) return;
-  dirty.value = {};
-  void router.replace({ query: { ...route.query, batch: value } });
+onMounted(() => window.addEventListener('beforeunload', beforeUnload));
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
+const strategyId = ref('');
+const notice = ref('');
+const statuses = [
+  { label: 'Open recommendations', value: 'open' },
+  { label: 'Converted to prospects', value: 'converted' },
+  { label: 'Not relevant', value: 'rejected' },
+  { label: 'All recommendations', value: 'all' },
+];
+function completed(event: { kind: string; message: string }): void {
+  notice.value = event.message;
 }
-function changeHistoryPage(direction: number) {
-  if (!canLeave()) return;
-  dirty.value = {};
-  workspace.pinnedBatch.value = '';
-  workspace.historyOffset.value = Math.max(0, workspace.historyOffset.value + direction * 12);
-  clearBatchLink();
-}
-const client = useQueryClient();
-const dirty = ref<Record<string, boolean>>({});
-watch(workspace.identity, () => {
-  dirty.value = {};
-});
-const hasDirty = computed(() => Object.values(dirty.value).some(Boolean));
-function canLeave() {
-  return !hasDirty.value || window.confirm('Discard your unsaved feedback?');
-}
-onBeforeRouteLeave(canLeave);
-onBeforeRouteUpdate((to, from) => {
-  if (to.query.batch === from.query.batch && to.query.strategy === from.query.strategy) return true;
-  if (!canLeave()) return false;
-  dirty.value = {};
-  return true;
-});
-function clearBatchLink() {
-  if (!route.query.batch) return;
-  const query = { ...route.query };
-  delete query.batch;
-  void router.replace({ query });
-}
-function selectStrategy(value: string) {
-  if (!canLeave()) return;
-  dirty.value = {};
-  workspace.pinnedBatch.value = '';
-  workspace.strategyId.value = value;
-  clearBatchLink();
-}
-async function generate() {
-  if (!canLeave()) return;
-  if (await workspace.generate()) {
-    dirty.value = {};
-    clearBatchLink();
+async function generate(): Promise<void> {
+  notice.value = '';
+  if (await workspace.generate(strategyId.value)) {
+    const count = workspace.generationResult.value?.references.length ?? 0;
+    notice.value = `Generation completed. ${count} recommendation reference${count === 1 ? '' : 's'} processed; the server list has been refreshed.`;
   }
 }
-async function saved(entry: RecommendationFeedback) {
-  if (entry.batch_id !== workspace.batch.data.value?.id) return;
-  const key = [...workspace.feedbackKey.value];
-  if (!workspace.feedback.isSuccess.value) {
-    await client.invalidateQueries({ queryKey: key });
-    return;
-  }
-  await client.cancelQueries({ queryKey: key });
-  if (entry.batch_id !== workspace.batch.data.value?.id) return;
-  client.setQueryData<RecommendationFeedback[]>(key, (previous) =>
-    previous?.some((value) => value.id === entry.id) ? previous : [...(previous ?? []), entry],
+function pagePrevious(): void {
+  workspace.setOffset(workspace.offset.value - 25);
+}
+function pageNext(): void {
+  if (workspace.recommendations.data.value?.has_more)
+    workspace.setOffset(workspace.offset.value + 25);
+}
+function statusLabel(item: RecommendationResponse): string {
+  return item.status === 'open'
+    ? 'Open'
+    : item.status === 'converted'
+      ? 'Saved as prospect'
+      : 'Not relevant';
+}
+function newlySelected(item: RecommendationResponse): boolean {
+  return (
+    workspace.generationResult.value?.references.some(
+      (reference) =>
+        reference.recommendation_id === item.id && reference.revision_id === item.assessment?.id,
+    ) ?? false
   );
 }
 </script>
+
 <template>
   <div class="recommendations-page">
     <PageHeader
-      :title="weekly ? 'Weekly Matches' : 'Recommendations'"
-      :description="
-        weekly
-          ? 'Up to seven companies selected automatically each week across your active strategies. These are the selections prepared for your weekly email.'
-          : 'Explore outreach recommendations on demand for a selected active discovery strategy.'
-      "
+      title="Recommendations"
+      description="Review assessment-time rationale and source evidence before choosing what to do. Current company context and independent blockers are shown separately."
     />
     <p class="guidance">
-      Scores indicate research relevance. Source overlap does not prove buying intent. Confirm the
-      company’s needs and buying role before outreach.
+      A fit assessment does not establish buying intent. Confirm the company’s needs and buying role
+      before outreach. Huginn does not contact companies for you.
     </p>
-    <RouterLink v-if="weekly" to="/matches">Earlier match history, notes and statuses</RouterLink>
-    <LoadingState
-      v-if="!weekly && workspace.strategies.isPending.value && !workspace.strategies.data.value"
-      message="Loading discovery strategies…"
+
+    <LinkedRecommendation
+      v-if="emailLink"
+      :recommendation-id="emailLink.recommendationId"
+      :assessment-revision-id="emailLink.assessmentRevisionId"
+      :identity="workspace.identity.value"
+      :draft-state="workspace.commandDraftFor(emailLink.recommendationId)"
+      :preferences="workspace.preferences.data.value ?? null"
+      :preferences-loading="workspace.preferences.isPending.value"
+      :preferences-failed="workspace.preferences.isError.value"
+      :refresh-preferences="workspace.refreshPreferences"
+      @completed="completed"
+      @available="linkedAvailable = $event"
     />
-    <ErrorState
-      v-else-if="!weekly && workspace.strategies.isError.value && !workspace.strategies.data.value"
-      message="Discovery strategies could not be loaded."
-      ><Button label="Retry strategies" @click="workspace.strategies.refetch()"
-    /></ErrorState>
-    <LoadingState
-      v-else-if="weekly && workspace.weeklyHistory.isPending.value && !workspace.pinnedBatch.value"
-      message="Loading weekly history…"
-    />
-    <ErrorState
-      v-else-if="weekly && workspace.weeklyHistory.isError.value && !workspace.pinnedBatch.value"
-      message="Weekly history could not be loaded."
-      ><Button label="Retry weekly history" @click="workspace.weeklyHistory.refetch()"
-    /></ErrorState>
-    <template
-      v-else-if="weekly || workspace.strategies.data.value?.length || workspace.pinnedBatch.value"
+
+    <section
+      v-if="recoveryShelf.length"
+      class="recovery-shelf"
+      aria-label="Recommendation drafts awaiting recovery"
     >
-      <ErrorState
-        v-if="!weekly && workspace.strategies.isError.value"
-        message="Discovery strategies could not be refreshed. Previously received strategies remain available."
-      />
-      <ErrorState
-        v-if="weekly && workspace.weeklyHistory.isError.value"
-        message="Weekly history could not be loaded. Showing the linked saved selection."
-        ><Button label="Retry weekly history" @click="workspace.weeklyHistory.refetch()"
-      /></ErrorState>
-      <div v-if="weekly" class="toolbar">
-        <div class="field">
-          <label for="weekly-selection">Weekly selection</label>
-          <Select
-            input-id="weekly-selection"
-            aria-label="Weekly selection"
-            :model-value="workspace.pinnedBatch.value"
-            :options="
-              (workspace.weeklyHistory.data.value ?? []).map((batch) => ({
-                id: batch.id,
-                label: new Date(batch.created_at).toLocaleDateString(),
-              }))
-            "
-            option-label="label"
-            option-value="id"
-            placeholder="No weekly selections yet"
-            @update:model-value="selectWeek"
-          />
-        </div>
-        <Button
-          label="Newer weeks"
-          severity="secondary"
-          :disabled="workspace.historyOffset.value === 0"
-          @click="changeHistoryPage(-1)"
-        />
-        <Button
-          label="Older weeks"
-          severity="secondary"
-          :disabled="(workspace.weeklyHistory.data.value?.length ?? 0) < 12"
-          @click="changeHistoryPage(1)"
-        />
-      </div>
-      <div v-else class="toolbar">
-        <div class="field">
-          <label for="recommendation-strategy">Discovery strategy</label
-          ><Select
-            input-id="recommendation-strategy"
-            aria-label="Discovery strategy"
-            :model-value="workspace.strategyId.value"
-            :options="workspace.strategies.data.value ?? []"
-            option-label="name"
-            option-value="id"
-            placeholder="Choose a strategy"
-            @update:model-value="selectStrategy"
-          />
-        </div>
-        <Button
-          :label="
-            workspace.generating.value ? 'Generating recommendations…' : 'Generate recommendations'
-          "
-          :disabled="
-            !workspace.strategyId.value ||
-            workspace.generating.value ||
-            workspace.batch.isFetching.value
-          "
-          @click="generate"
-        />
-      </div>
-      <RouterLink
-        v-if="!weekly && workspace.strategyId.value"
-        :to="{ path: '/weekly-matches', query: { strategy: workspace.strategyId.value } }"
-        >View Weekly Matches for this strategy</RouterLink
-      >
-      <RouterLink v-if="weekly && route.query.strategy" to="/weekly-matches"
-        >Show matches across all strategies</RouterLink
-      >
-      <ErrorState
-        v-if="workspace.generationError.value"
-        :message="workspace.generationError.value"
-      />
-      <EmptyState
-        v-if="!workspace.pinnedBatch.value && (weekly || !workspace.strategyId.value)"
-        :message="
-          weekly
-            ? 'Weekly Matches appear automatically after your first scheduled email. You can explore Recommendations while you wait.'
-            : 'Choose a strategy to resume its latest recommendations or generate a new list.'
-        "
-      />
-      <LoadingState
-        v-else-if="workspace.batch.isFetching.value && !workspace.batch.data.value"
-        message="Loading research recommendations…"
-      />
-      <ErrorState
-        v-else-if="workspace.batch.isError.value && !workspace.batch.data.value"
-        :message="
-          workspace.pinnedBatch.value
-            ? 'This saved assessment could not be loaded. It may be unavailable.'
-            : 'The latest recommendations could not be loaded.'
-        "
-        ><Button label="Retry recommendations" @click="workspace.batch.refetch()"
-      /></ErrorState>
-      <template v-else-if="workspace.batch.data.value">
-        <ErrorState
-          v-if="workspace.batch.isError.value"
-          message="Recommendations could not be refreshed. Showing the previously received assessment."
-        />
-        <p class="batch-context">
-          Generated
-          <time :datetime="workspace.batch.data.value.created_at">{{
-            new Date(workspace.batch.data.value.created_at).toLocaleString()
-          }}</time>
-          · {{ workspace.batch.data.value.candidate_count }} candidates assessed
-          <span class="batch-reference"
-            >Assessment reference: {{ workspace.batch.data.value.id }}</span
-          >
+      <div>
+        <h2>Drafts and uncertain reports</h2>
+        <p>
+          These items stay available while you search, filter, paginate, or return to this
+          workspace. Uncertain commands can only be retried with their original request.
         </p>
-        <ErrorState
-          v-if="workspace.feedback.isError.value"
-          message="Feedback history could not be loaded."
-          ><Button label="Retry feedback history" @click="workspace.feedback.refetch()"
-        /></ErrorState>
-        <EmptyState
-          v-if="!displayedBatch?.items.length"
-          :message="
-            weekly
-              ? 'No companies were selected for this strategy in this weekly batch.'
-              : 'This assessment returned no recommendations. Review your strategy or try again when new source evidence is available.'
-          "
+      </div>
+      <article v-for="recovery in recoveryShelf" :key="recovery.recommendationId">
+        <RecommendationEvidence :recommendation="recovery.snapshot" />
+        <RecommendationQualityFeedback
+          v-if="recovery.feedbackDraft && recovery.snapshot.assessment"
+          :recommendation="recovery.snapshot"
+          :identity="workspace.identity.value"
+          :draft-state="recovery.draft"
         />
-        <RecommendationList
-          v-else
-          :key="`${workspace.identity.value}:${workspace.batch.data.value.id}`"
-          :inert="workspace.generating.value || workspace.batch.isFetching.value"
-          :batch="displayedBatch!"
-          :feedback="workspace.feedback.data.value ?? []"
-          :feedback-available="workspace.feedback.isSuccess.value"
-          @saved="saved"
-          @dirty="
-            (id, value) => {
-              dirty[id] = value;
-            }
-          "
+        <RecommendationCommandActions
+          v-if="recovery.decisionDraft && recovery.snapshot.status === 'open'"
+          :recommendation="recovery.snapshot"
+          :draft-state="recovery.draft"
+          :preferences="workspace.preferences.data.value ?? null"
+          :preferences-loading="workspace.preferences.isPending.value"
+          :preferences-failed="workspace.preferences.isError.value"
+          :identity="workspace.identity.value"
+          :refresh-preferences="workspace.refreshPreferences"
+          @completed="completed"
         />
-      </template>
-      <EmptyState
-        v-else
-        message="No saved recommendations for this strategy yet. Generate recommendations to begin your research."
+      </article>
+    </section>
+
+    <section class="toolbar" aria-label="Recommendation search and filters">
+      <label class="search-field">
+        <span>Search company name or domain</span>
+        <input
+          type="search"
+          aria-label="Search recommendations by company name or domain"
+          placeholder="Search all recommendations"
+          :value="workspace.search.value"
+          @input="workspace.search.value = ($event.target as HTMLInputElement).value"
+        />
+      </label>
+      <div class="filter-field">
+        <label for="recommendation-status">Recommendation status</label>
+        <Select
+          input-id="recommendation-status"
+          aria-label="Recommendation status"
+          :model-value="workspace.status.value"
+          :options="statuses"
+          option-label="label"
+          option-value="value"
+          @update:model-value="workspace.status.value = $event"
+        />
+      </div>
+    </section>
+    <p class="search-help">
+      Search covers the full Business dataset and filters before pagination.
+    </p>
+
+    <section class="generation" aria-label="Generate recommendations">
+      <div class="field">
+        <label for="recommendation-strategy">Generate for a discovery strategy</label>
+        <Select
+          input-id="recommendation-strategy"
+          aria-label="Discovery strategy for generation"
+          :model-value="strategyId"
+          :options="workspace.strategies.data.value ?? []"
+          option-label="name"
+          option-value="id"
+          placeholder="Choose a strategy"
+          :disabled="workspace.strategies.isPending.value || workspace.strategies.isError.value"
+          @update:model-value="strategyId = $event"
+        />
+      </div>
+      <Button
+        :label="workspace.generating.value ? 'Generating…' : 'Generate recommendations'"
+        :disabled="!strategyId || workspace.generating.value || workspace.strategies.isError.value"
+        @click="generate"
       />
-    </template>
-    <EmptyState
-      v-else
-      message="Add an active discovery strategy in Business setup to generate recommendations."
+      <p v-if="workspace.strategies.isError.value" class="error-inline" role="alert">
+        Active strategies could not be loaded.
+        <Button label="Retry strategies" text @click="workspace.strategies.refetch()" />
+      </p>
+      <p v-else-if="workspace.strategies.data.value?.length === 0" class="search-help">
+        No active strategies are available.
+        <RouterLink to="/discovery-strategies">Manage discovery strategies</RouterLink>.
+      </p>
+      <p v-if="workspace.generationError.value" class="error-inline" role="alert">
+        {{ workspace.generationError.value }}
+      </p>
+    </section>
+
+    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+    <ErrorState
+      v-if="workspace.preferences.isError.value"
+      message="Business repeat timing could not be loaded. Later decisions are unavailable until it refreshes."
+    >
+      <Button
+        label="Retry repeat timing"
+        severity="secondary"
+        @click="workspace.preferences.refetch()"
+      />
+    </ErrorState>
+    <LoadingState
+      v-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"
+      message="Loading Business recommendations…"
     />
+    <ErrorState
+      v-else-if="workspace.recommendations.isError.value && !workspace.recommendations.data.value"
+      message="Recommendations could not be loaded."
+    >
+      <Button
+        label="Retry recommendations"
+        severity="secondary"
+        @click="workspace.recommendations.refetch()"
+      />
+    </ErrorState>
+    <template v-else-if="workspace.recommendations.data.value">
+      <ErrorState
+        v-if="workspace.recommendations.isError.value"
+        message="Recommendations could not be refreshed. Showing the last received page."
+      >
+        <Button
+          label="Retry recommendations"
+          severity="secondary"
+          @click="workspace.recommendations.refetch()"
+        />
+      </ErrorState>
+      <LoadingState
+        v-if="
+          workspace.recommendations.isFetching.value &&
+          !workspace.recommendations.data.value.items.length
+        "
+        message="Refreshing recommendations…"
+      />
+      <EmptyState
+        v-else-if="!workspace.recommendations.data.value.items.length"
+        :message="
+          workspace.offset.value
+            ? 'No recommendations appear on this page.'
+            : 'No recommendations match this view yet.'
+        "
+      />
+      <ol
+        v-else
+        class="recommendation-list"
+        :aria-busy="workspace.recommendations.isFetching.value"
+      >
+        <template v-for="row in workspace.recommendations.data.value.items" :key="row.id">
+          <li v-if="row.id !== emailLink?.recommendationId">
+            <article class="recommendation-card">
+              <RecommendationPresentation
+                v-slot="{ recommendation: item }"
+                :recommendation="row"
+                :identity="workspace.identity.value"
+                :newly-selected="newlySelected(row)"
+                :historical="Boolean(emailLink)"
+                @confirmed="workspace.refresh()"
+              >
+                <div class="card-heading">
+                  <span class="status">{{ statusLabel(item) }}</span>
+                  <code>Recommendation version {{ item.version }}</code>
+                </div>
+                <RecommendationEvidence :recommendation="item" />
+                <p v-if="item.prospect" class="saved-link">
+                  <RouterLink :to="{ path: '/prospects', query: { prospect_id: item.prospect.id } }"
+                    >View prospect</RouterLink
+                  >
+                  ·
+                  {{ item.prospect.stage.replaceAll('_', ' ') }}
+                </p>
+                <p v-if="item.status !== 'open'" class="resolved-note">
+                  This recommendation is resolved. Its assessment and history remain available; no
+                  further decision can be applied here.
+                </p>
+                <RecommendationQualityFeedback
+                  v-if="item.assessment"
+                  :recommendation="item"
+                  :identity="workspace.identity.value"
+                  :draft-state="workspace.commandDraftFor(item.id)"
+                />
+                <RecommendationCommandActions
+                  v-if="item.status === 'open'"
+                  :recommendation="item"
+                  :draft-state="workspace.commandDraftFor(item.id)"
+                  :preferences="workspace.preferences.data.value ?? null"
+                  :preferences-loading="workspace.preferences.isPending.value"
+                  :preferences-failed="workspace.preferences.isError.value"
+                  :identity="workspace.identity.value"
+                  :refresh-preferences="workspace.refreshPreferences"
+                  @completed="completed"
+                />
+              </RecommendationPresentation>
+            </article>
+          </li>
+        </template>
+      </ol>
+      <nav
+        v-if="workspace.recommendations.data.value.items.length || workspace.offset.value"
+        class="pagination"
+        aria-label="Recommendation pages"
+      >
+        <Button
+          label="Previous"
+          severity="secondary"
+          :disabled="workspace.offset.value === 0 || workspace.recommendations.isFetching.value"
+          @click="pagePrevious"
+        />
+        <span
+          >Showing {{ workspace.offset.value + 1 }}–{{
+            workspace.offset.value + workspace.recommendations.data.value.items.length
+          }}</span
+        >
+        <Button
+          label="Next"
+          severity="secondary"
+          :disabled="
+            !workspace.recommendations.data.value.has_more ||
+            workspace.recommendations.isFetching.value
+          "
+          @click="pageNext"
+        />
+      </nav>
+    </template>
+
+    <section class="suppression-section">
+      <Button
+        :label="workspace.suppressionsVisible.value ? 'Hide suppressions' : 'Manage suppressions'"
+        severity="secondary"
+        aria-controls="suppression-manager"
+        :aria-expanded="workspace.suppressionsVisible.value"
+        @click="workspace.suppressionsVisible.value = !workspace.suppressionsVisible.value"
+      />
+      <SuppressionManagement
+        v-if="workspace.suppressionsVisible.value"
+        id="suppression-manager"
+        :identity="workspace.identity.value"
+        :page="workspace.suppressions.data.value"
+        :pending="workspace.suppressions.isPending.value"
+        :failed="workspace.suppressions.isError.value"
+        :fetching="workspace.suppressions.isFetching.value"
+        :search="workspace.suppressionSearch.value"
+        :offset="workspace.suppressionOffset.value"
+        :page-size="25"
+        @search="workspace.suppressionSearch.value = $event"
+        @next="workspace.setSuppressionOffset(workspace.suppressionOffset.value + 25)"
+        @previous="workspace.setSuppressionOffset(workspace.suppressionOffset.value - 25)"
+        @refresh="workspace.refresh()"
+      />
+    </section>
   </div>
 </template>
+
 <style scoped>
 .recommendations-page {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
 }
-.guidance {
-  margin: 0;
+.recovery-shelf {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: var(--space-4);
   background: var(--color-surface-muted);
-  border-left: 3px solid var(--color-primary);
+}
+.recovery-shelf > div > h2,
+.recovery-shelf > div > p {
+  margin: 0;
+}
+.recovery-shelf > article {
+  display: grid;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+.guidance,
+.search-help,
+.resolved-note {
+  margin: 0;
+  color: var(--color-text-muted);
 }
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--space-4);
+  flex-wrap: wrap;
   align-items: end;
 }
+.search-field,
+.filter-field,
 .field {
   display: grid;
-  gap: var(--space-2);
-  min-width: min(100%, 280px);
-  max-width: 100%;
-  flex: 1;
+  gap: var(--space-1);
 }
-.batch-reference {
-  display: block;
+.search-field {
+  flex: 1 1 20rem;
+}
+.search-field input {
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.search-field input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.filter-field {
+  flex: 0 1 18rem;
+}
+label {
+  font-weight: 600;
+}
+.generation {
+  display: flex;
+  gap: var(--space-3);
+  align-items: end;
+  flex-wrap: wrap;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+.generation .field {
+  min-width: min(100%, 19rem);
+}
+.generation .error-inline {
+  flex-basis: 100%;
+}
+.recommendation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+}
+.recommendation-list > li {
+  border-bottom: 1px solid var(--color-border);
+}
+.recommendation-card {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5) 0;
+  min-width: 0;
+}
+.card-heading {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.status {
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 0.2rem 0.6rem;
+  font-size: 0.875rem;
+}
+code {
   overflow-wrap: anywhere;
 }
-.batch-context {
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
+.saved-link,
+.notice {
+  margin: 0;
+}
+.error-inline {
+  margin: 0;
+  color: var(--color-danger, #a12b32);
+}
+.pagination {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.suppression-section {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
 }
 </style>

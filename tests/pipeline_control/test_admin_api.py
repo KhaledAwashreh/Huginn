@@ -195,7 +195,7 @@ def test_live_session_promotion_demotion_and_durable_api_receipt(
         detail = client.get(accepted.headers["location"])
         assert detail.status_code == 200
         assert detail.json()["requester_account_id"] == str(identity.account_id)
-        assert len(detail.json()["stages"]) == 9
+        assert len(detail.json()["stages"]) == 12
         assert (
             client.get(accepted.headers["location"] + "/companies").json()[
                 "tracking_state"
@@ -209,6 +209,10 @@ def test_live_session_promotion_demotion_and_durable_api_receipt(
         assert client.get("/api/v1/sessions/current").json()["role"] == "user"
     finally:
         with psycopg.connect(integration_database_url) as connection:
+            business_id = connection.execute(
+                "SELECT id FROM operational.businesses WHERE owner_user_id=%s",
+                (identity.user_id,),
+            ).fetchone()[0]
             connection.execute(
                 "DELETE FROM ops.pipeline_invocation_events WHERE invocation_id IN (SELECT id FROM ops.pipeline_invocations WHERE requester_account_id=%s)",
                 (identity.account_id,),
@@ -224,6 +228,13 @@ def test_live_session_promotion_demotion_and_durable_api_receipt(
             connection.execute(
                 "DELETE FROM operational.professional_profiles WHERE user_id=%s",
                 (identity.user_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.business_recommendation_preferences WHERE business_id=%s",
+                (business_id,),
+            )
+            connection.execute(
+                "DELETE FROM operational.businesses WHERE id=%s", (business_id,)
             )
             connection.execute(
                 "DELETE FROM operational.users WHERE account_id=%s",

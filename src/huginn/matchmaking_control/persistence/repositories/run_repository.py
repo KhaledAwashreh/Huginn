@@ -1,14 +1,13 @@
-"""PostgreSQL queue and result journal; see admin-matchmaking-execution design."""
+"""Read legacy run projections and settle fenced stopped executions."""
 
 import json
 from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from huginn.management.domain.value_objects.common import Page
 from huginn.management.persistence.contracts.database import (
     DatabaseSession,
-    JsonParameter,
 )
 from huginn.matchmaking_control.application.read_models.run_detail import RunDetail
 from huginn.matchmaking_control.application.read_models.run_summary import RunSummary
@@ -17,14 +16,6 @@ from huginn.matchmaking_control.application.read_models.skipped_strategy_result 
 )
 from huginn.matchmaking_control.application.read_models.user_result import UserResult
 from huginn.matchmaking_control.domain.entities.matchmaking_run import MatchmakingRun
-from huginn.matchmaking_control.domain.errors.run import (
-    ActiveRunConflictError,
-    NoEligibleUsersError,
-    RequestIdentityConflictError,
-    TargetUserDisabledError,
-    TargetUserNotFoundError,
-    TriggerRateLimitError,
-)
 from huginn.matchmaking_control.domain.value_objects.requester import Requester
 from huginn.matchmaking_control.domain.value_objects.run_state import RunState
 from huginn.matchmaking_control.domain.value_objects.run_target import RunTarget
@@ -34,116 +25,6 @@ from huginn.matchmaking_control.domain.value_objects.target_state import TargetS
 class PostgresRunRepository:
     def __init__(self, connection: DatabaseSession) -> None:
         self._connection = connection
-
-    def admit_run(
-        self,
-        *,
-        requester: Requester,
-        request_id: UUID,
-        canonical_request: dict[str, object],
-        target_kind: str,
-        user_id: UUID | None,
-        cutoff: datetime,
-        as_of: datetime,
-        requested_at: datetime,
-    ) -> tuple[MatchmakingRun, bool]:
-        self._connection.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended('matchmaking-trigger', 0))"
-        ).fetchone()
-        existing = self._one(
-            "SELECT id, requester_account_id, request_id, canonical_request, target_kind, cutoff, as_of, state, requested_at, started_at, finished_at, worker_id, heartbeat_at, target_count, settled_target_count, safe_error_code "
-            "FROM ops.matchmaking_runs WHERE requester_account_id = %s AND request_id = %s",
-            (requester.account_id, request_id),
-        )
-        if existing is not None:
-            if _json_value(existing[3]) != canonical_request:
-                raise RequestIdentityConflictError(
-                    "request id was already used with different input"
-                )
-            return _run(existing), True
-
-        self._reserve_trigger(requester.account_id, request_id, requested_at)
-        if target_kind == "user":
-            assert user_id is not None
-            row = self._one(
-                "SELECT u.id, a.status FROM operational.users u "
-                "JOIN operational.accounts a ON a.id = u.account_id WHERE u.id = %s",
-                (user_id,),
-            )
-            if row is None:
-                raise TargetUserNotFoundError("target user does not exist")
-            if row[1] != "active":
-                raise TargetUserDisabledError("target user account is disabled")
-            user_ids = (user_id,)
-        elif target_kind == "all_eligible":
-            found = self._connection.execute(
-                "SELECT u.id FROM operational.users u "
-                "JOIN operational.accounts a ON a.id = u.account_id "
-                "WHERE a.status = 'active' AND EXISTS ("
-                "SELECT 1 FROM operational.client_discovery_strategies s "
-                "WHERE s.user_id = u.id AND s.is_active = TRUE) ORDER BY u.id"
-            ).fetchall()
-            user_ids = tuple(row[0] for row in found)
-            if not user_ids:
-                raise NoEligibleUsersError("there are no eligible users")
-        else:
-            raise ValueError("invalid target kind")
-
-        active = self._one(
-            "SELECT id FROM ops.matchmaking_runs WHERE state IN ('queued', 'running')"
-        )
-        if active is not None:
-            raise ActiveRunConflictError(str(active[0]))
-        run_id = uuid4()
-        self._execute(
-            "INSERT INTO ops.matchmaking_runs (id, requester_account_id, request_id, canonical_request, target_kind, cutoff, as_of, state, requested_at, target_count) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,'queued',%s,%s)",
-            (
-                run_id,
-                requester.account_id,
-                request_id,
-                JsonParameter(canonical_request),
-                target_kind,
-                cutoff,
-                as_of,
-                requested_at,
-                len(user_ids),
-            ),
-        )
-        for ordinal, target_id in enumerate(user_ids):
-            self._execute(
-                "INSERT INTO ops.matchmaking_run_users (run_id,user_id,ordinal,state) VALUES (%s,%s,%s,'pending')",
-                (run_id, target_id, ordinal),
-            )
-        run = self.get_run_snapshot(run_id)
-        assert run is not None
-        return run, False
-
-    def _reserve_trigger(
-        self, account_id: UUID, request_id: UUID, now: datetime
-    ) -> None:
-        # An earlier safe admission refusal can have charged this identity.
-        # Retrying it must remain a safe refusal, not a duplicate-key failure.
-        if (
-            self._one(
-                "SELECT 1 FROM ops.matchmaking_trigger_throttle WHERE requester_account_id=%s AND request_id=%s",
-                (account_id, request_id),
-            )
-            is not None
-        ):
-            return
-        recent = self._one(
-            "SELECT count(*) FROM ops.matchmaking_trigger_throttle "
-            "WHERE requester_account_id = %s AND requested_at > %s - interval '1 hour'",
-            (account_id, now),
-        )
-        assert recent is not None
-        if recent[0] >= 10:
-            raise TriggerRateLimitError("matchmaking trigger rate limit exceeded")
-        self._execute(
-            "INSERT INTO ops.matchmaking_trigger_throttle (requester_account_id,request_id,requested_at) VALUES (%s,%s,%s)",
-            (account_id, request_id, now),
-        )
 
     def list_runs(
         self, limit: int, offset: int, state: RunState | None = None
@@ -303,75 +184,6 @@ class PostgresRunRepository:
             offset,
         )
 
-    def claim_next_run(self, worker_id: UUID, now: datetime) -> MatchmakingRun | None:
-        row = self._one(
-            "SELECT id, requester_account_id, request_id, canonical_request, target_kind, cutoff, as_of, state, requested_at, started_at, finished_at, worker_id, heartbeat_at, target_count, settled_target_count, safe_error_code "
-            "FROM ops.matchmaking_runs WHERE state='queued' ORDER BY requested_at,id FOR NO KEY UPDATE SKIP LOCKED LIMIT 1"
-        )
-        return None if row is None else _run(row)
-
-    def start_run(self, run_id: UUID, worker_id: UUID, now: datetime) -> bool:
-        row = self._one(
-            "UPDATE ops.matchmaking_runs SET state='running',worker_id=%s,started_at=%s,heartbeat_at=%s WHERE id=%s AND state='queued' RETURNING id",
-            (str(worker_id), now, now, run_id),
-        )
-        return row is not None
-
-    def start_target(
-        self, run_id: UUID, user_id: UUID, worker_id: UUID, now: datetime
-    ) -> bool:
-        row = self._one(
-            "UPDATE ops.matchmaking_run_users u SET state='running',started_at=%s FROM ops.matchmaking_runs r "
-            "WHERE u.run_id=%s AND u.user_id=%s AND u.state='pending' AND r.id=u.run_id AND r.state='running' AND r.worker_id=%s RETURNING u.user_id",
-            (now, run_id, user_id, str(worker_id)),
-        )
-        return row is not None
-
-    def acknowledge_target(
-        self,
-        result: UserResult,
-        skipped: tuple[SkippedStrategyResult, ...],
-        worker_id: UUID,
-        now: datetime,
-    ) -> bool:
-        row = self._one(
-            "UPDATE ops.matchmaking_run_users u SET state=%s,finished_at=%s,strategies_evaluated=%s,strategies_skipped=%s,unique_candidates_count=%s,created_matches_count=%s,existing_matches_skipped_count=%s,safe_reason=%s "
-            "FROM ops.matchmaking_runs r WHERE u.run_id=%s AND u.user_id=%s AND u.state='running' AND r.id=u.run_id AND r.worker_id=%s AND r.state='running' RETURNING u.ordinal",
-            (
-                result.state.value,
-                now,
-                result.strategies_evaluated,
-                result.strategies_skipped,
-                result.unique_candidates_count,
-                result.created_matches_count,
-                result.existing_matches_skipped_count,
-                result.safe_reason,
-                result.run_id,
-                result.user_id,
-                str(worker_id),
-            ),
-        )
-        if row is None:
-            return False
-        for item in skipped:
-            self._execute(
-                "INSERT INTO ops.matchmaking_run_skipped_strategies (run_id,user_id,strategy_id,reason) VALUES (%s,%s,%s,%s)",
-                (result.run_id, result.user_id, item.strategy_id, item.reason),
-            )
-        self._execute(
-            "UPDATE ops.matchmaking_runs SET settled_target_count=settled_target_count+1,heartbeat_at=%s WHERE id=%s AND worker_id=%s AND state='running'",
-            (now, result.run_id, str(worker_id)),
-        )
-        return True
-
-    def pending_targets(self, run_id: UUID, worker_id: UUID) -> tuple[UserResult, ...]:
-        rows = self._connection.execute(
-            "SELECT u.run_id,u.user_id,u.ordinal,u.state,u.started_at,u.finished_at,u.strategies_evaluated,u.strategies_skipped,u.unique_candidates_count,u.created_matches_count,u.existing_matches_skipped_count,u.safe_reason "
-            "FROM ops.matchmaking_run_users u JOIN ops.matchmaking_runs r ON r.id=u.run_id WHERE u.run_id=%s AND r.worker_id=%s AND r.state='running' AND u.state='pending' ORDER BY u.ordinal",
-            (run_id, str(worker_id)),
-        ).fetchall()
-        return tuple(_user_result(row) for row in rows)
-
     def finish_run(self, run_id: UUID, worker_id: UUID, finished_at: datetime) -> bool:
         row = self._one(
             "UPDATE ops.matchmaking_runs r SET state=CASE WHEN NOT EXISTS (SELECT 1 FROM ops.matchmaking_run_users u WHERE u.run_id=r.id AND u.state NOT IN ('succeeded','disabled_user','user_not_found')) THEN 'succeeded' ELSE 'completed_with_errors' END,finished_at=%s,heartbeat_at=%s "
@@ -398,15 +210,6 @@ class PostgresRunRepository:
             (str(worker_id), finished_at, finished_at, run_id, str(worker_id)),
         )
         return True
-
-    def heartbeat(self, run_id: UUID, worker_id: UUID, now: datetime) -> bool:
-        return (
-            self._one(
-                "UPDATE ops.matchmaking_runs SET heartbeat_at=%s WHERE id=%s AND worker_id=%s AND state='running' RETURNING id",
-                (now, run_id, str(worker_id)),
-            )
-            is not None
-        )
 
     def _one(self, query: str, params: tuple[Any, ...] = ()) -> tuple[Any, ...] | None:
         return self._connection.execute(query, params).fetchone()

@@ -25,7 +25,7 @@ backup of the configuration alongside database backups. Do not rotate the key ju
 to restart the app: old encrypted mail and signed links depend on it.
 
 Compose starts the built website/API, PostgreSQL 16, local mailbox, lifecycle mail
-worker, collection worker and matching worker. The workers process queued requests;
+worker and collection worker. The retired matching worker is not started. The collection worker processes queued requests;
 startup does not scrape sources, subscribe users or send weekly
 digests. A one-shot `admin-seed` service applies the explicit admin data migration
 before the app and workers start. There is no bundled FastEmbed model.
@@ -259,7 +259,7 @@ Two founder administrators are seeded automatically on a fresh deployment:
 Usernames are case-insensitive: `khaled` and `KHALED` identify the same account.
 Each password is generated independently in your private `.env`, never baked into
 the image or printed in startup logs. Both use the existing `admin` role, with all
-administrator permissions including collection and matchmaking. Founder labels
+administrator permissions for collection and retained matchmaking history. New matchmaking admission is retired. Founder labels
 are profile information, not a new authorization role. Ordinary ownership rules
 for personal workspace data still apply.
 
@@ -312,10 +312,9 @@ docker compose exec app \
 ```
 
 Use the admin collection screen to populate the initially empty corpus. Configure
-any required source keys in `.env` before collection. Data collection and
-matching workers use the same Compose database as the API.
+any required source keys in `.env` before collection. The collection worker and API use the same Compose database. New recommendations and weekly email share Business-owned assessment and offer history.
 
-Before importing an existing database, stop all four application/worker services,
+Before importing an existing database, stop application and worker services,
 back up the source, and follow the schema-owner restore process. Restore the
 original lifecycle key with that database, then apply only required additive
 upgrades. This Compose setup neither mounts nor modifies the prior local database.
@@ -334,8 +333,7 @@ Keep database dumps outside the checkout or in ignored private local storage.
 
 Edit `.env` to configure your provider's host, port, TLS, username, SMTP key
 and verified sender. These are the existing `HUGINN_SMTP_*` settings from
-[weekly digest setup](weekly-digest.md). For DigitalOcean with Brevo, test port 2525
-with `starttls`; DigitalOcean restricts the usual SMTP ports. Run `up -d` after editing
+[weekly digest setup](weekly-digest.md). Use the provider and hosting settings approved for the target. Run `up -d` after editing
 configuration so Compose recreates affected services. `restart` alone does not load
 new environment values. The unused local inbox can remain running.
 
@@ -381,3 +379,18 @@ Then request collection again from the admin screen. This does not start collect
 or restart services. The previous failure remains in history. Listings modified
 before the seeded boundary are outside initial discovery; this is a date filter,
 not a guarantee of a small request count. See the [schema guide](../db/schema/README.md#initial-eu-startups-collection-window).
+
+## Recommendation workflow upgrades and rollback
+
+Existing volumes require the explicit [cutover procedure](recommendation-prospect-cutover.md)
+before this workflow is enabled. Stop old matching containers using the prior
+deployment definition; replacing the Compose file alone does not prove that an
+old executor or host cron job stopped. Fresh empty-volume initialization includes
+recommendation/prospect and immutable weekly-content setup and never invokes cleanup.
+
+Set `HUGINN_DISCOVERY_NEW_WORK_ENABLED=false` in the deployment environment and
+recreate affected application/job services to disable new generation and offer
+presentation. Stop host digest scheduling too. Retained reads and authorized
+management/recovery commands remain available; in-flight authorized SMTP may settle.
+Keep new history and suppression intact and fix forward. Do not revive an old
+selector, replay cleanup or reset the database as rollback.

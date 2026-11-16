@@ -7,7 +7,7 @@ from uuid import UUID
 
 @dataclass(frozen=True)
 class NewServiceOffering:
-    user_id: UUID
+    business_id: UUID
     name: str
     description: str
 
