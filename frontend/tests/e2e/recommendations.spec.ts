@@ -470,6 +470,7 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   const detailQueries: URLSearchParams[] = [];
   const offers: string[] = [];
   const saves: { recommendationId: string; revisionId: string }[] = [];
+  const expectedRepeatPresentedAt = '2026-11-15T11:30:00Z';
   let showUnrelated = false;
   let repeatPresentedAt: string | null = null;
   const repeat: components['schemas']['RecommendationResponse'] = {
@@ -540,16 +541,16 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
     expect(
       await page.locator(`[data-assessment-revision-id="${repeat.assessment?.id}"]`).isVisible(),
     ).toBe(true);
-    repeatPresentedAt = '2026-11-15T11:30:00Z';
     await route.fulfill({
       json: {
         recommendation_id: repeat.id,
         assessment_revision_id: repeat.assessment?.id,
         offer_cycle_id: 'a0000000-0000-0000-0000-000000000002',
-        presented_at: repeatPresentedAt,
+        presented_at: expectedRepeatPresentedAt,
         cooldown_expires_at: '2026-12-15T11:30:00Z',
       },
     });
+    repeatPresentedAt = expectedRepeatPresentedAt;
   });
   await page.route('**/api/v1/recommendations/*/save', async (route) => {
     const recommendationId = new URL(route.request().url()).pathname.split('/').at(-2);
@@ -588,6 +589,7 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
       `/api/v1/recommendations/${repeat.id}/offer-preparations`,
       '/api/v1/recommendations/offer-preparations/a0000000-0000-0000-0000-000000000002/confirm',
     ]);
+  await expect.poll(() => repeatPresentedAt).toBe(expectedRepeatPresentedAt);
   await page.reload();
   await expect(card.getByText('Unrelated Research', { exact: true })).toBeVisible();
   await card.getByRole('button', { name: 'Save as prospect' }).click();

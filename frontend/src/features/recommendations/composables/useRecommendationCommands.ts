@@ -98,7 +98,7 @@ export function useRecommendationCommands(identity: Readonly<{ value: string }>)
     complete: (result: unknown) => void,
     isCurrent: () => boolean,
   ): Promise<void> {
-    if (intent.identity !== identity.value || !isCurrent()) return;
+    if (pending.value || intent.identity !== identity.value || !isCurrent()) return;
     draft.intent = intent;
     draft.status = 'pending';
     draft.error = '';
