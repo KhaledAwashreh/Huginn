@@ -129,7 +129,7 @@ def _grounded_evidence(
             snapshots.get(str(observation_id)) if observation_id is not None else None
         )
         if snapshot is not None:
-            retained.append({**evidence, **snapshot})
+            retained.append({**evidence, **snapshot, "quote": evidence.get("quote")})
     return tuple(retained[:1])
 
 

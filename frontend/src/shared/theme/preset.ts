@@ -34,6 +34,8 @@ export const huginnPreset = definePreset(Aura, {
     colorScheme: {
       light: {
         formField: {
+          disabledColor: '#52645a',
+          placeholderColor: '#52645a',
           borderColor: '#52645a',
           hoverBorderColor: '#12613c',
           focusBorderColor: '#12613c',

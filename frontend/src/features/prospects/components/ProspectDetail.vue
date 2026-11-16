@@ -10,6 +10,7 @@ import type {
   ProspectCommandSubmission,
 } from '../models/prospectCommandDraft';
 import ProspectFollowUpEditor from './ProspectFollowUpEditor.vue';
+import ProspectCurrentSourceContext from './ProspectCurrentSourceContext.vue';
 import ProspectHistory from './ProspectHistory.vue';
 import ProspectLifecycleActions from './ProspectLifecycleActions.vue';
 import ProspectNotesEditor from './ProspectNotesEditor.vue';
@@ -105,6 +106,11 @@ function displayTime(value: string): string {
         />
       </div>
     </div>
+
+    <ProspectCurrentSourceContext
+      v-if="prospect.current_source_context"
+      :context="prospect.current_source_context"
+    />
 
     <section class="origins" aria-labelledby="prospect-origin-heading">
       <div>

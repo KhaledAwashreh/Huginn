@@ -65,6 +65,18 @@ class PostgresAssessmentRevisionRepository(AssessmentRevisionRepository):
             assessed_by_user_id=row[12],
         )
 
+    def get_many_owned(
+        self, business_id: UUID, revision_ids: tuple[UUID, ...]
+    ) -> tuple[AssessmentRevision, ...]:
+        if not revision_ids:
+            return ()
+        rows = self.connection.execute(
+            f"SELECT {self._columns} FROM operational.assessment_revisions "
+            "WHERE business_id=%s AND id=ANY(%s::uuid[])",
+            (business_id, list(revision_ids)),
+        ).fetchall()
+        return tuple(self._map(row) for row in rows)
+
     def get_owned(
         self, business_id: UUID, recommendation_id: UUID, revision_id: UUID
     ) -> AssessmentRevision | None:

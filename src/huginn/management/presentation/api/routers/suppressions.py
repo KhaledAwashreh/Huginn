@@ -80,7 +80,7 @@ def reverse_rejection(
         suppression_block_id, body.expected_version, body.request_key
     )
     return response_from_domain(
-        dependencies.reverse_recommendation_rejection_service.execute(
+        dependencies.recommendation_decision_service.reverse_rejection(
             authenticated.principal, command
         ),
         ClearRecommendationSuppressionResponse,
@@ -102,7 +102,7 @@ def cancel_pause(
         suppression_block_id, body.expected_version, body.request_key
     )
     return response_from_domain(
-        dependencies.cancel_recommendation_pause_service.execute(
+        dependencies.recommendation_decision_service.cancel_pause(
             authenticated.principal, command
         ),
         ClearRecommendationSuppressionResponse,

@@ -34,6 +34,7 @@ function recommendation(status: RecommendationView['status'] = 'open'): Recommen
     updated_at: '2026-11-01T00:00:00Z',
     current_revision_id: 'revision-1',
     first_presented_at: null,
+    assessment_presented_at: null,
     resolved_at: status === 'open' ? null : '2026-11-02T00:00:00Z',
     resolved_by_user_id: status === 'open' ? null : 'user-1',
     resolution_reason: status === 'rejected' ? 'Wrong buyer' : null,
@@ -214,7 +215,9 @@ it('shows revision rationale and cited assessment-time evidence before decision 
   const wrapper = setup();
   const text = wrapper.text();
   const cardHtml = wrapper.find('article.recommendation-card').html();
-  expect(text).toContain('Search covers the full Business dataset');
+  expect(text).toContain('Search your recommendations by company name or domain.');
+  expect(text).not.toContain('filters before pagination');
+  expect(text).not.toContain('Recommendation version');
   expect(text).toContain('A cited research group is expanding its data team.');
   expect(text).toContain('We are hiring two data analysts.');
   expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toContain('Open source');

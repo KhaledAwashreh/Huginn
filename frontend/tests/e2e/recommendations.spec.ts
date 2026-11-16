@@ -11,6 +11,7 @@ const recommendation: components['schemas']['RecommendationResponse'] = {
   updated_at: '2026-11-02T00:00:00Z',
   current_revision_id: '40000000-0000-0000-0000-000000000001',
   first_presented_at: '2026-11-01T01:00:00Z',
+  assessment_presented_at: '2026-11-01T01:00:00Z',
   resolved_at: null,
   resolved_by_user_id: null,
   resolution_reason: null,
@@ -320,7 +321,12 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.getByLabel('Outcome').selectOption('not_relevant');
   await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');
   await page.getByRole('button', { name: 'Submit assessment report' }).click();
-  await expect(page.getByText(/Feedback recorded for assessment revision/)).toBeVisible();
+  await expect(
+    page.getByText(
+      'Feedback recorded. This report does not change your recommendation or its ranking.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   expect(feedbackRequest).toMatchObject({ assessment_revision_id: recommendation.assessment?.id });
 
   expect(
@@ -339,7 +345,7 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.screenshot({ path: 'test-results/recommendations-wide.png', fullPage: true });
 
   await page.getByRole('button', { name: 'Save as prospect' }).click();
-  await expect(page.getByText(/Saved as a prospect \(ID/)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved as a prospect.' })).toBeVisible();
   await expect(page.getByText('No recommendations match this view yet.')).toBeVisible();
   expect(runtimeFaults).toEqual([]);
   expect(offerRequests).toEqual([]);
@@ -351,6 +357,7 @@ test('confirms first presentation only after the exact assessment revision is re
   const firstOffer: components['schemas']['RecommendationResponse'] = {
     ...recommendation,
     first_presented_at: null,
+    assessment_presented_at: null,
     evidence_state: 'current',
     selection_state: { ...recommendation.selection_state, first_presented_at: null },
   };
@@ -443,13 +450,16 @@ test('confirms first presentation only after the exact assessment revision is re
   expect(order).toEqual(['prepare', 'confirm']);
 });
 
-test('loads a historical email assessment revision without offering it again', async ({ page }) => {
+test('keeps an email assessment historical while confirming an unrelated repeat across reload', async ({
+  page,
+}) => {
   const oldRevisionId = '40000000-0000-0000-0000-000000000009';
   const oldAssessment = recommendation.assessment;
   if (!oldAssessment) throw new Error('The email fixture needs an assessment revision.');
   const linked: components['schemas']['RecommendationResponse'] = {
     ...recommendation,
     first_presented_at: null,
+    assessment_presented_at: null,
     current_revision_id: '40000000-0000-0000-0000-000000000010',
     assessment: {
       ...oldAssessment,
@@ -459,10 +469,29 @@ test('loads a historical email assessment revision without offering it again', a
   };
   const detailQueries: URLSearchParams[] = [];
   const offers: string[] = [];
+  const saves: { recommendationId: string; revisionId: string }[] = [];
+  const expectedRepeatPresentedAt = '2026-11-15T11:30:00Z';
+  let showUnrelated = false;
+  let repeatPresentedAt: string | null = null;
+  const repeat: components['schemas']['RecommendationResponse'] = {
+    ...recommendation,
+    id: '10000000-0000-0000-0000-000000000002',
+    company_id: '30000000-0000-0000-0000-000000000002',
+    company: { ...recommendation.company, name: 'Unrelated Research', domain: 'unrelated.example' },
+    current_revision_id: '40000000-0000-0000-0000-000000000002',
+    assessment_presented_at: null,
+    evidence_state: 'current',
+    assessment: {
+      ...oldAssessment,
+      id: '40000000-0000-0000-0000-000000000002',
+      recommendation_id: '10000000-0000-0000-0000-000000000002',
+      company_id: '30000000-0000-0000-0000-000000000002',
+    },
+  };
   await page.route('**/api/v1/recommendations?*', (route) =>
     route.fulfill({
       json: {
-        items: [],
+        items: showUnrelated ? [{ ...repeat, assessment_presented_at: repeatPresentedAt }] : [],
         offset: 0,
         limit: 25,
         has_more: false,
@@ -489,31 +518,90 @@ test('loads a historical email assessment revision without offering it again', a
   await page.route('**/api/v1/discovery-strategies?*', (route) =>
     route.fulfill({ json: { items: [], offset: 0, limit: 100, has_more: false } }),
   );
-  await page.route(
-    /\/api\/v1\/recommendations\/(?:[^/]+\/offer-preparations|offer-preparations\/[^/]+\/confirm)(?:$|\/)/,
-    async (route) => {
-      offers.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
-      await route.fulfill({
-        status: 409,
-        json: { detail: 'Historical assessment is not offered.' },
-      });
-    },
-  );
+  await page.route('**/api/v1/recommendations/*/offer-preparations', async (route) => {
+    offers.push(new URL(route.request().url()).pathname);
+    expect(route.request().postDataJSON()).toMatchObject({
+      assessment_revision_id: repeat.assessment?.id,
+    });
+    await route.fulfill({
+      json: {
+        recommendation_id: repeat.id,
+        assessment_revision_id: repeat.assessment?.id,
+        offer_cycle_id: 'a0000000-0000-0000-0000-000000000002',
+        status: 'preparing',
+        claim_token: 'unrelated-repeat-claim',
+        presented_at: null,
+        lease_expires_at: '2026-11-15T12:05:00Z',
+      },
+    });
+  });
+  await page.route('**/api/v1/recommendations/offer-preparations/*/confirm', async (route) => {
+    offers.push(new URL(route.request().url()).pathname);
+    expect(route.request().postDataJSON()).toEqual({ claim_token: 'unrelated-repeat-claim' });
+    expect(
+      await page.locator(`[data-assessment-revision-id="${repeat.assessment?.id}"]`).isVisible(),
+    ).toBe(true);
+    await route.fulfill({
+      json: {
+        recommendation_id: repeat.id,
+        assessment_revision_id: repeat.assessment?.id,
+        offer_cycle_id: 'a0000000-0000-0000-0000-000000000002',
+        presented_at: expectedRepeatPresentedAt,
+        cooldown_expires_at: '2026-12-15T11:30:00Z',
+      },
+    });
+    repeatPresentedAt = expectedRepeatPresentedAt;
+  });
+  await page.route('**/api/v1/recommendations/*/save', async (route) => {
+    const recommendationId = new URL(route.request().url()).pathname.split('/').at(-2);
+    if (!recommendationId) throw new Error('Save must identify a recommendation');
+    saves.push({
+      recommendationId,
+      revisionId: route.request().postDataJSON().assessment_revision_id,
+    });
+    await route.fulfill({ json: { prospect_id: 'b0000000-0000-0000-0000-000000000002' } });
+  });
 
   await page.goto('/login');
   await page.getByLabel('Username').fill('browser-matches');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  showUnrelated = true;
   await page.goto(
     `/recommendations?recommendation_id=${linked.id}&assessment_revision_id=${oldRevisionId}`,
   );
   await expect(page.getByRole('heading', { name: 'Recommendation from your email' })).toBeVisible();
   await expect(
-    page.getByText('Their current hiring supports reviewing their research workflow.'),
+    page
+      .getByRole('region', { name: 'Recommendation from your email' })
+      .getByText('Their current hiring supports reviewing their research workflow.'),
   ).toBeVisible();
   await expect.poll(() => detailQueries.at(-1)?.get('assessment_revision_id')).toBe(oldRevisionId);
-  expect(offers).toEqual([]);
+  const card = page.locator('article.recommendation-card');
+  await card.scrollIntoViewIfNeeded();
+  const assessment = card.locator(`[data-assessment-revision-id="${repeat.assessment?.id}"]`);
+  await expect(assessment).toBeVisible();
+  await assessment.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() => offers)
+    .toEqual([
+      `/api/v1/recommendations/${repeat.id}/offer-preparations`,
+      '/api/v1/recommendations/offer-preparations/a0000000-0000-0000-0000-000000000002/confirm',
+    ]);
+  await expect.poll(() => repeatPresentedAt).toBe(expectedRepeatPresentedAt);
+  await page.reload();
+  await expect(card.getByText('Unrelated Research', { exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Save as prospect' }).click();
+  const email = page.getByRole('region', { name: 'Recommendation from your email' });
+  await email.getByRole('button', { name: 'Save as prospect' }).click();
+  await expect
+    .poll(() => saves)
+    .toEqual([
+      { recommendationId: repeat.id, revisionId: repeat.assessment?.id },
+      { recommendationId: linked.id, revisionId: oldRevisionId },
+    ]);
+  expect(offers).toHaveLength(2);
 });
 
 test('searches recommendations beyond page one and resets pagination offset', async ({ page }) => {

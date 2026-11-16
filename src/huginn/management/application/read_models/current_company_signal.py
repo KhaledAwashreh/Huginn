@@ -1,4 +1,4 @@
-"""Current Gold signal projection for a company owned through a Match."""
+"""Current Gold signal projection without a qualification claim."""
 
 from dataclasses import dataclass
 from datetime import datetime

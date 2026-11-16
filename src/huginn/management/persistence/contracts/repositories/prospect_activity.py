@@ -6,6 +6,10 @@ from huginn.management.domain.value_objects.command_identity import CommandIdent
 
 
 class ProspectActivityRepository(Protocol):
+    def get_owned(
+        self, business_id: UUID, prospect_id: UUID, activity_id: UUID
+    ) -> ProspectActivity | None: ...
+
     def list_owned(
         self, business_id: UUID, prospect_id: UUID
     ) -> tuple[ProspectActivity, ...]: ...

@@ -1,6 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 from itertools import count
+from types import SimpleNamespace
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -20,22 +23,20 @@ from huginn.management.application.requests.prepare_recommendation_offer_request
 from huginn.management.application.requests.save_recommendation_request import (
     SaveRecommendationRequest,
 )
-from huginn.management.application.services.confirm_recommendation_offer_service import (
-    ConfirmRecommendationOfferService,
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
 )
-from huginn.management.application.services.later_recommendation_service import (
-    LaterRecommendationService,
+from huginn.management.application.services.recommendation_generation import (
+    RecommendationGenerationService,
 )
-from huginn.management.application.services.mark_recommendation_not_relevant_service import (
-    MarkRecommendationNotRelevantService,
-)
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.application.services.save_recommendation_service import (
     SaveRecommendationService,
 )
-from huginn.management.domain.errors.errors import ConflictError
+from huginn.management.domain.errors.errors import ConflictError, NotFoundError
+from huginn.management.domain.value_objects.common import Principal
 from huginn.management.domain.value_objects.pause_choice import PauseChoice
 from huginn.management.persistence.database.prospecting_unit_of_work import (
     PostgresProspectingUnitOfWork,
@@ -51,18 +52,13 @@ from tests.management.persistence.retained_prospecting_fixtures import (
 
 def _services(context):
     sequence = count()
-    prepare = PrepareRecommendationOfferService(
+    prepare = RecommendationOfferService(
         lambda: PostgresProspectingUnitOfWork(context.connection_factory),
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: context.current_time[0],
         token_factory=lambda: f"retained-claim-{next(sequence)}",
     )
-    confirm = ConfirmRecommendationOfferService(
-        lambda: PostgresProspectingUnitOfWork(context.connection_factory),
-        source_factory=PostgresRecommendationGenerationSource,
-        clock=lambda: context.current_time[0],
-    )
-    return prepare, confirm
+    return prepare, prepare
 
 
 def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
@@ -83,7 +79,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     # one claim, rather than creating two cycles or exposing two tokens.
     with ThreadPoolExecutor(max_workers=2) as pool:
         prepared_values = list(
-            pool.map(lambda _: prepare.execute(context.principal, request), range(2))
+            pool.map(lambda _: prepare.prepare(context.principal, request), range(2))
         )
     prepared = prepared_values[0]
     assert prepared_values == [prepared, prepared]
@@ -117,7 +113,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
         f"stale-new-key-{context.suffix}",
     )
     with pytest.raises(ConflictError):
-        prepare.execute(context.principal, stale_new_key)
+        prepare.prepare(context.principal, stale_new_key)
     with psycopg.connect(context.database_url) as connection:
         assert connection.execute(
             "SELECT status,claim_token FROM operational.offer_cycles WHERE id=%s",
@@ -139,7 +135,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
 
     def try_prepare(request):
         try:
-            return prepare.execute(context.principal, request)
+            return prepare.prepare(context.principal, request)
         except ConflictError:
             return None
 
@@ -149,9 +145,9 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     assert len(renewed_values) == 1
     renewed = renewed_values[0]
     assert renewed.status.value == "preparing"
-    assert prepare.execute(context.principal, request).status.value == "abandoned"
+    assert prepare.prepare(context.principal, request).status.value == "abandoned"
     with pytest.raises(ConflictError):
-        confirm.execute(
+        confirm.confirm(
             context.principal,
             ConfirmRecommendationOfferRequest(
                 prepared.offer_cycle_id, prepared.claim_token
@@ -180,7 +176,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     with ThreadPoolExecutor(max_workers=2) as pool:
         confirmed_values = list(
             pool.map(
-                lambda _: confirm.execute(context.principal, confirm_request), range(2)
+                lambda _: confirm.confirm(context.principal, confirm_request), range(2)
             )
         )
     assert confirmed_values[0] == confirmed_values[1]
@@ -208,7 +204,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     context.current_time[0] = confirmed.cooldown_expires_at
     context.current_time[0] += timedelta(seconds=1)
     with pytest.raises(ConflictError):
-        prepare.execute(
+        prepare.prepare(
             context.principal,
             PrepareRecommendationOfferRequest(
                 selected.recommendation_id,
@@ -219,7 +215,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     fresh = generate_retained_brightroom_selection(context)
     assert fresh.recommendation_id == selected.recommendation_id
     assert fresh.revision_id != selected.revision_id
-    fresh_claim = prepare.execute(
+    fresh_claim = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             fresh.recommendation_id,
@@ -229,7 +225,7 @@ def test_prepare_confirm_concurrency_expiry_and_fresh_revision_requirement(
     )
     assert fresh_claim.status.value == "preparing"
     context.current_time[0] += timedelta(seconds=1)
-    second_presentation = confirm.execute(
+    second_presentation = confirm.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             fresh_claim.offer_cycle_id, fresh_claim.claim_token
@@ -285,7 +281,7 @@ def test_user_decision_before_confirmation_wins(
     )
     selected = generate_retained_brightroom_selection(context)
     prepare, confirm = _services(context)
-    claim = prepare.execute(
+    claim = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             selected.recommendation_id,
@@ -315,9 +311,9 @@ def test_user_decision_before_confirmation_wins(
                 context.business_id, selected.recommendation_id
             )
         assert recommendation is not None
-        MarkRecommendationNotRelevantService(
+        RecommendationDecisionService(
             work_factory, clock=lambda: command_time
-        ).execute(
+        ).mark_not_relevant(
             context.principal,
             MarkRecommendationNotRelevantRequest(
                 selected.recommendation_id,
@@ -337,7 +333,7 @@ def test_user_decision_before_confirmation_wins(
                 context.business_id
             )
         assert recommendation is not None and preferences is not None
-        LaterRecommendationService(work_factory, clock=lambda: command_time).execute(
+        RecommendationDecisionService(work_factory, clock=lambda: command_time).later(
             context.principal,
             LaterRecommendationRequest(
                 selected.recommendation_id,
@@ -361,7 +357,7 @@ def test_user_decision_before_confirmation_wins(
             connection.commit()
 
     with pytest.raises(ConflictError):
-        confirm.execute(
+        confirm.confirm(
             context.principal,
             ConfirmRecommendationOfferRequest(claim.offer_cycle_id, claim.claim_token),
         )
@@ -401,7 +397,7 @@ def test_generation_commits_expiry_cleanup_before_lost_evidence_selection(
     )
     selected = generate_retained_brightroom_selection(context)
     prepare, _ = _services(context)
-    claim = prepare.execute(
+    claim = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             selected.recommendation_id,
@@ -438,6 +434,96 @@ def test_generation_commits_expiry_cleanup_before_lost_evidence_selection(
                 "SELECT count(*) FROM operational.suppression_blocks "
                 "WHERE business_id=%s AND company_id=%s AND kind='cooldown'",
                 (context.business_id, context.company_id),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_real_selected_revision_can_be_offered_without_receipt_json_authority(
+    retained_management_database_url, monkeypatch
+):
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+
+    class GenerationWithoutAudit(PostgresProspectingUnitOfWork):
+        def __enter__(self):
+            work = super().__enter__()
+            # Omit the audit side effect to prove that relational selection,
+            # not a serialized run response, authorizes the resulting offer.
+            work.commands = SimpleNamespace(record=lambda receipt: receipt)
+            return work
+
+    service = RecommendationGenerationService(
+        lambda: GenerationWithoutAudit(context.connection_factory),
+        source_factory=PostgresRecommendationGenerationSource,
+        clock=lambda: context.current_time[0],
+    )
+    selected = generate_retained_brightroom_selection(
+        replace(context, generation_service=service)
+    )
+    with psycopg.connect(context.database_url) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.command_receipts WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        revision_before = connection.execute(
+            "SELECT to_jsonb(revision) FROM operational.assessment_revisions revision WHERE id=%s",
+            (selected.revision_id,),
+        ).fetchone()[0]
+        assert (
+            connection.execute(
+                "SELECT current_revision_id FROM operational.recommendations WHERE id=%s",
+                (selected.recommendation_id,),
+            ).fetchone()[0]
+            == selected.revision_id
+        )
+
+    offers, _ = _services(context)
+    request = PrepareRecommendationOfferRequest(
+        selected.recommendation_id, selected.revision_id, f"no-audit-{context.suffix}"
+    )
+    with pytest.raises(NotFoundError):
+        offers.prepare(Principal(uuid4(), uuid4()), request)
+    with pytest.raises(NotFoundError):
+        offers.prepare(
+            context.principal, replace(request, assessment_revision_id=uuid4())
+        )
+    prepared = offers.prepare(context.principal, request)
+    confirm_request = ConfirmRecommendationOfferRequest(
+        prepared.offer_cycle_id, prepared.claim_token
+    )
+    with pytest.raises(NotFoundError):
+        offers.confirm(Principal(uuid4(), uuid4()), confirm_request)
+    confirmed = offers.confirm(context.principal, confirm_request)
+    assert confirmed.assessment_revision_id == selected.revision_id
+    assert offers.confirm(context.principal, confirm_request) == confirmed
+    with psycopg.connect(context.database_url) as connection:
+        assert connection.execute(
+            "SELECT selected_revision_id,status,presented_at FROM operational.offer_cycles WHERE id=%s",
+            (prepared.offer_cycle_id,),
+        ).fetchone() == (selected.revision_id, "confirmed", confirmed.presented_at)
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(revision) FROM operational.assessment_revisions revision WHERE id=%s",
+                (selected.revision_id,),
+            ).fetchone()[0]
+            == revision_before
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.suppression_blocks WHERE business_id=%s AND company_id=%s AND kind='cooldown'",
+                (context.business_id, context.company_id),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM operational.command_receipts WHERE business_id=%s",
+                (context.business_id,),
             ).fetchone()[0]
             == 0
         )

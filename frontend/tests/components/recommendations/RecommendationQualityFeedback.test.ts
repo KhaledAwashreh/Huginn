@@ -61,7 +61,10 @@ it('submits a report for the exact shown assessment without changing decision st
       notes: 'Evidence is no longer current.',
     },
   });
-  expect(wrapper.text()).toContain('It did not change recommendation status or ranking');
+  expect(wrapper.text()).toContain(
+    'This report does not change your recommendation or its ranking.',
+  );
+  expect(wrapper.text()).not.toContain('Feedback recorded for assessment revision');
 });
 
 it('retries an uncertain report against its original recommendation and exact revision', async () => {

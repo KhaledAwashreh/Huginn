@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -254,3 +255,101 @@ def test_response_schemas_constrain_current_eligibility_and_closed_last_active_s
             for value in branch.get("enum", [])
         } == {"saved", "contacted", "in_conversation", "proposal_sent"}
         assert any(branch.get("type") == "null" for branch in property_schema["anyOf"])
+
+
+def test_prospect_command_mapper_serializes_typed_state_and_original_activity():
+    from huginn.management.application.responses.prospect_command_response import (
+        ProspectCommandResponse as CommandResult,
+    )
+    from huginn.management.presentation.api import prospecting_mapping
+
+    identity, _, _, prospect, _ = _base()
+    activity = valid_prospect_activity(identity, prospect)
+    prospect = replace(prospect, notes="Later memo", version=prospect.version + 1)
+    result = CommandResult(prospect, activity)
+    mapper = getattr(prospecting_mapping, "prospect_command_response", None)
+    assert mapper is not None, "Commands need a typed presentation mapper"
+    response = mapper(result)
+    assert response.prospect.id == prospect.id
+    assert response.prospect.stage == prospect.stage.value
+    assert response.prospect.version == prospect.version
+    assert response.prospect.notes == prospect.notes
+    assert response.activity.id == activity.id
+    assert response.activity.kind == activity.kind.value
+    assert response.activity.occurred_at == activity.occurred_at
+    assert response.activity.recorded_at == activity.recorded_at
+    assert response.activity.payload == activity.payload.to_json_object()
+    assert response.model_dump(mode="json")["activity"]["id"] == str(activity.id)
+
+
+def test_recommendation_maps_exact_displayed_assessment_presentation():
+    identity, recommendation, revision, _, company = _base()
+    presented_at = datetime.now(UTC)
+    view = RecommendationView(
+        recommendation,
+        company,
+        revision,
+        None,
+        BusinessCompanyState(),
+        presented_at,
+        "current",
+        assessment_presented_at=presented_at,
+    )
+    assert recommendation_response(view).assessment_presented_at == presented_at
+
+
+def test_prospect_current_sources_are_separate_from_immutable_origins():
+    from huginn.management.application.read_models.current_company_signal import (
+        CurrentCompanySignal,
+    )
+    from huginn.management.application.read_models.current_source_context import (
+        CurrentSourceContext,
+    )
+
+    identity, recommendation, revision, prospect, company = _base()
+    origin = ProspectOriginView(
+        valid_prospect_origin(identity, recommendation, revision, prospect),
+        recommendation,
+        revision,
+    )
+    now = datetime.now(UTC)
+    signal = CurrentCompanySignal(
+        uuid4(),
+        "directory",
+        "eu_startups",
+        "https://example.test/current",
+        "New current evidence",
+        None,
+        now,
+        now,
+        uuid4(),
+        now,
+        "directory_context",
+        "not_applicable",
+    )
+    view = ProspectView(
+        prospect,
+        company,
+        (origin,),
+        (),
+        CurrentSourceContext((signal,), False, "changed"),
+    )
+    response = prospect_response(view)
+    assert response.current_source_context.evidence_state == "changed"
+    assert (
+        response.current_source_context.signals[0].observation_id
+        == signal.observation_id
+    )
+    assert response.current_source_context.signals[0].observed_at == now
+    assert (
+        response.current_source_context.signals[0].description == "New current evidence"
+    )
+    assert response.origins[0].assessment.evidence_snapshots == [
+        item.to_json_object() for item in revision.evidence_snapshots
+    ]
+    assert (
+        prospect_response(
+            ProspectView(prospect, company, (origin,))
+        ).current_source_context
+        is None
+    )

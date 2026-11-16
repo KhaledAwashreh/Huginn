@@ -53,6 +53,7 @@ function historical(): RecommendationView {
       ],
     },
     first_presented_at: '2026-11-01T10:00:00Z',
+    assessment_presented_at: '2026-11-01T10:00:00Z',
     resolved_at: null,
     resolved_by_user_id: null,
     resolution_reason: null,

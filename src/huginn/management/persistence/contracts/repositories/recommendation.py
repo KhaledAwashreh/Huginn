@@ -9,6 +9,9 @@ from huginn.management.domain.value_objects.recommendation_status import (
 
 
 class RecommendationRepository(Protocol):
+    def get_many_owned(
+        self, business_id: UUID, recommendation_ids: tuple[UUID, ...]
+    ) -> tuple[Recommendation, ...]: ...
     def get_owned(
         self, business_id: UUID, recommendation_id: UUID
     ) -> Recommendation | None: ...

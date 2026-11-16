@@ -248,7 +248,7 @@ def mark_not_relevant(
         body.reason,
     )
     return response_from_domain(
-        dependencies.mark_recommendation_not_relevant_service.execute(
+        dependencies.recommendation_decision_service.mark_not_relevant(
             authenticated.principal, command
         ),
         MarkRecommendationNotRelevantResponse,
@@ -279,7 +279,7 @@ def later(
         body.request_key,
     )
     return response_from_domain(
-        dependencies.later_recommendation_service.execute(
+        dependencies.recommendation_decision_service.later(
             authenticated.principal, command
         ),
         LaterRecommendationResponse,
@@ -330,7 +330,7 @@ def prepare_offer(
     dependencies: Management,
 ):
     require_new_discovery_work(dependencies)
-    result = dependencies.prepare_recommendation_offer_service.execute(
+    result = dependencies.recommendation_offer_service.prepare(
         authenticated.principal,
         PrepareOfferCommand(
             recommendation_id, body.assessment_revision_id, body.request_key
@@ -360,7 +360,7 @@ def confirm_offer(
     dependencies: Management,
 ):
     require_new_discovery_work(dependencies)
-    result = dependencies.confirm_recommendation_offer_service.execute(
+    result = dependencies.recommendation_offer_service.confirm(
         authenticated.principal, ConfirmOfferCommand(offer_cycle_id, body.claim_token)
     )
     return response_from_domain(result, ConfirmedRecommendationOfferResponse)

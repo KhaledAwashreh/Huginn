@@ -117,6 +117,9 @@ class OfferCycleRepository(Protocol):
         outcome: Literal["confirmed", "pre_send_failed", "unknown"],
         settled_at: datetime,
         presented_at: datetime | None = None,
+        *,
+        actor_user_id: UUID | None = None,
+        reason: str | None = None,
     ) -> OfferCycle:
         """Use actual handoff time as presented_at; settled_at is observation time."""
         ...

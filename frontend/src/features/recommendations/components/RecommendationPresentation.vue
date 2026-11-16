@@ -8,10 +8,9 @@ const props = withDefaults(
   defineProps<{
     recommendation: RecommendationView;
     identity: string;
-    newlySelected?: boolean;
     historical?: boolean;
   }>(),
-  { newlySelected: false, historical: false },
+  { historical: false },
 );
 const emit = defineEmits<{ confirmed: [] }>();
 const { state, prepare, confirm } = useRecommendationPresentation(props);

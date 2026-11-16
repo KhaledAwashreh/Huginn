@@ -5,6 +5,9 @@ from huginn.management.domain.entities.prospect import Prospect
 
 
 class ProspectRepository(Protocol):
+    def get_many_owned(
+        self, business_id: UUID, prospect_ids: tuple[UUID, ...]
+    ) -> tuple[Prospect, ...]: ...
     def get_owned(self, business_id: UUID, prospect_id: UUID) -> Prospect | None: ...
     def get_by_business_company(
         self, business_id: UUID, company_id: UUID

@@ -147,6 +147,10 @@ def test_management_routes_are_registered():
         ("/api/v1/suppressions/{suppression_block_id}/reverse-rejection", "POST"),
         ("/api/v1/suppressions/{suppression_block_id}/cancel-pause", "POST"),
         ("/api/v1/weekly-digests/{delivery_id}/recovery", "POST"),
+        (
+            "/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation",
+            "POST",
+        ),
         ("/api/v1/matches", "GET"),
         ("/api/v1/matches/overview", "GET"),
         ("/api/v1/matches/{match_id}", "GET"),

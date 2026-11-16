@@ -1,33 +1,14 @@
-from dataclasses import dataclass
-from typing import Literal
+from enum import StrEnum
 
 
-@dataclass(frozen=True)
-class ActivityKind:
-    value: Literal[
-        "prospect_saved",
-        "stage_changed",
-        "closed",
-        "reopened",
-        "note_added",
-        "follow_up_set",
-        "follow_up_cleared",
-        "proposal_drafted",
-        "proposal_sent",
-        "correction",
-    ]
-
-    def __post_init__(self) -> None:
-        if self.value not in {
-            "prospect_saved",
-            "stage_changed",
-            "closed",
-            "reopened",
-            "note_added",
-            "follow_up_set",
-            "follow_up_cleared",
-            "proposal_drafted",
-            "proposal_sent",
-            "correction",
-        }:
-            raise ValueError("invalid activity kind")
+class ActivityKind(StrEnum):
+    PROSPECT_SAVED = "prospect_saved"
+    STAGE_CHANGED = "stage_changed"
+    CLOSED = "closed"
+    REOPENED = "reopened"
+    NOTE_ADDED = "note_added"
+    FOLLOW_UP_SET = "follow_up_set"
+    FOLLOW_UP_CLEARED = "follow_up_cleared"
+    PROPOSAL_DRAFTED = "proposal_drafted"
+    PROPOSAL_SENT = "proposal_sent"
+    CORRECTION = "correction"

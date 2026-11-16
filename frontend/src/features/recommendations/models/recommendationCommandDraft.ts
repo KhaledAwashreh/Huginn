@@ -86,3 +86,26 @@ export function createRecommendationCommandDraft(
     },
   };
 }
+
+export function hasRecommendationFeedbackDraft(draft: RecommendationFeedbackDraft): boolean {
+  return Boolean(
+    draft.intent ||
+    draft.status !== 'idle' ||
+    draft.open ||
+    draft.usefulness !== 'unsure' ||
+    draft.reasons.length ||
+    draft.outcome !== 'unknown' ||
+    draft.next_step !== 'none' ||
+    draft.correction.trim() ||
+    draft.notes.trim(),
+  );
+}
+
+export function resetRecommendationDecisionDraft(draft: RecommendationCommandDraft): void {
+  const feedback = draft.feedback;
+  const snapshot = hasRecommendationFeedbackDraft(feedback) ? draft.snapshot : null;
+  Object.assign(draft, createRecommendationCommandDraft(draft.recommendationId), {
+    feedback,
+    snapshot,
+  });
+}

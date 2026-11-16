@@ -15,14 +15,11 @@ from huginn.management.application.requests.generate_recommendations_request imp
 from huginn.management.application.requests.prepare_recommendation_offer_request import (
     PrepareRecommendationOfferRequest,
 )
-from huginn.management.application.services.confirm_recommendation_offer_service import (
-    ConfirmRecommendationOfferService,
-)
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
-)
 from huginn.management.application.services.recommendation_generation import (
     RecommendationGenerationService,
+)
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.domain.entities.suppression_block import SuppressionBlock
 from huginn.management.domain.errors.errors import ConflictError, NotFoundError
@@ -235,9 +232,6 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
             "evaluation_seed"
         ]
         current_source = PostgresRecommendationGenerationSource(work.connection)
-        assert current_source.was_selected_in_generation(
-            business_id, recommendation.id, revision.id
-        )
         assert (
             current_source.current_company_for_revision(revision, current_time[0])
             is not None
@@ -407,13 +401,13 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
         if value.recommendation_id == target.recommendation_id
     )
     claim_tokens = iter((f"claim-{suffix}-first", f"claim-{suffix}-renewed"))
-    prepare_service = PrepareRecommendationOfferService(
+    prepare_service = RecommendationOfferService(
         lambda: PostgresProspectingUnitOfWork(factory),
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: current_time[0],
         token_factory=lambda: next(claim_tokens),
     )
-    confirm_service = ConfirmRecommendationOfferService(
+    confirm_service = RecommendationOfferService(
         lambda: PostgresProspectingUnitOfWork(factory),
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: current_time[0],
@@ -430,7 +424,7 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
     prepare_request = PrepareRecommendationOfferRequest(
         target.recommendation_id, after_pause_target.revision_id, request_key
     )
-    prepared = prepare_service.execute(principal, prepare_request)
+    prepared = prepare_service.prepare(principal, prepare_request)
     assert prepared.status.value == "preparing"
     assert prepared.claim_token == f"claim-{suffix}-first"
     assert prepared.presented_at is None
@@ -452,19 +446,19 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
     )
     assert claim_audit["claim_token_fingerprint"]
     assert f"claim-{suffix}" not in str(claim_audit)
-    prepare_replay = prepare_service.execute(principal, prepare_request)
+    prepare_replay = prepare_service.prepare(principal, prepare_request)
     assert prepare_replay == prepared
 
     confirm_request = ConfirmRecommendationOfferRequest(
         prepared.offer_cycle_id, prepared.claim_token
     )
     with pytest.raises(ConflictError):
-        confirm_service.execute(
+        confirm_service.confirm(
             principal,
             ConfirmRecommendationOfferRequest(prepared.offer_cycle_id, "wrong-token"),
         )
     with pytest.raises(ConflictError):
-        prepare_service.execute(
+        prepare_service.prepare(
             principal,
             PrepareRecommendationOfferRequest(
                 target.recommendation_id,
@@ -473,7 +467,7 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
             ),
         )
     with pytest.raises(NotFoundError):
-        confirm_service.execute(Principal(uuid4(), uuid4()), confirm_request)
+        confirm_service.confirm(Principal(uuid4(), uuid4()), confirm_request)
 
     with psycopg.connect(url) as connection:
         original_company_name = connection.execute(
@@ -485,7 +479,7 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
         )
         connection.commit()
     with pytest.raises(ConflictError):
-        confirm_service.execute(principal, confirm_request)
+        confirm_service.confirm(principal, confirm_request)
     with psycopg.connect(url) as connection:
         assert connection.execute(
             "SELECT status,claim_token FROM operational.offer_cycles WHERE id=%s",
@@ -514,17 +508,17 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
         after_pause_target.revision_id,
         renewed_request_key,
     )
-    prepared = prepare_service.execute(principal, renewed_request)
+    prepared = prepare_service.prepare(principal, renewed_request)
     assert prepared.status.value == "preparing"
     assert prepared.claim_token == f"claim-{suffix}-renewed"
     confirm_request = ConfirmRecommendationOfferRequest(
         prepared.offer_cycle_id, prepared.claim_token
     )
-    expired_replay = prepare_service.execute(principal, expired_request)
+    expired_replay = prepare_service.prepare(principal, expired_request)
     assert expired_replay.status.value == "abandoned"
     assert expired_replay.claim_token is None
     with pytest.raises(ConflictError):
-        confirm_service.execute(
+        confirm_service.confirm(
             principal,
             ConfirmRecommendationOfferRequest(
                 expired_prepared.offer_cycle_id,
@@ -543,7 +537,7 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
 
     confirmed_at = current_time[0] + timedelta(seconds=1)
     current_time[0] = confirmed_at
-    confirmed = confirm_service.execute(principal, confirm_request)
+    confirmed = confirm_service.confirm(principal, confirm_request)
     assert confirmed.presented_at == confirmed_at
     assert confirmed.cooldown_expires_at == confirmed_at + timedelta(days=30)
     with psycopg.connect(url) as connection:
@@ -560,9 +554,9 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
         connection.commit()
     assert updated_preferences[0:2] == (business_id, 45)
     assert updated_preferences[2] >= preferences_before[2]
-    confirm_replay = confirm_service.execute(principal, confirm_request)
+    confirm_replay = confirm_service.confirm(principal, confirm_request)
     assert confirm_replay == confirmed
-    confirmed_prepare_replay = prepare_service.execute(principal, renewed_request)
+    confirmed_prepare_replay = prepare_service.prepare(principal, renewed_request)
     assert confirmed_prepare_replay.status.value == "confirmed"
     assert confirmed_prepare_replay.claim_token is None
     assert confirmed_prepare_replay.lease_expires_at is None

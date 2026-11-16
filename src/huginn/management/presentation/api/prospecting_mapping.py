@@ -1,5 +1,7 @@
 """Map prospecting read models and domain values to explicit API responses."""
 
+from dataclasses import asdict
+
 from huginn.management.application.read_models.current_company import CurrentCompany
 from huginn.management.application.read_models.manageable_suppression_view import (
     ManageableSuppressionView,
@@ -10,6 +12,9 @@ from huginn.management.application.read_models.prospect_origin_view import (
 from huginn.management.application.read_models.prospect_view import ProspectView
 from huginn.management.application.read_models.recommendation_view import (
     RecommendationView,
+)
+from huginn.management.application.responses.prospect_command_response import (
+    ProspectCommandResponse as ProspectCommandResult,
 )
 from huginn.management.domain.entities.assessment_revision import AssessmentRevision
 from huginn.management.domain.entities.prospect import Prospect
@@ -24,6 +29,18 @@ from huginn.management.domain.value_objects.strategy_assessment_snapshot import 
 )
 from huginn.management.presentation.api.responses.current_company import (
     CurrentCompanyResponse,
+)
+from huginn.management.presentation.api.responses.current_company_signal import (
+    CurrentCompanySignalResponse,
+)
+from huginn.management.presentation.api.responses.current_source_context import (
+    CurrentSourceContextResponse,
+)
+from huginn.management.presentation.api.responses.prospect_command import (
+    ProspectCommandResponse,
+)
+from huginn.management.presentation.api.responses.prospect_command_activity import (
+    ProspectCommandActivityResponse,
 )
 from huginn.management.presentation.api.responses.prospecting_activity import (
     ProspectActivityResponse,
@@ -92,6 +109,7 @@ def recommendation_response(view: RecommendationView) -> RecommendationResponse:
         updated_at=recommendation.updated_at,
         current_revision_id=recommendation.current_revision_id,
         first_presented_at=recommendation.first_presented_at,
+        assessment_presented_at=view.assessment_presented_at,
         resolved_at=recommendation.resolved_at,
         resolved_by_user_id=recommendation.resolved_by_user_id,
         resolution_reason=recommendation.resolution_reason,
@@ -144,6 +162,18 @@ def prospect_response(view: ProspectView) -> ProspectResponse:
         ),
         company=_company_response(view.company),
         origins=[_prospect_origin(origin) for origin in view.origins],
+        current_source_context=(
+            CurrentSourceContextResponse(
+                signals=[
+                    CurrentCompanySignalResponse(**asdict(signal))
+                    for signal in view.current_source_context.signals
+                ],
+                has_more=view.current_source_context.has_more,
+                evidence_state=view.current_source_context.evidence_state,
+            )
+            if view.current_source_context is not None
+            else None
+        ),
         activities=(
             [_prospect_activity(activity, history) for activity in history]
             if history is not None
@@ -272,4 +302,22 @@ def _prospect_activity(
         effective_occurred_at=effective_occurred_at,
         correction_head_id=correction_head_id,
         correction_sequence=correction_sequence,
+    )
+
+
+def prospect_command_response(result: ProspectCommandResult) -> ProspectCommandResponse:
+    activity = result.activity
+    return ProspectCommandResponse(
+        prospect=_prospect_entity(result.prospect),
+        activity=ProspectCommandActivityResponse(
+            id=activity.id,
+            business_id=activity.business_id,
+            prospect_id=activity.prospect_id,
+            actor_user_id=activity.actor_user_id,
+            kind=activity.kind.value,
+            occurred_at=activity.occurred_at,
+            recorded_at=activity.recorded_at,
+            payload=activity.payload.to_json_object(),
+            correction_of_id=activity.correction_of_id,
+        ),
     )

@@ -120,3 +120,66 @@ def test_recovery_requires_csrf_and_uses_only_the_authenticated_actor():
             assert response.headers["cache-control"] == "no-store"
             assert response.headers["vary"] == "Cookie"
         assert len(observed) == 1
+
+
+def test_stopped_sender_reconciliation_requires_csrf_exact_fences_and_attestation():
+    principal = Principal(uuid4(), uuid4())
+    now = datetime.now(UTC)
+    delivery_id, content_id, cycle_id = (uuid4() for _ in range(3))
+    observed = []
+
+    class Recovery:
+        def reconcile_stopped_sender(self, actor, request):
+            observed.append((actor, request))
+            return SimpleNamespace(
+                id=delivery_id,
+                state="unknown",
+                version=4,
+                accepted_at=None,
+                settled_at=now,
+            )
+
+    app = create_app(
+        ManagementConfig("unused", environment="test"),
+        recover_weekly_digest_service=Recovery(),
+    )
+    session = Session(
+        uuid4(), principal.account_id, "digest", digest_token("csrf"), now, now, None
+    )
+    app.dependency_overrides[get_authenticated_session] = lambda: AuthenticatedSession(
+        principal, session, "opaque"
+    )
+    body = {
+        "expected_version": 3,
+        "expected_content_id": str(content_id),
+        "expected_sending_started_at": now.isoformat(),
+        "expected_offer_cycle_ids": [str(cycle_id)],
+        "sender_stopped": True,
+        "reason": "Original sender stopped and process absence verified",
+    }
+    path = f"/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation"
+    with TestClient(app) as client:
+        assert client.post(path, json=body).status_code == 403
+        assert observed == []
+        response = client.post(path, json=body, headers={"X-CSRF-Token": "csrf"})
+        assert response.status_code == 200, response.text
+        assert response.json()["state"] == "unknown"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["vary"] == "Cookie"
+        assert observed[0][0] == principal
+        assert observed[0][1].expected_offer_cycle_ids == (cycle_id,)
+        for changes in (
+            {"sender_stopped": False},
+            {"sender_stopped": 1},
+            {"expected_version": 0},
+            {"expected_offer_cycle_ids": []},
+            {"expected_offer_cycle_ids": [str(cycle_id), str(cycle_id)]},
+            {"expected_sending_started_at": "2026-11-16T10:00:00"},
+            {"reason": " "},
+            {"actor_user_id": str(uuid4())},
+        ):
+            invalid = client.post(
+                path, json={**body, **changes}, headers={"X-CSRF-Token": "csrf"}
+            )
+            assert invalid.status_code == 422, invalid.text
+        assert len(observed) == 1

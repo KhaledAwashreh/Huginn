@@ -1,7 +1,7 @@
 """HTTP routing remains a scoped, private, side-effect-free read boundary."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -118,15 +118,13 @@ def test_discovery_decisions_require_csrf_and_forward_exact_intent(action):
     observed = []
 
     class Commands:
-        def execute(self, actor, request):
+        def later(self, actor, request):
             observed.append((actor, request))
             raise NotFoundError("Recommendation not found")
 
-    keyword = (
-        "later_recommendation_service"
-        if action == "later"
-        else "mark_recommendation_not_relevant_service"
-    )
+        mark_not_relevant = later
+
+    keyword = "recommendation_decision_service"
     app = create_app(
         ManagementConfig("unused", environment="test"), **{keyword: Commands()}
     )
@@ -249,20 +247,20 @@ def test_generate_requires_csrf_and_returns_exact_stable_references():
 @pytest.mark.parametrize(
     ("action", "service_name", "extra"),
     [
-        ("stage", "change_prospect_stage", {"target_stage": "contacted"}),
-        ("close", "close_prospect", {"reason": "No longer active"}),
-        ("reopen", "reopen_prospect", {}),
-        ("notes", "update_prospect_notes", {"replacement_notes": "Canonical memo"}),
+        ("stage", "change_stage", {"target_stage": "contacted"}),
+        ("close", "close", {"reason": "No longer active"}),
+        ("reopen", "reopen", {}),
+        ("notes", "update_notes", {"replacement_notes": "Canonical memo"}),
         (
             "follow-up",
-            "set_prospect_follow_up",
+            "set_follow_up",
             {"follow_up_at": "2026-12-01T12:00:00+00:00"},
         ),
-        ("clear-follow-up", "clear_prospect_follow_up", {}),
+        ("clear-follow-up", "clear_follow_up", {}),
         ("proposal-drafts", "record_proposal_draft", {"summary": "Draft only"}),
         (
             "activity-time-corrections",
-            "correct_prospect_activity_time",
+            "correct_activity_time",
             {
                 "original_activity_id": str(uuid4()),
                 "expected_correction_head_id": None,
@@ -274,6 +272,8 @@ def test_generate_requires_csrf_and_returns_exact_stable_references():
 def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
     action, service_name, extra
 ):
+    from types import SimpleNamespace
+
     from huginn.management.security.tokens import digest_token
 
     principal = Principal(uuid4(), uuid4())
@@ -282,13 +282,13 @@ def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
     observed = []
 
     class Command:
-        def execute(self, actor, request):
+        def execute(self, actor, **request):
             observed.append((actor, request))
             raise NotFoundError("Prospect not found")
 
     app = create_app(
         ManagementConfig("unused", environment="test"),
-        **{f"{service_name}_service": Command()},
+        prospect_service=SimpleNamespace(**{service_name: Command().execute}),
     )
     session = Session(
         uuid4(), principal.account_id, "digest", digest_token("csrf"), now, now, None
@@ -315,12 +315,31 @@ def test_pursuit_command_boundary_preserves_version_time_and_session_actor(
         assert response.headers["cache-control"] == "no-store"
         assert response.headers["vary"] == "Cookie"
     assert observed[0][0] == principal
-    assert observed[0][1].prospect_id == prospect_id
-    assert observed[0][1].expected_version == 5
+    assert observed[0][1]["prospect_id"] == prospect_id
+    assert observed[0][1]["expected_version"] == 5
+    assert observed[0][1]["request_key"] == "unchanged-intent"
     if action == "stage":
-        assert observed[0][1].target_stage.value == "contacted"
+        assert observed[0][1]["target_stage"].value == "contacted"
     if action != "activity-time-corrections":
-        assert observed[0][1].occurred_at == now
+        assert observed[0][1]["occurred_at"] == now
+    if action == "close":
+        assert observed[0][1]["reason"] == "No longer active"
+    elif action == "notes":
+        assert observed[0][1]["replacement_notes"] == "Canonical memo"
+    elif action == "follow-up":
+        assert observed[0][1]["follow_up_at"] == datetime.fromisoformat(
+            extra["follow_up_at"]
+        )
+    elif action == "proposal-drafts":
+        assert observed[0][1]["summary"] == "Draft only"
+    elif action == "activity-time-corrections":
+        assert observed[0][1]["original_activity_id"] == UUID(
+            extra["original_activity_id"]
+        )
+        assert observed[0][1]["expected_correction_head_id"] is None
+        assert observed[0][1]["replacement_occurred_at"] == datetime.fromisoformat(
+            extra["replacement_occurred_at"]
+        )
 
 
 @pytest.mark.parametrize("action", ["prepare", "confirm"])
@@ -333,17 +352,15 @@ def test_offer_commands_require_explicit_csrf_and_scope_cycle_from_session(actio
     observed = []
 
     class Command:
-        def execute(self, actor, request):
+        def prepare(self, actor, request):
             observed.append((actor, request))
             raise NotFoundError("Offer not found")
 
-    name = (
-        "prepare_recommendation_offer_service"
-        if action == "prepare"
-        else "confirm_recommendation_offer_service"
-    )
+        confirm = prepare
+
     app = create_app(
-        ManagementConfig("unused", environment="test"), **{name: Command()}
+        ManagementConfig("unused", environment="test"),
+        recommendation_offer_service=Command(),
     )
     session = Session(
         uuid4(), principal.account_id, "digest", digest_token("csrf"), now, now, None

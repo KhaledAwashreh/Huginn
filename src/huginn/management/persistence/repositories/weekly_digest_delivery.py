@@ -375,6 +375,63 @@ class PostgresWeeklyDigestDeliveryRepository(WeeklyDigestDeliveryRepository):
         )
         return delivery
 
+    def reconcile_stopped_sending(
+        self,
+        business_id: UUID,
+        delivery_id: UUID,
+        expected_version: int,
+        expected_content_id: UUID,
+        expected_sending_started_at: datetime,
+        actor_user_id: UUID,
+        reason: str,
+        recorded_at: datetime,
+        payload: JsonSnapshot,
+    ) -> WeeklyDigestDelivery:
+        _ids(business_id, delivery_id, expected_content_id, actor_user_id)
+        _version(expected_version)
+        recorded_at = _aware_utc(recorded_at)
+        expected_sending_started_at = _aware_utc(expected_sending_started_at)
+        if (
+            type(reason) is not str
+            or not reason.strip()
+            or recorded_at < expected_sending_started_at
+        ):
+            raise ValidationDomainError(
+                "Stopped sender reconciliation requires reason and observation time"
+            )
+        row = self.connection.execute(
+            f"UPDATE operational.weekly_digest_deliveries SET state='unknown',version=version+1,"
+            "settled_at=%s WHERE business_id=%s AND id=%s AND version=%s "
+            "AND state='sending' AND current_content_id=%s AND sending_started_at=%s "
+            "AND EXISTS (SELECT 1 FROM operational.businesses WHERE id=%s AND owner_user_id=%s) "
+            f"RETURNING {_COLUMNS}",
+            (
+                recorded_at,
+                business_id,
+                delivery_id,
+                expected_version,
+                expected_content_id,
+                expected_sending_started_at,
+                business_id,
+                actor_user_id,
+            ),
+        ).fetchone()
+        if row is None:
+            raise ConflictError(
+                "Weekly digest is not the expected Sending authorization"
+            )
+        delivery = self._map(row)
+        self._append_event(
+            delivery,
+            "unknown",
+            recorded_at,
+            content_id=expected_content_id,
+            actor_user_id=actor_user_id,
+            reason=reason.strip(),
+            payload=payload,
+        )
+        return delivery
+
     def list_events(
         self, business_id: UUID, delivery_id: UUID
     ) -> tuple[WeeklyDigestDeliveryEvent, ...]:
@@ -405,6 +462,7 @@ class PostgresWeeklyDigestDeliveryRepository(WeeklyDigestDeliveryRepository):
         reason: str | None = None,
         outcome: Literal["sent", "failed"] | None = None,
         accepted_at: datetime | None = None,
+        payload: JsonSnapshot | None = None,
     ) -> None:
         event = WeeklyDigestDeliveryEvent(
             id=uuid4(),
@@ -418,7 +476,7 @@ class PostgresWeeklyDigestDeliveryRepository(WeeklyDigestDeliveryRepository):
             reason=reason,
             outcome=outcome,
             accepted_at=accepted_at,
-            payload=JsonSnapshot({}),
+            payload=payload if payload is not None else JsonSnapshot({}),
         )
         try:
             self.connection.execute(

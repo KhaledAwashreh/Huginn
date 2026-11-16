@@ -43,6 +43,7 @@ function prospect(): Prospect {
     notes: 'Review the research team’s workflow requirements.',
     follow_up_at: null,
     version: 4,
+    current_source_context: { signals: [], has_more: false, evidence_state: 'unavailable' },
     activities: [activity()],
     origins: [
       {

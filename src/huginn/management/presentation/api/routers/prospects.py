@@ -1,37 +1,12 @@
 """Business-owned pursuit reads; queries never record presentation."""
 
-import json
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from huginn.management.application.requests.change_prospect_stage_request import (
-    ChangeProspectStageRequest as ChangeProspectStageCommand,
-)
-from huginn.management.application.requests.clear_prospect_follow_up_request import (
-    ClearProspectFollowUpRequest as ClearProspectFollowUpCommand,
-)
-from huginn.management.application.requests.close_prospect_request import (
-    CloseProspectRequest as CloseProspectCommand,
-)
-from huginn.management.application.requests.correct_prospect_activity_time_request import (
-    CorrectProspectActivityTimeRequest as CorrectProspectActivityTimeCommand,
-)
 from huginn.management.application.requests.list_prospecting_request import (
     ListProspectingRequest,
-)
-from huginn.management.application.requests.record_proposal_draft_request import (
-    RecordProposalDraftRequest as RecordProposalDraftCommand,
-)
-from huginn.management.application.requests.reopen_prospect_request import (
-    ReopenProspectRequest as ReopenProspectCommand,
-)
-from huginn.management.application.requests.set_prospect_follow_up_request import (
-    SetProspectFollowUpRequest as SetProspectFollowUpCommand,
-)
-from huginn.management.application.requests.update_prospect_notes_request import (
-    UpdateProspectNotesRequest as UpdateProspectNotesCommand,
 )
 from huginn.management.domain.value_objects.prospect_stage import ProspectStage
 from huginn.management.presentation.api.dependencies.authentication import (
@@ -44,7 +19,10 @@ from huginn.management.presentation.api.dependencies.prospecting import (
 )
 from huginn.management.presentation.api.dependencies.services import Management
 from huginn.management.presentation.api.openapi.responses import error_responses
-from huginn.management.presentation.api.prospecting_mapping import prospect_response
+from huginn.management.presentation.api.prospecting_mapping import (
+    prospect_command_response,
+    prospect_response,
+)
 from huginn.management.presentation.api.requests.change_prospect_stage import (
     ChangeProspectStageRequest,
 )
@@ -137,15 +115,16 @@ def change_prospect_stage(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    values["target_stage"] = ProspectStage(body.target_stage)
-    result = dependencies.change_prospect_stage_service.execute(
+    result = dependencies.prospect_service.change_stage(
         authenticated.principal,
-        ChangeProspectStageCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        target_stage=ProspectStage(body.target_stage),
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
+        reason=body.reason,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -159,13 +138,15 @@ def close_prospect(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.close_prospect_service.execute(
-        authenticated.principal, CloseProspectCommand(prospect_id=prospect_id, **values)
+    result = dependencies.prospect_service.close(
+        authenticated.principal,
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        reason=body.reason,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -179,14 +160,14 @@ def reopen_prospect(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.reopen_prospect_service.execute(
+    result = dependencies.prospect_service.reopen(
         authenticated.principal,
-        ReopenProspectCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -200,14 +181,15 @@ def update_prospect_notes(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.update_prospect_notes_service.execute(
+    result = dependencies.prospect_service.update_notes(
         authenticated.principal,
-        UpdateProspectNotesCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        replacement_notes=body.replacement_notes,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -221,14 +203,15 @@ def set_prospect_follow_up(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.set_prospect_follow_up_service.execute(
+    result = dependencies.prospect_service.set_follow_up(
         authenticated.principal,
-        SetProspectFollowUpCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        follow_up_at=body.follow_up_at,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -242,14 +225,14 @@ def clear_prospect_follow_up(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.clear_prospect_follow_up_service.execute(
+    result = dependencies.prospect_service.clear_follow_up(
         authenticated.principal,
-        ClearProspectFollowUpCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -263,14 +246,15 @@ def record_proposal_draft(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.record_proposal_draft_service.execute(
+    result = dependencies.prospect_service.record_proposal_draft(
         authenticated.principal,
-        RecordProposalDraftCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        summary=body.summary,
+        occurred_at=body.occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)
 
 
 @router.post(
@@ -284,11 +268,13 @@ def correct_prospect_activity_time(
     authenticated: CsrfProtected,
     dependencies: Management,
 ):
-    values = body.model_dump()
-    result = dependencies.correct_prospect_activity_time_service.execute(
+    result = dependencies.prospect_service.correct_activity_time(
         authenticated.principal,
-        CorrectProspectActivityTimeCommand(prospect_id=prospect_id, **values),
+        prospect_id=prospect_id,
+        expected_version=body.expected_version,
+        original_activity_id=body.original_activity_id,
+        expected_correction_head_id=body.expected_correction_head_id,
+        replacement_occurred_at=body.replacement_occurred_at,
+        request_key=body.request_key,
     )
-    return ProspectCommandResponse.model_validate_json(
-        json.dumps(result.snapshot().to_json_object())
-    )
+    return prospect_command_response(result)

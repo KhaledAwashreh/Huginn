@@ -5,6 +5,9 @@ from huginn.management.domain.entities.assessment_revision import AssessmentRevi
 
 
 class AssessmentRevisionRepository(Protocol):
+    def get_many_owned(
+        self, business_id: UUID, revision_ids: tuple[UUID, ...]
+    ) -> tuple[AssessmentRevision, ...]: ...
     def get_owned(
         self, business_id: UUID, recommendation_id: UUID, revision_id: UUID
     ) -> AssessmentRevision | None: ...

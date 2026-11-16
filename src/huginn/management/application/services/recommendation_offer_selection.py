@@ -45,9 +45,6 @@ def load_current_offer_selection(
         or revision.business_id != business_id
         or revision.company_id != recommendation.company_id
         or revision.assessed_at > as_of
-        or not source.was_selected_in_generation(
-            business_id, recommendation.id, revision.id
-        )
     ):
         raise ConflictError("Recommendation assessment is no longer current")
     company = source.current_company_for_revision(revision, as_of)

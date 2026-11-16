@@ -46,6 +46,18 @@ class PostgresRecommendationRepository(RecommendationRepository):
             version=row[11],
         )
 
+    def get_many_owned(
+        self, business_id: UUID, recommendation_ids: tuple[UUID, ...]
+    ) -> tuple[Recommendation, ...]:
+        if not recommendation_ids:
+            return ()
+        rows = self.connection.execute(
+            f"SELECT {self._columns} FROM operational.recommendations "
+            "WHERE business_id=%s AND id=ANY(%s::uuid[])",
+            (business_id, list(recommendation_ids)),
+        ).fetchall()
+        return tuple(self._map(row) for row in rows)
+
     def get_owned(
         self, business_id: UUID, recommendation_id: UUID
     ) -> Recommendation | None:

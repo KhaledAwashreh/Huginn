@@ -31,6 +31,7 @@ class RecommendationResponse(ResponseModel):
     updated_at: datetime
     current_revision_id: UUID | None
     first_presented_at: datetime | None
+    assessment_presented_at: datetime | None
     resolved_at: datetime | None
     resolved_by_user_id: UUID | None
     resolution_reason: str | None

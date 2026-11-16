@@ -18,17 +18,8 @@ from huginn.management.application.requests.mark_recommendation_not_relevant_req
 from huginn.management.application.requests.reverse_recommendation_rejection_request import (
     ReverseRecommendationRejectionRequest,
 )
-from huginn.management.application.services.cancel_recommendation_pause_service import (
-    CancelRecommendationPauseService,
-)
-from huginn.management.application.services.later_recommendation_service import (
-    LaterRecommendationService,
-)
-from huginn.management.application.services.mark_recommendation_not_relevant_service import (
-    MarkRecommendationNotRelevantService,
-)
-from huginn.management.application.services.reverse_recommendation_rejection_service import (
-    ReverseRecommendationRejectionService,
+from huginn.management.application.services.recommendation_decision_service import (
+    RecommendationDecisionService,
 )
 from huginn.management.domain.entities.suppression_block import SuppressionBlock
 from huginn.management.domain.errors.errors import ConflictError
@@ -130,7 +121,7 @@ def test_rejection_and_reversal_are_attributed_atomic_repeat_safe_and_preserve_o
         expires_at=NOW + timedelta(days=8),
     )
     principal = _principal(identity)
-    reject = MarkRecommendationNotRelevantService(
+    reject = RecommendationDecisionService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: NOW + timedelta(minutes=2),
     )
@@ -141,8 +132,8 @@ def test_rejection_and_reversal_are_attributed_atomic_repeat_safe_and_preserve_o
         "reject-current",
         "Not a buyer",
     )
-    result = reject.execute(principal, request)
-    assert reject.execute(principal, request) == result
+    result = reject.mark_not_relevant(principal, request)
+    assert reject.mark_not_relevant(principal, request) == result
 
     with psycopg.connect(management_database_url) as connection:
         assert connection.execute(
@@ -188,15 +179,15 @@ def test_rejection_and_reversal_are_attributed_atomic_repeat_safe_and_preserve_o
             == 0
         )
 
-    reverse = ReverseRecommendationRejectionService(
+    reverse = RecommendationDecisionService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: NOW + timedelta(minutes=4),
     )
     reverse_request = ReverseRecommendationRejectionRequest(
         result.suppression_block_id, 1, "reverse-current"
     )
-    reversed_result = reverse.execute(principal, reverse_request)
-    assert reverse.execute(principal, reverse_request) == reversed_result
+    reversed_result = reverse.reverse_rejection(principal, reverse_request)
+    assert reverse.reverse_rejection(principal, reverse_request) == reversed_result
 
     with psycopg.connect(management_database_url) as connection:
         assert connection.execute(
@@ -235,7 +226,7 @@ def test_later_replaces_one_pause_keeps_history_and_replays_exact_receipt(
         "pause",
         expires_at=NOW + timedelta(days=10),
     )
-    service = LaterRecommendationService(
+    service = RecommendationDecisionService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: NOW + timedelta(minutes=3),
     )
@@ -263,8 +254,8 @@ def test_later_replaces_one_pause_keeps_history_and_replays_exact_receipt(
         key="later-replace",
         pause=old_pause,
     )
-    result = service.execute(_principal(identity), request)
-    assert service.execute(_principal(identity), request) == result
+    result = service.later(_principal(identity), request)
+    assert service.later(_principal(identity), request) == result
     assert result.pause_choice == "x2"
     assert result.repeat_interval_days == preference.repeat_interval_days
     assert result.expires_at == NOW + timedelta(minutes=3) + timedelta(
@@ -320,7 +311,7 @@ def test_later_replaces_one_pause_keeps_history_and_replays_exact_receipt(
         choice="x1",
     )
     with pytest.raises(ConflictError):
-        service.execute(_principal(identity), stale_base)
+        service.later(_principal(identity), stale_base)
     stale_pause = _later_request(
         recommendation,
         revision,
@@ -330,7 +321,7 @@ def test_later_replaces_one_pause_keeps_history_and_replays_exact_receipt(
         choice="x1",
     )
     with pytest.raises(ConflictError):
-        service.execute(_principal(identity), stale_pause)
+        service.later(_principal(identity), stale_pause)
     with psycopg.connect(management_database_url) as connection:
         assert (
             connection.execute(
@@ -358,13 +349,13 @@ def test_pause_cancellation_clears_only_selected_block_and_keeps_history(
         "rejection",
         expires_at=None,
     )
-    service = CancelRecommendationPauseService(
+    service = RecommendationDecisionService(
         lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
         clock=lambda: NOW + timedelta(minutes=5),
     )
     request = CancelRecommendationPauseRequest(pause.id, 1, "cancel-pause")
-    response = service.execute(_principal(identity), request)
-    assert service.execute(_principal(identity), request) == response
+    response = service.cancel_pause(_principal(identity), request)
+    assert service.cancel_pause(_principal(identity), request) == response
     with psycopg.connect(management_database_url) as connection:
         assert connection.execute(
             "SELECT cleared_at,cleared_by_user_id,version FROM "
@@ -412,13 +403,13 @@ def test_rejection_receipt_failure_rolls_back_resolution_and_block(
     management_database_url,
 ):
     identity, recommendation, revision = _setup(management_database_url)
-    service = MarkRecommendationNotRelevantService(
+    service = RecommendationDecisionService(
         lambda: _FailingReceiptUnitOfWork(_factory(management_database_url)),
         clock=lambda: NOW + timedelta(minutes=2),
     )
 
     with pytest.raises(ConflictError, match="simulated receipt write failure"):
-        service.execute(
+        service.mark_not_relevant(
             _principal(identity),
             MarkRecommendationNotRelevantRequest(
                 recommendation.id,
@@ -488,13 +479,13 @@ def test_two_concurrent_later_commands_cannot_replace_the_same_expected_pause_tw
             pause=old_pause,
             choice="x1" if index == 0 else "x3",
         )
-        service = LaterRecommendationService(
+        service = RecommendationDecisionService(
             lambda: PostgresProspectingUnitOfWork(_factory(management_database_url)),
             clock=lambda: NOW + timedelta(minutes=3),
         )
         barrier.wait()
         try:
-            return ("ok", service.execute(_principal(identity), request))
+            return ("ok", service.later(_principal(identity), request))
         except ConflictError:
             return ("conflict", None)
 

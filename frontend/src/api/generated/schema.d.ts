@@ -1024,6 +1024,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile Stopped Weekly Digest */
+        post: operations["reconcile_stopped_weekly_digest_api_v1_weekly_digests__delivery_id__stopped_sender_reconciliation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1480,6 +1497,18 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** CurrentSourceContextResponse */
+        CurrentSourceContextResponse: {
+            /**
+             * Evidence State
+             * @enum {string}
+             */
+            evidence_state: "current" | "changed" | "unavailable" | "not_assessed";
+            /** Has More */
+            has_more: boolean;
+            /** Signals */
+            signals: components["schemas"]["CurrentCompanySignalResponse"][];
         };
         /** DiscoveryStrategyCreateRequest */
         DiscoveryStrategyCreateRequest: {
@@ -2504,6 +2533,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            current_source_context: components["schemas"]["CurrentSourceContextResponse"] | null;
             /** Follow Up At */
             follow_up_at: string | null;
             /**
@@ -2627,6 +2657,8 @@ export interface components {
             /** Active Blocks */
             active_blocks: components["schemas"]["SuppressionBlockResponse"][];
             assessment: components["schemas"]["AssessmentRevisionResponse"] | null;
+            /** Assessment Presented At */
+            assessment_presented_at: string | null;
             /**
              * Business Id
              * Format: uuid
@@ -2689,6 +2721,27 @@ export interface components {
             updated_at: string;
             /** Version */
             version: number;
+        };
+        /** ReconcileStoppedWeeklyDigestRequest */
+        ReconcileStoppedWeeklyDigestRequest: {
+            /**
+             * Expected Content Id
+             * Format: uuid
+             */
+            expected_content_id: string;
+            /** Expected Offer Cycle Ids */
+            expected_offer_cycle_ids: string[];
+            /**
+             * Expected Sending Started At
+             * Format: date-time
+             */
+            expected_sending_started_at: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Reason */
+            reason: string;
+            /** Sender Stopped */
+            sender_stopped: boolean;
         };
         /** RecordProposalDraftRequest */
         RecordProposalDraftRequest: {
@@ -2779,7 +2832,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "sent" | "failed";
+            state: "sent" | "failed" | "unknown";
             /** Version */
             version: number;
         };
@@ -11254,6 +11307,130 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RecoverWeeklyDigestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveredWeeklyDigestResponse"];
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    reconcile_stopped_weekly_digest_api_v1_weekly_digests__delivery_id__stopped_sender_reconciliation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReconcileStoppedWeeklyDigestRequest"];
             };
         };
         responses: {

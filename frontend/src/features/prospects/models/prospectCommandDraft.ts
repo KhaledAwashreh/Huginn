@@ -42,7 +42,6 @@ export interface ProspectCommandDraft {
   prospectId: string;
   snapshot: ProspectView | null;
   expectedVersion: number | null;
-  editing: boolean;
   status: 'idle' | 'pending' | 'uncertain' | 'stale' | 'error';
   error: string;
   intent: ProspectCommandIntent | null;
@@ -63,7 +62,6 @@ export function createProspectCommandDraft(prospectId: string): ProspectCommandD
     prospectId,
     snapshot: null,
     expectedVersion: null,
-    editing: false,
     status: 'idle',
     error: '',
     intent: null,
@@ -83,27 +81,19 @@ export function createProspectCommandDraft(prospectId: string): ProspectCommandD
 export function startProspectDraft(draft: ProspectCommandDraft, version: number): void {
   if (draft.expectedVersion !== null) return;
   draft.expectedVersion = version;
-  draft.editing = true;
 }
 
 export function cancelProspectDraft(draft: ProspectCommandDraft): void {
   if (draft.status === 'pending' || draft.status === 'uncertain' || draft.status === 'stale')
     return;
-  draft.expectedVersion = null;
-  draft.editing = false;
-  draft.status = 'idle';
-  draft.error = '';
-  draft.intent = null;
-  draft.editor = null;
-  draft.stageTarget = null;
-  draft.reason = '';
-  draft.occurredAt = '';
-  draft.notes = draft.snapshot?.notes ?? '';
-  draft.followUpAt = '';
-  draft.proposalSummary = '';
-  draft.correctionActivityId = '';
-  draft.correctionHeadId = null;
-  draft.replacementOccurredAt = '';
+  const snapshot = draft.snapshot;
+  resetProspectDraft(draft);
+  draft.snapshot = snapshot;
+  draft.notes = snapshot?.notes ?? '';
+}
+
+export function resetProspectDraft(draft: ProspectCommandDraft): void {
+  Object.assign(draft, createProspectCommandDraft(draft.prospectId));
 }
 
 export function captureProspectCommand<K extends ProspectCommandKind>(
@@ -130,7 +120,6 @@ export function hasProspectDraft(draft: ProspectCommandDraft): boolean {
     draft.intent ||
     draft.status !== 'idle' ||
     draft.expectedVersion !== null ||
-    draft.editing ||
     draft.reason.trim() ||
     draft.occurredAt ||
     draft.stageTarget ||

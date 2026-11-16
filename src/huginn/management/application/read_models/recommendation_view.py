@@ -28,6 +28,8 @@ class RecommendationView:
     evidence_state: Literal["current", "changed", "unavailable", "not_assessed"]
     active_blocks: tuple[SuppressionBlock, ...] = ()
 
+    assessment_presented_at: datetime | None = None
+
     @property
     def selection_blockers(self) -> tuple[str, ...]:
         return assess_recommendation_eligibility(

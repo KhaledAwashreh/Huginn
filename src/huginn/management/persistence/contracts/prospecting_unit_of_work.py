@@ -62,6 +62,7 @@ class ProspectingUnitOfWork(UnitOfWorkProtocol, Protocol):
         Reassessment appends a revision then calls `select_current_revision`
         before the same transaction commits. Save/rejection operations similarly
         commit recommendation resolution, prospect/origin/activity or rejection
-        block changes together. A stored command receipt contains the committed
-        result snapshot/version so a retry does not read later mutable state.
+        block changes together. Manual prospect receipts retain the activity ID
+        and committed version; retries return that activity with current owned
+        prospect state. Other commands retain their committed result snapshots.
         """

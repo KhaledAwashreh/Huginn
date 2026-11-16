@@ -7,7 +7,7 @@ from huginn.management.presentation.api.responses.common import ResponseModel
 
 class RecoveredWeeklyDigestResponse(ResponseModel):
     id: UUID
-    state: Literal["sent", "failed"]
+    state: Literal["sent", "failed", "unknown"]
     version: int
     accepted_at: datetime | None
     settled_at: datetime

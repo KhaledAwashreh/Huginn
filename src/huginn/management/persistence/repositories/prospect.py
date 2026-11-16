@@ -41,6 +41,18 @@ class PostgresProspectRepository(ProspectRepository):
             last_active_stage=ProspectStage(row[9]) if row[9] else None,
         )
 
+    def get_many_owned(
+        self, business_id: UUID, prospect_ids: tuple[UUID, ...]
+    ) -> tuple[Prospect, ...]:
+        if not prospect_ids:
+            return ()
+        rows = self.connection.execute(
+            f"SELECT {self._columns} FROM operational.prospects "
+            "WHERE business_id=%s AND id=ANY(%s::uuid[])",
+            (business_id, list(prospect_ids)),
+        ).fetchall()
+        return tuple(self._map(row) for row in rows)
+
     def get_owned(self, business_id: UUID, prospect_id: UUID) -> Prospect | None:
         row = self.connection.execute(
             f"SELECT {self._columns} FROM operational.prospects "

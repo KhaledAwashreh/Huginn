@@ -1063,6 +1063,38 @@
         "title": "CurrentSessionResponse",
         "type": "object"
       },
+      "CurrentSourceContextResponse": {
+        "properties": {
+          "evidence_state": {
+            "enum": [
+              "current",
+              "changed",
+              "unavailable",
+              "not_assessed"
+            ],
+            "title": "Evidence State",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/CurrentCompanySignalResponse"
+            },
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "signals",
+          "has_more",
+          "evidence_state"
+        ],
+        "title": "CurrentSourceContextResponse",
+        "type": "object"
+      },
       "DiscoveryStrategyCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3832,6 +3864,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "current_source_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSourceContextResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "follow_up_at": {
             "anyOf": [
               {
@@ -3912,7 +3954,8 @@
           "last_active_stage",
           "company",
           "origins",
-          "activities"
+          "activities",
+          "current_source_context"
         ],
         "title": "ProspectResponse",
         "type": "object"
@@ -4165,6 +4208,18 @@
               }
             ]
           },
+          "assessment_presented_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Presented At"
+          },
           "business_id": {
             "format": "uuid",
             "title": "Business Id",
@@ -4320,6 +4375,7 @@
           "updated_at",
           "current_revision_id",
           "first_presented_at",
+          "assessment_presented_at",
           "resolved_at",
           "resolved_by_user_id",
           "resolution_reason",
@@ -4335,6 +4391,56 @@
           "active_blocks"
         ],
         "title": "RecommendationResponse",
+        "type": "object"
+      },
+      "ReconcileStoppedWeeklyDigestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_content_id": {
+            "format": "uuid",
+            "title": "Expected Content Id",
+            "type": "string"
+          },
+          "expected_offer_cycle_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Expected Offer Cycle Ids",
+            "type": "array"
+          },
+          "expected_sending_started_at": {
+            "format": "date-time",
+            "title": "Expected Sending Started At",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "sender_stopped": {
+            "title": "Sender Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_version",
+          "expected_content_id",
+          "expected_sending_started_at",
+          "expected_offer_cycle_ids",
+          "sender_stopped",
+          "reason"
+        ],
+        "title": "ReconcileStoppedWeeklyDigestRequest",
         "type": "object"
       },
       "RecordProposalDraftRequest": {
@@ -4507,7 +4613,8 @@
           "state": {
             "enum": [
               "sent",
-              "failed"
+              "failed",
+              "unknown"
             ],
             "title": "State",
             "type": "string"
@@ -25738,6 +25845,316 @@
           }
         ],
         "summary": "Recover Weekly Digest",
+        "tags": [
+          "weekly-digests"
+        ]
+      }
+    },
+    "/api/v1/weekly-digests/{delivery_id}/stopped-sender-reconciliation": {
+      "post": {
+        "operationId": "reconcile_stopped_weekly_digest_api_v1_weekly_digests__delivery_id__stopped_sender_reconciliation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileStoppedWeeklyDigestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveredWeeklyDigestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "items": {
+                            "properties": {
+                              "loc": {
+                                "items": {},
+                                "type": "array"
+                              },
+                              "msg": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "loc",
+                              "type",
+                              "msg"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": {
+                              "items": {},
+                              "type": "array"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Request or domain validation failed"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unexpected application error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "summary": "Reconcile Stopped Weekly Digest",
         "tags": [
           "weekly-digests"
         ]

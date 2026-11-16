@@ -4,14 +4,14 @@ import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Textarea from 'primevue/textarea';
 import { useRecommendationCommands } from '../composables/useRecommendationCommands';
-import { laterRecommendation } from '../api/laterRecommendation';
-import { markRecommendationNotRelevant } from '../api/markRecommendationNotRelevant';
-import { saveRecommendation } from '../api/saveRecommendation';
 import type {
   RecommendationCommandDraft,
   RecommendationCommandIntent,
 } from '../models/recommendationCommandDraft';
-import { createRecommendationCommandDraft } from '../models/recommendationCommandDraft';
+import {
+  createRecommendationCommandDraft,
+  resetRecommendationDecisionDraft,
+} from '../models/recommendationCommandDraft';
 import type { RecommendationView } from '../models/prospecting';
 import type { RecommendationPreferences } from '../models/prospecting';
 
@@ -156,8 +156,7 @@ function blockers(values: string[]): string {
 function complete(kind: Completion['kind'], result: unknown): void {
   if (!result) return;
   if (kind === 'saved') {
-    const saved = result as { prospect_id: string };
-    emit('completed', { kind, message: `Saved as a prospect (ID ${saved.prospect_id}).` });
+    emit('completed', { kind, message: 'Saved as a prospect.' });
   } else if (kind === 'not_relevant') {
     emit('completed', {
       kind,
@@ -184,74 +183,22 @@ function complete(kind: Completion['kind'], result: unknown): void {
         : `${duration}. ${accepted}. Remaining independent blockers: ${blockers(later.remaining_blockers)}.`,
     });
   }
-  draft.value.intent = null;
-  draft.value.status = 'idle';
-  draft.value.error = '';
-  draft.value.reason = '';
-  draft.value.pauseChoice = 'x1';
-  draft.value.laterConfirmationOpen = false;
-  if (kind === 'later') laterConfirmationOpen.value = false;
-  const feedback = draft.value.feedback;
-  if (
-    !feedback.open &&
-    !feedback.intent &&
-    feedback.status === 'idle' &&
-    feedback.usefulness === 'unsure' &&
-    feedback.reasons.length === 0 &&
-    feedback.outcome === 'unknown' &&
-    feedback.next_step === 'none' &&
-    feedback.correction === '' &&
-    feedback.notes === ''
-  )
-    draft.value.snapshot = null;
+  resetRecommendationDecisionDraft(draft.value);
 }
 function discardDraft(): void {
   if (!canDiscardDraft.value) return;
-  draft.value.reason = '';
-  draft.value.pauseChoice = 'x1';
-  draft.value.laterConfirmationOpen = false;
-  draft.value.intent = null;
-  draft.value.status = 'idle';
-  draft.value.error = '';
-  const feedback = draft.value.feedback;
-  if (!feedback.open && !feedback.intent && feedback.status === 'idle') draft.value.snapshot = null;
-}
-function command(intent: RecommendationCommandIntent): () => Promise<unknown> {
-  switch (intent.kind) {
-    case 'saved':
-      return () => saveRecommendation(intent.recommendationId, intent.request);
-    case 'not_relevant':
-      return () => markRecommendationNotRelevant(intent.recommendationId, intent.request);
-    case 'later':
-      return () => laterRecommendation(intent.recommendationId, intent.request);
-  }
+  resetRecommendationDecisionDraft(draft.value);
 }
 async function executeIntent(intent: RecommendationCommandIntent): Promise<void> {
-  if (intent.identity !== props.identity) return;
   const targetDraft = draft.value;
-  targetDraft.intent = intent;
-  targetDraft.status = 'pending';
-  targetDraft.error = '';
-  let completed = false;
-  const result = await commands.execute(command(intent), (value) => {
-    if (intent.identity !== props.identity || targetDraft !== draft.value) return;
-    complete(intent.kind, value);
-    completed = true;
-  });
-  if (completed) return;
-  if (intent.identity !== props.identity || targetDraft !== draft.value) return;
-  if (result !== undefined) {
-    complete(intent.kind, result);
-    return;
-  }
-  targetDraft.error = commands.error.value;
-  targetDraft.status = commands.canRetry.value
-    ? 'uncertain'
-    : commands.needsRefresh.value
-      ? 'stale'
-      : 'editing';
-  if (targetDraft.status === 'editing') targetDraft.intent = null;
+  await commands.executeDecision(
+    intent,
+    targetDraft,
+    (result) => complete(intent.kind, result),
+    () => intent.identity === props.identity && targetDraft === draft.value,
+  );
 }
+
 async function save(): Promise<void> {
   const assessment = props.recommendation.assessment;
   if (!assessment) return;
@@ -433,7 +380,7 @@ async function refresh(): Promise<void> {
           }}
           days), on {{ localDateTime(previewExpiry) }} ({{ timeZone }}),
           {{ utcDateTime(previewExpiry) }}. This is a live estimate; the pause starts when
-          confirmed, and the server receipt will show the authoritative accepted time and expiry.
+          confirmed, and the confirmation will show when the pause starts and ends.
         </p>
         <p v-if="activePause">
           This replaces the current
@@ -498,10 +445,7 @@ async function refresh(): Promise<void> {
         :disabled="commands.pending.value"
         @click="retry"
       />
-      <p>
-        The request key and submitted payload are unchanged, so a committed result replays its
-        original receipt.
-      </p>
+      <p>Retrying checks this same decision safely without creating a duplicate.</p>
     </div>
     <Button
       v-if="draft.status === 'stale'"
