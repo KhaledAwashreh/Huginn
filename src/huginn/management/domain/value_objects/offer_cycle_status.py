@@ -1,17 +1,9 @@
-from dataclasses import dataclass
-from typing import Literal
+from enum import StrEnum
 
 
-@dataclass(frozen=True)
-class OfferCycleStatus:
-    value: Literal["preparing", "sending", "confirmed", "abandoned", "unknown"]
-
-    def __post_init__(self) -> None:
-        if self.value not in {
-            "preparing",
-            "sending",
-            "confirmed",
-            "abandoned",
-            "unknown",
-        }:
-            raise ValueError("invalid offer cycle status")
+class OfferCycleStatus(StrEnum):
+    PREPARING = "preparing"
+    SENDING = "sending"
+    CONFIRMED = "confirmed"
+    ABANDONED = "abandoned"
+    UNKNOWN = "unknown"

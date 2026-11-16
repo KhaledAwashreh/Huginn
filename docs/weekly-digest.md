@@ -58,8 +58,16 @@ is still open. A
 successful repeat uses the cadence captured for that delivery. A later eligible
 assessment can be presented when its cooldown and other active blocks allow it.
 
-The digest freezes its recipient and message content before SMTP handoff. Each
-company entry links to `/recommendations` with both the recommendation ID and
+After generation, one final publication transaction locks the subscription,
+delivery reservation and selected Business/Company pairs. It validates the
+recipient, consent, current evidence and company blocks, freezes the final
+content and accepted repeat interval, and marks the delivery and its members
+Sending together. No email member claim or content is committed before that
+authorization. Rendering or validation failures roll back those writes. Existing
+content versions and delivery history remain available.
+
+SMTP starts after the transaction closes. Each company entry links to
+`/recommendations` with both the recommendation ID and
 the exact assessment revision ID. A new assessment cannot change the evidence
 in an already prepared message. The weekly scheduler is a delivery channel for
 shared recommendations, not a separate Weekly Matches list.
@@ -71,6 +79,13 @@ the system does not resend it automatically. Do not clear a reservation or send
 the message again just because it is absent from an inbox. Check provider
 records and resolve the actual outcome through the attributed recovery action
 below.
+
+Existing reservations, including Preparing deliveries with older frozen content,
+continue to block another attempt for the same Business and week and count toward
+the daily budget. The runner skips them; it does not resume or resend their
+content. Stop old digest processes during rollout so only the new publication
+flow runs. Preserve existing content and history rather than clearing a
+reservation to make it eligible again.
 
 ## Opt-out
 

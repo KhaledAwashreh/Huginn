@@ -44,9 +44,6 @@ class RecommendationGenerationSource(BusinessCompanyStateQuery, Protocol):
     def current_company_for_revision(
         self, revision: AssessmentRevision, as_of: datetime
     ) -> RecommendationCompany | None: ...
-    def was_selected_in_generation(
-        self, business_id: UUID, recommendation_id: UUID, revision_id: UUID
-    ) -> bool: ...
 
     def company_states(
         self,

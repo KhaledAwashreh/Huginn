@@ -1,33 +1,16 @@
+from dataclasses import replace
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 
-from huginn.management.application.requests.change_prospect_stage_request import (
-    ChangeProspectStageRequest,
-)
-from huginn.management.application.requests.clear_prospect_follow_up_request import (
-    ClearProspectFollowUpRequest,
-)
-from huginn.management.application.requests.close_prospect_request import (
-    CloseProspectRequest,
-)
-from huginn.management.application.requests.correct_prospect_activity_time_request import (
-    CorrectProspectActivityTimeRequest,
-)
-from huginn.management.application.requests.record_proposal_draft_request import (
-    RecordProposalDraftRequest,
-)
-from huginn.management.application.requests.reopen_prospect_request import (
-    ReopenProspectRequest,
-)
-from huginn.management.application.requests.set_prospect_follow_up_request import (
-    SetProspectFollowUpRequest,
-)
-from huginn.management.application.requests.update_prospect_notes_request import (
-    UpdateProspectNotesRequest,
-)
 from huginn.management.application.services.prospects import ProspectService
-from huginn.management.domain.errors.errors import ConflictError, ValidationDomainError
+from huginn.management.domain.errors.errors import (
+    ConflictError,
+    NotFoundError,
+    ValidationDomainError,
+)
+from huginn.management.domain.value_objects.json_snapshot import JsonSnapshot
 from huginn.management.domain.value_objects.prospect_stage import ProspectStage
 from tests.management.application.services.prospecting_pursuit_store import (
     NOW,
@@ -38,16 +21,16 @@ from tests.management.application.services.prospecting_pursuit_store import (
 def test_adjacent_stage_transition_records_late_occurrence_and_replays():
     store = ProspectingPursuitStore()
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
-    request = ChangeProspectStageRequest(
-        store.prospect.id,
-        store.prospect.version,
-        ProspectStage("contacted"),
-        NOW - timedelta(days=2),
-        "contact-late",
-    )
+    request = {
+        "prospect_id": store.prospect.id,
+        "expected_version": store.prospect.version,
+        "target_stage": ProspectStage("contacted"),
+        "occurred_at": NOW - timedelta(days=2),
+        "request_key": "contact-late",
+    }
 
-    result = service.change_stage(store.principal, request)
-    assert service.change_stage(store.principal, request) == result
+    result = service.change_stage(store.principal, **request)
+    assert service.change_stage(store.principal, **request) == result
     assert result.prospect.stage == ProspectStage("contacted")
     assert result.prospect.version == store.prospect.version == 2
     assert result.activity.kind.value == "stage_changed"
@@ -62,54 +45,117 @@ def test_adjacent_stage_transition_records_late_occurrence_and_replays():
 
     later = service.change_stage(
         store.principal,
-        ChangeProspectStageRequest(
-            store.prospect.id,
-            store.prospect.version,
-            ProspectStage("in_conversation"),
-            NOW,
-            "stage-later",
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=store.prospect.version,
+        target_stage=ProspectStage("in_conversation"),
+        occurred_at=NOW,
+        request_key="stage-later",
     )
     assert later.prospect.version == 3
-    assert service.change_stage(store.principal, request) == result
+    replay = service.change_stage(store.principal, **request)
+    assert replay.prospect == later.prospect
+    assert replay.activity == result.activity
     assert store.prospect == later.prospect
     assert len(store.activities) == 2
     with pytest.raises(ConflictError):
         service.change_stage(
             store.principal,
-            ChangeProspectStageRequest(
-                request.prospect_id,
-                request.expected_version,
-                ProspectStage("proposal_sent"),
-                request.occurred_at,
-                request.request_key,
-            ),
+            prospect_id=request["prospect_id"],
+            expected_version=request["expected_version"],
+            target_stage=ProspectStage("proposal_sent"),
+            occurred_at=request["occurred_at"],
+            request_key=request["request_key"],
         )
+
+
+def test_manual_receipt_keeps_only_activity_reference_and_original_version():
+    store = ProspectingPursuitStore()
+    service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
+    result = service.update_notes(
+        store.principal,
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        replacement_notes="Updated",
+        occurred_at=NOW,
+        request_key="note",
+    )
+    receipt = store.receipts[(store.business.id, "note")]
+    assert receipt.result_snapshot.value == {"activity_id": str(result.activity.id)}
+    assert receipt.resource_id == result.prospect.id
+    assert receipt.resource_version == result.prospect.version
+
+
+def test_historical_manual_receipt_uses_only_original_activity_id():
+    store = ProspectingPursuitStore()
+    service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
+    request = {
+        "prospect_id": store.prospect.id,
+        "expected_version": 1,
+        "replacement_notes": "Updated",
+        "occurred_at": NOW,
+        "request_key": "note",
+    }
+    original = service.update_notes(store.principal, **request)
+    receipt = store.receipts[(store.business.id, "note")]
+    store.receipts[(store.business.id, "note")] = replace(
+        receipt,
+        result_snapshot=JsonSnapshot(
+            {
+                "prospect": {"obsolete": "ignored"},
+                "activity": {"id": str(original.activity.id)},
+            }
+        ),
+    )
+    later = service.update_notes(
+        store.principal,
+        prospect_id=store.prospect.id,
+        expected_version=2,
+        replacement_notes="Latest",
+        occurred_at=NOW,
+        request_key="later",
+    )
+    history = tuple(store.activities)
+    replay = service.update_notes(store.principal, **request)
+    assert replay.prospect == later.prospect
+    assert replay.activity == original.activity
+    assert tuple(store.activities) == history
+    assert store.commits == 2
+
+
+def test_manual_retry_does_not_return_an_activity_outside_owned_prospect():
+    store = ProspectingPursuitStore()
+    service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
+    request = {
+        "prospect_id": store.prospect.id,
+        "expected_version": 1,
+        "replacement_notes": "Updated",
+        "occurred_at": NOW,
+        "request_key": "note",
+    }
+    result = service.update_notes(store.principal, **request)
+    store.activities[0] = replace(result.activity, business_id=uuid4())
+    with pytest.raises(NotFoundError, match="Activity not found"):
+        service.update_notes(store.principal, **request)
 
 
 def test_backward_stage_change_requires_reason_and_skips_are_rejected():
     store = ProspectingPursuitStore(stage="proposal_sent")
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
-    no_reason = ChangeProspectStageRequest(
-        store.prospect.id,
-        store.prospect.version,
-        ProspectStage("in_conversation"),
-        NOW,
-        "back-no-reason",
-    )
+    no_reason = {
+        "prospect_id": store.prospect.id,
+        "expected_version": store.prospect.version,
+        "target_stage": ProspectStage("in_conversation"),
+        "occurred_at": NOW,
+        "request_key": "back-no-reason",
+    }
     with pytest.raises(ValidationDomainError):
-        service.change_stage(store.principal, no_reason)
+        service.change_stage(store.principal, **no_reason)
 
-    skipped = ChangeProspectStageRequest(
-        store.prospect.id,
-        store.prospect.version,
-        ProspectStage("saved"),
-        NOW,
-        "skip-back",
-        "review",
-    )
+    skipped = {**no_reason, "target_stage": ProspectStage("saved")}
+    skipped["request_key"] = "skip-back"
+    skipped["reason"] = "review"
     with pytest.raises(ValidationDomainError):
-        service.change_stage(store.principal, skipped)
+        service.change_stage(store.principal, **skipped)
     assert store.prospect.stage == ProspectStage("proposal_sent")
     assert store.activities == []
 
@@ -119,13 +165,11 @@ def test_proposal_sent_is_an_explicit_transition_activity():
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     result = service.change_stage(
         store.principal,
-        ChangeProspectStageRequest(
-            store.prospect.id,
-            store.prospect.version,
-            ProspectStage("proposal_sent"),
-            NOW,
-            "proposal-sent",
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=store.prospect.version,
+        target_stage=ProspectStage("proposal_sent"),
+        occurred_at=NOW,
+        request_key="proposal-sent",
     )
     assert result.prospect.stage == ProspectStage("proposal_sent")
     assert result.activity.kind.value == "proposal_sent"
@@ -136,14 +180,12 @@ def test_backward_to_proposal_sent_is_not_a_second_send_event():
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     result = service.change_stage(
         store.principal,
-        ChangeProspectStageRequest(
-            store.prospect.id,
-            store.prospect.version,
-            ProspectStage("proposal_sent"),
-            NOW,
-            "stage-back-to-proposal",
-            "The client reopened price discussion",
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=store.prospect.version,
+        target_stage=ProspectStage("proposal_sent"),
+        occurred_at=NOW,
+        request_key="stage-back-to-proposal",
+        reason="The client reopened price discussion",
     )
     assert result.activity.kind.value == "stage_changed"
     assert (
@@ -160,7 +202,11 @@ def test_close_requires_reason_and_retains_last_active_stage():
     try:
         service.close(
             store.principal,
-            CloseProspectRequest(store.prospect.id, 1, "", NOW, "bad-close"),
+            prospect_id=store.prospect.id,
+            expected_version=1,
+            reason="",
+            occurred_at=NOW,
+            request_key="bad-close",
         )
     except ValidationDomainError:
         pass
@@ -168,7 +214,11 @@ def test_close_requires_reason_and_retains_last_active_stage():
         raise AssertionError("close without a reason must fail")
     result = service.close(
         store.principal,
-        CloseProspectRequest(store.prospect.id, 1, "No longer pursuing", NOW, "close"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        reason="No longer pursuing",
+        occurred_at=NOW,
+        request_key="close",
     )
     assert result.prospect.stage == ProspectStage("closed")
     assert result.prospect.last_active_stage == ProspectStage("in_conversation")
@@ -181,12 +231,19 @@ def test_reopen_restores_last_active_stage_without_erasing_close_history():
     closer = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     closer.close(
         store.principal,
-        CloseProspectRequest(store.prospect.id, 1, "Budget paused", NOW, "close"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        reason="Budget paused",
+        occurred_at=NOW,
+        request_key="close",
     )
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     result = service.reopen(
         store.principal,
-        ReopenProspectRequest(store.prospect.id, store.prospect.version, NOW, "reopen"),
+        prospect_id=store.prospect.id,
+        expected_version=store.prospect.version,
+        occurred_at=NOW,
+        request_key="reopen",
     )
     assert result.prospect.last_active_stage is None
     assert result.prospect.stage == ProspectStage("contacted")
@@ -202,7 +259,11 @@ def test_notes_replace_and_clear_memo_while_preserving_prior_values_in_history()
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     result = service.update_notes(
         store.principal,
-        UpdateProspectNotesRequest(store.prospect.id, 1, "Updated memo", NOW, "memo-1"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        replacement_notes="Updated memo",
+        occurred_at=NOW,
+        request_key="memo-1",
     )
     assert result.prospect.notes == "Updated memo"
     assert result.prospect.version == 2
@@ -214,7 +275,11 @@ def test_notes_replace_and_clear_memo_while_preserving_prior_values_in_history()
 
     cleared = service.update_notes(
         store.principal,
-        UpdateProspectNotesRequest(store.prospect.id, 2, "", NOW, "memo-clear"),
+        prospect_id=store.prospect.id,
+        expected_version=2,
+        replacement_notes="",
+        occurred_at=NOW,
+        request_key="memo-clear",
     )
     assert cleared.prospect.notes == ""
     assert cleared.activity.payload.value == {
@@ -230,9 +295,11 @@ def test_receipt_failure_rolls_back_note_version_activity_and_result():
     with pytest.raises(ConflictError, match="Simulated receipt failure"):
         service.update_notes(
             store.principal,
-            UpdateProspectNotesRequest(
-                store.prospect.id, 1, "Uncommitted", NOW, "rollback"
-            ),
+            prospect_id=store.prospect.id,
+            expected_version=1,
+            replacement_notes="Uncommitted",
+            occurred_at=NOW,
+            request_key="rollback",
         )
     assert store.prospect.notes == "Existing memo"
     assert store.prospect.version == 1
@@ -260,7 +327,11 @@ def test_notes_command_loads_once_before_lock_and_once_after_lock():
     service = ProspectService(factory, clock=lambda: NOW)
     result = service.update_notes(
         store.principal,
-        UpdateProspectNotesRequest(store.prospect.id, 1, "Updated", NOW, "read-once"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        replacement_notes="Updated",
+        occurred_at=NOW,
+        request_key="read-once",
     )
     assert result.prospect.notes == "Updated"
     assert events == ["read", "lock", "read"]
@@ -272,9 +343,11 @@ def test_setting_due_follow_up_changes_only_date_and_records_occurrence():
     follow_up_at = NOW - timedelta(days=1)
     result = service.set_follow_up(
         store.principal,
-        SetProspectFollowUpRequest(
-            store.prospect.id, 1, follow_up_at, NOW - timedelta(days=2), "follow-up"
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        follow_up_at=follow_up_at,
+        occurred_at=NOW - timedelta(days=2),
+        request_key="follow-up",
     )
     assert result.prospect.follow_up_at == follow_up_at
     assert result.prospect.stage.value == "saved"
@@ -287,11 +360,18 @@ def test_clear_follow_up_is_explicit_and_does_not_change_stage():
     store = ProspectingPursuitStore()
     ProspectService(lambda: store.uow(), clock=lambda: NOW).set_follow_up(
         store.principal,
-        SetProspectFollowUpRequest(store.prospect.id, 1, NOW, NOW, "set"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        follow_up_at=NOW,
+        occurred_at=NOW,
+        request_key="set",
     )
     result = ProspectService(lambda: store.uow(), clock=lambda: NOW).clear_follow_up(
         store.principal,
-        ClearProspectFollowUpRequest(store.prospect.id, 2, NOW, "clear"),
+        prospect_id=store.prospect.id,
+        expected_version=2,
+        occurred_at=NOW,
+        request_key="clear",
     )
     assert result.prospect.follow_up_at is None
     assert result.prospect.stage.value == "saved"
@@ -307,9 +387,11 @@ def test_proposal_draft_is_activity_only_and_never_advances_stage():
         lambda: store.uow(), clock=lambda: NOW
     ).record_proposal_draft(
         store.principal,
-        RecordProposalDraftRequest(
-            store.prospect.id, 1, "Drafted a scope for review", NOW, "draft"
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        summary="Drafted a scope for review",
+        occurred_at=NOW,
+        request_key="draft",
     )
     assert result.prospect.stage == ProspectStage("in_conversation")
     assert result.prospect.version == 1
@@ -323,30 +405,30 @@ def test_corrections_append_ordered_chain_without_mutating_original_or_prospect(
         lambda: store.uow(), clock=lambda: NOW
     ).record_proposal_draft(
         store.principal,
-        RecordProposalDraftRequest(store.prospect.id, 1, "Pricing sent", NOW, "draft"),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        summary="Pricing sent",
+        occurred_at=NOW,
+        request_key="draft",
     )
     service = ProspectService(lambda: store.uow(), clock=lambda: NOW)
     first = service.correct_activity_time(
         store.principal,
-        CorrectProspectActivityTimeRequest(
-            store.prospect.id,
-            1,
-            draft.activity.id,
-            None,
-            NOW - timedelta(days=2),
-            "correct-1",
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        original_activity_id=draft.activity.id,
+        expected_correction_head_id=None,
+        replacement_occurred_at=NOW - timedelta(days=2),
+        request_key="correct-1",
     )
     second = service.correct_activity_time(
         store.principal,
-        CorrectProspectActivityTimeRequest(
-            store.prospect.id,
-            1,
-            draft.activity.id,
-            first.activity.id,
-            NOW - timedelta(days=3),
-            "correct-2",
-        ),
+        prospect_id=store.prospect.id,
+        expected_version=1,
+        original_activity_id=draft.activity.id,
+        expected_correction_head_id=first.activity.id,
+        replacement_occurred_at=NOW - timedelta(days=3),
+        request_key="correct-2",
     )
     assert first.activity.payload.value["correction_sequence"] == 1
     assert second.activity.payload.value["correction_sequence"] == 2
@@ -357,12 +439,10 @@ def test_corrections_append_ordered_chain_without_mutating_original_or_prospect(
     with pytest.raises(ConflictError):
         service.correct_activity_time(
             store.principal,
-            CorrectProspectActivityTimeRequest(
-                store.prospect.id,
-                1,
-                draft.activity.id,
-                first.activity.id,
-                NOW - timedelta(days=4),
-                "stale-correction-head",
-            ),
+            prospect_id=store.prospect.id,
+            expected_version=1,
+            original_activity_id=draft.activity.id,
+            expected_correction_head_id=first.activity.id,
+            replacement_occurred_at=NOW - timedelta(days=4),
+            request_key="stale-correction-head",
         )

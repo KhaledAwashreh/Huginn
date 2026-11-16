@@ -13,40 +13,23 @@ from huginn.management.domain.errors.errors import ConflictError, NotFoundError
 NOW = datetime(2026, 11, 16, tzinfo=UTC)
 
 
-@pytest.mark.parametrize("phase", ["prepare", "authorize"])
 @pytest.mark.parametrize(
     "error_type", [RuntimeError, TypeError, ConflictError, NotFoundError]
 )
-def test_selection_only_skips_expected_conflicts(
-    phase, error_type, monkeypatch, caplog
-):
+def test_selection_only_skips_expected_conflicts(error_type, monkeypatch, caplog):
     subscription = DigestSubscription(uuid4(), uuid4(), "verified@example.test", NOW)
-    company_id, recommendation_id, revision_id, cycle_id, content_id = (
-        uuid4() for _ in range(5)
-    )
+    company_id, recommendation_id, revision_id = (uuid4() for _ in range(3))
     delivery = SimpleNamespace(
         id=uuid4(),
         business_id=subscription.business_id,
         version=2,
         state="preparing",
-        current_content_id=content_id,
+        current_content_id=None,
     )
     reference = SimpleNamespace(
         recommendation_id=recommendation_id, revision_id=revision_id
     )
-    member = SimpleNamespace(
-        company_id=company_id,
-        recommendation_id=recommendation_id,
-        assessment_revision_id=revision_id,
-        offer_cycle_id=cycle_id,
-    )
-    content = SimpleNamespace(
-        id=content_id, business_id=subscription.business_id, members=(member,)
-    )
-    cycle = SimpleNamespace(
-        status=SimpleNamespace(value="preparing"), claim_token="token"
-    )
-    settlements, abandoned, sent = [], [], []
+    settlements, sent = [], []
 
     class Work:
         connection = object()
@@ -54,13 +37,6 @@ def test_selection_only_skips_expected_conflicts(
             get_owned=lambda *args: SimpleNamespace(
                 company_id=company_id, current_revision_id=revision_id
             )
-        )
-        assessment_revisions = SimpleNamespace(
-            get_owned=lambda *args: SimpleNamespace(id=revision_id)
-        )
-        offer_cycles = SimpleNamespace(
-            get_owned=lambda *args: cycle,
-            abandon_preparing=lambda *args: abandoned.append(args),
         )
 
         def __enter__(self):
@@ -88,11 +64,6 @@ def test_selection_only_skips_expected_conflicts(
     class Service(WeeklyDigestService):
         def _has_valid_active_profile(self, subscription):
             return True
-
-        def _prepare_content(self, *args):
-            if phase == "authorize":
-                return content, {cycle_id: "token"}
-            return super()._prepare_content(*args)
 
     def fail_selection(*args):
         raise error_type("selection failed")
@@ -123,7 +94,6 @@ def test_selection_only_skips_expected_conflicts(
     assert result["failed"] == int(unexpected)
     assert result["skipped"] == int(not unexpected)
     assert settlements == ["preparation_failed" if unexpected else "suppressed"]
-    assert len(abandoned) == int(phase == "authorize")
     assert sent == []
     if unexpected:
         assert "Weekly digest processing failed" in caplog.text

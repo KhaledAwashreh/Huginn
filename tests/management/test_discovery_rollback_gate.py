@@ -24,6 +24,9 @@ def test_rollback_disables_generation_and_presentation_but_keeps_retained_reads_
             calls.append(True)
             raise AssertionError("Disabled discovery must not call a writer")
 
+        prepare = execute
+        confirm = execute
+
     class Reads:
         def list_recommendations(self, principal, request, **filters):
             return Page((), request.offset, request.limit, False)
@@ -33,8 +36,7 @@ def test_rollback_disables_generation_and_presentation_but_keeps_retained_reads_
             "unused", environment="test", discovery_new_work_enabled=False
         ),
         recommendation_generation_service=NoWrites(),
-        prepare_recommendation_offer_service=NoWrites(),
-        confirm_recommendation_offer_service=NoWrites(),
+        recommendation_offer_service=NoWrites(),
         prospecting_read_service=Reads(),
     )
     principal = Principal(uuid4(), uuid4())

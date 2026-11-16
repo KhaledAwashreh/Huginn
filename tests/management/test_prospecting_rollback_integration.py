@@ -16,11 +16,8 @@ from huginn.management.application.requests.confirm_recommendation_offer_request
 from huginn.management.application.requests.prepare_recommendation_offer_request import (
     PrepareRecommendationOfferRequest,
 )
-from huginn.management.application.services.confirm_recommendation_offer_service import (
-    ConfirmRecommendationOfferService,
-)
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.application.services.weekly_digest import WeeklyDigestService
 from huginn.management.config import ManagementConfig
@@ -170,12 +167,12 @@ def _subscribe(context) -> None:
 
 
 def _seed_actual_offer(context, selected):
-    prepare = PrepareRecommendationOfferService(
+    prepare = RecommendationOfferService(
         lambda: PostgresProspectingUnitOfWork(context.connection_factory),
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: context.current_time[0],
     )
-    prepared = prepare.execute(
+    prepared = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             selected.recommendation_id,
@@ -183,12 +180,12 @@ def _seed_actual_offer(context, selected):
             f"rollback-seed-{context.suffix}",
         ),
     )
-    confirm = ConfirmRecommendationOfferService(
+    confirm = RecommendationOfferService(
         lambda: PostgresProspectingUnitOfWork(context.connection_factory),
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: context.current_time[0],
     )
-    return confirm.execute(
+    return confirm.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             prepared.offer_cycle_id, prepared.claim_token

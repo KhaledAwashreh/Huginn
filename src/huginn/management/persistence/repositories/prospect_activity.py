@@ -45,6 +45,16 @@ class PostgresProspectActivityRepository(ProspectActivityRepository):
             correction_of_id=row[11],
         )
 
+    def get_owned(
+        self, business_id: UUID, prospect_id: UUID, activity_id: UUID
+    ) -> ProspectActivity | None:
+        row = self.connection.execute(
+            f"SELECT {self._columns} FROM operational.prospect_activities "
+            "WHERE business_id=%s AND prospect_id=%s AND id=%s",
+            (business_id, prospect_id, activity_id),
+        ).fetchone()
+        return self._map(row) if row is not None else None
+
     def list_owned(
         self, business_id: UUID, prospect_id: UUID
     ) -> tuple[ProspectActivity, ...]:

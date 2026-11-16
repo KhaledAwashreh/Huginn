@@ -313,11 +313,13 @@ No command infers outreach from a reminder or proposal draft.
 
 Weekly delivery selects the strongest seven distinct Companies across active
 strategies, preserving separate assessments without summed scores or per-offering
-quotas. Immutable content versions reference exact recommendation/revision/cycle
-members. One Business/week reservation and a serialized daily budget prevent
-competing attempts. Final authorization locks consent, verified recipient, the
-reservation and Company pairs, validates current evidence/configuration/blocks,
-and atomically marks the attempt and all selected cycles Sending. SMTP occurs
+quotas. Immutable content references exact recommendation/revision/cycle members;
+existing content versions remain in history. One Business/week reservation and a
+serialized daily budget prevent competing attempts. One final publication
+transaction locks consent, verified recipient, the reservation and Company pairs,
+validates current evidence/configuration/blocks, freezes the final content and
+atomically marks the attempt and all selected cycles Sending. It commits no
+intermediate email Preparing claims or replacement content. SMTP occurs
 after the transaction closes. Actual acceptance confirms presentation and starts
 the authorization-frozen repeat interval; observation time remains separate.
 

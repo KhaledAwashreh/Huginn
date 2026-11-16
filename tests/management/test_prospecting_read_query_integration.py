@@ -774,11 +774,8 @@ def test_exact_revision_presentation_survives_repeat_generation_and_rereads(
     from huginn.management.application.requests.prepare_recommendation_offer_request import (
         PrepareRecommendationOfferRequest,
     )
-    from huginn.management.application.services.confirm_recommendation_offer_service import (
-        ConfirmRecommendationOfferService,
-    )
-    from huginn.management.application.services.prepare_recommendation_offer_service import (
-        PrepareRecommendationOfferService,
+    from huginn.management.application.services.recommendation_offer_service import (
+        RecommendationOfferService,
     )
     from tests.management.persistence.retained_prospecting_fixtures import (
         generate_retained_brightroom_selection,
@@ -797,15 +794,14 @@ def test_exact_revision_presentation_survives_repeat_generation_and_rereads(
         "source_factory": PostgresRecommendationGenerationSource,
         "clock": lambda: context.current_time[0],
     }
-    prepare = PrepareRecommendationOfferService(factory, **kwargs)
-    confirm = ConfirmRecommendationOfferService(factory, **kwargs)
-    first_claim = prepare.execute(
+    offers = RecommendationOfferService(factory, **kwargs)
+    first_claim = offers.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             initial.recommendation_id, initial.revision_id, "first-read-confirm"
         ),
     )
-    first = confirm.execute(
+    first = offers.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             first_claim.offer_cycle_id, first_claim.claim_token
@@ -833,7 +829,7 @@ def test_exact_revision_presentation_survives_repeat_generation_and_rereads(
             assessment_revision_id=initial.revision_id,
         )
         assert historical.assessment_presented_at == first.presented_at
-    pending = prepare.execute(
+    pending = offers.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             newer.recommendation_id, newer.revision_id, "repeat-read-confirm"
@@ -845,7 +841,7 @@ def test_exact_revision_presentation_survives_repeat_generation_and_rereads(
         .assessment_presented_at
         is None
     )
-    second = confirm.execute(
+    second = offers.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(pending.offer_cycle_id, pending.claim_token),
     )

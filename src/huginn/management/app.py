@@ -22,9 +22,6 @@ from huginn.management.application.services.business_profile import (
 from huginn.management.application.services.business_recommendation_preferences import (
     BusinessRecommendationPreferencesService,
 )
-from huginn.management.application.services.confirm_recommendation_offer_service import (
-    ConfirmRecommendationOfferService,
-)
 from huginn.management.application.services.current_session_service import (
     CurrentSessionService,
 )
@@ -65,9 +62,6 @@ from huginn.management.application.services.list_match_signals_service import (
 from huginn.management.application.services.list_matches_service import (
     ListMatchesService,
 )
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
-)
 from huginn.management.application.services.prospecting_read_service import (
     ProspectingReadService,
 )
@@ -80,6 +74,9 @@ from huginn.management.application.services.recommendation_decision_service impo
 )
 from huginn.management.application.services.recommendation_generation import (
     RecommendationGenerationService,
+)
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.application.services.record_recommendation_feedback_service import (
     RecordRecommendationFeedbackService,
@@ -271,8 +268,7 @@ class ManagementDependencies:
     prospect_service: Any = None
     recommendation_decision_service: Any = None
     record_recommendation_feedback_service: Any = None
-    prepare_recommendation_offer_service: Any = None
-    confirm_recommendation_offer_service: Any = None
+    recommendation_offer_service: Any = None
     save_recommendation_service: Any = None
     recommendation_generation_service: Any = None
     prospecting_read_service: Any = None
@@ -341,8 +337,7 @@ def create_app(
     prospect_service: Any | None = None,
     recommendation_decision_service: Any | None = None,
     record_recommendation_feedback_service: Any | None = None,
-    prepare_recommendation_offer_service: Any | None = None,
-    confirm_recommendation_offer_service: Any | None = None,
+    recommendation_offer_service: Any | None = None,
     save_recommendation_service: Any | None = None,
     recommendation_generation_service: Any | None = None,
     prospecting_read_service: Any | None = None,
@@ -428,16 +423,9 @@ def create_app(
     }
     dependencies = ManagementDependencies(
         discovery_new_work_enabled=resolved_config.discovery_new_work_enabled,
-        confirm_recommendation_offer_service=confirm_recommendation_offer_service
-        if confirm_recommendation_offer_service is not None
-        else ConfirmRecommendationOfferService(
-            make_prospecting_uow,
-            source_factory=PostgresRecommendationGenerationSource,
-            clock=clock,
-        ),
-        prepare_recommendation_offer_service=prepare_recommendation_offer_service
-        if prepare_recommendation_offer_service is not None
-        else PrepareRecommendationOfferService(
+        recommendation_offer_service=recommendation_offer_service
+        if recommendation_offer_service is not None
+        else RecommendationOfferService(
             make_prospecting_uow,
             source_factory=PostgresRecommendationGenerationSource,
             clock=clock,

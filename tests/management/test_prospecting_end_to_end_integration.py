@@ -20,11 +20,8 @@ from huginn.management.application.requests.prepare_recommendation_offer_request
 from huginn.management.application.requests.save_recommendation_request import (
     SaveRecommendationRequest,
 )
-from huginn.management.application.services.confirm_recommendation_offer_service import (
-    ConfirmRecommendationOfferService,
-)
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.application.services.save_recommendation_service import (
     SaveRecommendationService,
@@ -118,12 +115,12 @@ def _offer_services(context):
     def factory():
         return PostgresProspectingUnitOfWork(context.connection_factory)
 
-    prepare = PrepareRecommendationOfferService(
+    prepare = RecommendationOfferService(
         factory,
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: context.current_time[0],
     )
-    confirm = ConfirmRecommendationOfferService(
+    confirm = RecommendationOfferService(
         factory,
         source_factory=PostgresRecommendationGenerationSource,
         clock=lambda: context.current_time[0],
@@ -150,7 +147,7 @@ def test_retained_source_fit_change_cooldown_reassessment_renewal_and_exact_save
     assert len(initial.references) == 1
     initial_reference = initial.references[0]
     prepare, confirm = _offer_services(context)
-    first_claim = prepare.execute(
+    first_claim = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             initial_reference.recommendation_id,
@@ -158,7 +155,7 @@ def test_retained_source_fit_change_cooldown_reassessment_renewal_and_exact_save
             f"retained-initial-offer-{context.suffix}",
         ),
     )
-    first_offer = confirm.execute(
+    first_offer = confirm.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             first_claim.offer_cycle_id, first_claim.claim_token
@@ -294,7 +291,7 @@ def test_retained_source_fit_change_cooldown_reassessment_renewal_and_exact_save
         assert company_facts["resolved_country"] == "DE"
         assert company_facts["country_evidence_label"] == "Germany"
 
-    renewed_claim = prepare.execute(
+    renewed_claim = prepare.prepare(
         context.principal,
         PrepareRecommendationOfferRequest(
             renewed_reference.recommendation_id,
@@ -302,7 +299,7 @@ def test_retained_source_fit_change_cooldown_reassessment_renewal_and_exact_save
             f"retained-renewed-offer-{context.suffix}",
         ),
     )
-    renewed_offer = confirm.execute(
+    renewed_offer = confirm.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             renewed_claim.offer_cycle_id, renewed_claim.claim_token
@@ -616,7 +613,7 @@ def test_app_prepare_wins_while_weekly_generation_is_in_flight(
         weekly_future = pool.submit(weekly.run)
         assert generation_selected.wait(timeout=10)
         prepare, confirm = _offer_services(context)
-        app_claim = prepare.execute(
+        app_claim = prepare.prepare(
             context.principal,
             PrepareRecommendationOfferRequest(
                 selected_reference.recommendation_id,
@@ -630,7 +627,7 @@ def test_app_prepare_wins_while_weekly_generation_is_in_flight(
     assert weekly_result["sent"] == 0
     assert weekly_result["skipped"] == 1
     assert sent_messages == []
-    app_offer = confirm.execute(
+    app_offer = confirm.confirm(
         context.principal,
         ConfirmRecommendationOfferRequest(
             app_claim.offer_cycle_id, app_claim.claim_token

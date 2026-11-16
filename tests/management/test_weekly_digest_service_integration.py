@@ -33,11 +33,11 @@ from huginn.management.application.requests.recover_weekly_digest_request import
 from huginn.management.application.requests.save_recommendation_request import (
     SaveRecommendationRequest,
 )
-from huginn.management.application.services.prepare_recommendation_offer_service import (
-    PrepareRecommendationOfferService,
-)
 from huginn.management.application.services.recommendation_decision_service import (
     RecommendationDecisionService,
+)
+from huginn.management.application.services.recommendation_offer_service import (
+    RecommendationOfferService,
 )
 from huginn.management.application.services.record_recommendation_feedback_service import (
     RecordRecommendationFeedbackService,
@@ -162,6 +162,125 @@ def _make_service(context, sender, renderer=None, generation=None):
         sender_address="weekly@huginn.example",
         clock=lambda: context.current_time[0],
     )
+
+
+def test_weekly_publication_commits_only_final_content_and_sending_claims(
+    weekly_service_database_url, monkeypatch
+):
+    context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
+    with psycopg.connect(context.database_url) as connection:
+        connection.execute(
+            "UPDATE gold.company SET country=NULL WHERE id=%s",
+            (context.company_id,),
+        )
+    _subscribe(context)
+    before_authorization = {}
+
+    class Sender:
+        def send(self, message):
+            _assert_no_open_transactions(context.database_url)
+            with psycopg.connect(context.database_url) as connection:
+                assert connection.execute(
+                    "SELECT state FROM operational.weekly_digest_deliveries "
+                    "WHERE business_id=%s",
+                    (context.business_id,),
+                ).fetchall() == [("sending",)]
+                assert connection.execute(
+                    "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
+                    (context.business_id,),
+                ).fetchall() == [("sending",)]
+            return context.current_time[0]
+
+    service = _make_service(context, Sender())
+    base_authorize = service._authorize
+
+    def authorize_without_prepared_writes(*args):
+        with psycopg.connect(context.database_url) as connection:
+            before_authorization["cycles"] = connection.execute(
+                "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchall()
+            before_authorization["contents"] = connection.execute(
+                "SELECT id FROM operational.weekly_digest_contents WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchall()
+        return base_authorize(*args)
+
+    service._authorize = authorize_without_prepared_writes
+    assert service.run()["sent"] == 1
+    assert before_authorization == {"cycles": [], "contents": []}
+    with psycopg.connect(context.database_url) as connection:
+        rows = connection.execute(
+            "SELECT c.version,m.recommendation_id,m.assessment_revision_id,"
+            "cycle.selected_revision_id,r.current_revision_id "
+            "FROM operational.weekly_digest_contents c "
+            "JOIN operational.weekly_digest_members m ON m.content_id=c.id "
+            "JOIN operational.offer_cycles cycle ON cycle.id=m.offer_cycle_id "
+            "JOIN operational.recommendations r ON r.id=m.recommendation_id "
+            "WHERE c.business_id=%s",
+            (context.business_id,),
+        ).fetchall()
+        assert len(rows) == 1
+        (
+            content_version,
+            recommendation_id,
+            member_revision,
+            cycle_revision,
+            current_revision,
+        ) = rows[0]
+        assert content_version == 1
+        assert recommendation_id is not None
+        assert member_revision == cycle_revision == current_revision
+
+
+def test_render_failure_rolls_back_publication_without_losing_generated_assessment(
+    weekly_service_database_url, monkeypatch
+):
+    context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
+    with psycopg.connect(context.database_url) as connection:
+        connection.execute(
+            "UPDATE gold.company SET country=NULL WHERE id=%s",
+            (context.company_id,),
+        )
+    _subscribe(context)
+
+    class Renderer:
+        def render(self, subscription, week_start, content_id, revisions):
+            assert len(revisions) == 1
+            raise RuntimeError("Rendering failed before publication")
+
+    class Sender:
+        def send(self, message):
+            raise AssertionError("Unpublished content must not reach SMTP")
+
+    assert _make_service(context, Sender(), Renderer()).run()["failed"] == 1
+    _assert_no_open_transactions(context.database_url)
+    with psycopg.connect(context.database_url) as connection:
+        assert connection.execute(
+            "SELECT state,current_content_id FROM operational.weekly_digest_deliveries "
+            "WHERE business_id=%s",
+            (context.business_id,),
+        ).fetchall() == [("failed", None)]
+        for table in (
+            "weekly_digest_contents",
+            "offer_cycles",
+            "offer_cycle_events",
+            "suppression_blocks",
+        ):
+            assert connection.execute(
+                f"SELECT count(*) FROM operational.{table} WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchone() == (0,)
+        revision = connection.execute(
+            "SELECT r.current_revision_id,a.id,r.first_presented_at "
+            "FROM operational.recommendations r "
+            "JOIN operational.assessment_revisions a ON a.id=r.current_revision_id "
+            "WHERE r.business_id=%s AND r.company_id=%s",
+            (context.business_id, context.company_id),
+        ).fetchone()
+        assert revision is not None
+        assert revision[0] == revision[1]
+        assert revision[2] is None
 
 
 def test_retained_source_weekly_delivery_respects_full_cooldown_and_renews_after_day35(
@@ -668,7 +787,7 @@ def test_unknown_weekly_delivery_recovers_with_actual_handoff_and_frozen_cadence
 
 
 @pytest.mark.parametrize("decision", ["save", "not_relevant", "later"])
-def test_owner_decision_after_content_preparation_suppresses_weekly_authorization(
+def test_owner_decision_after_generation_suppresses_weekly_authorization(
     weekly_service_database_url, monkeypatch, decision
 ):
     context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
@@ -687,14 +806,14 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
     service = _make_service(context, Sender())
     base_authorize = service._authorize
     interposed = False
-    selected_member = None
+    selected_reference = None
 
-    def authorize_after_owner_command(subscription, delivery, content, claims):
-        nonlocal interposed, selected_member
+    def authorize_after_owner_command(subscription, delivery, week_start, references):
+        nonlocal interposed, selected_reference
         assert not interposed
         interposed = True
-        member = content.members[0]
-        selected_member = member
+        member = references[0]
+        selected_reference = member
         with PostgresProspectingUnitOfWork(context.connection_factory) as work:
             recommendation = work.recommendations.get_owned(
                 context.business_id, member.recommendation_id
@@ -714,7 +833,7 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 context.principal,
                 SaveRecommendationRequest(
                     member.recommendation_id,
-                    member.assessment_revision_id,
+                    member.revision_id,
                     f"save-before-weekly-auth-{context.suffix}",
                 ),
             )
@@ -726,7 +845,7 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 context.principal,
                 MarkRecommendationNotRelevantRequest(
                     member.recommendation_id,
-                    member.assessment_revision_id,
+                    member.revision_id,
                     recommendation.version,
                     f"reject-before-weekly-auth-{context.suffix}",
                     "Changed before send authorization",
@@ -740,7 +859,7 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 context.principal,
                 LaterRecommendationRequest(
                     member.recommendation_id,
-                    member.assessment_revision_id,
+                    member.revision_id,
                     recommendation.version,
                     PauseChoice("x1"),
                     preferences.repeat_interval_days,
@@ -751,14 +870,14 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
                 ),
             )
         context.current_time[0] += timedelta(seconds=2)
-        return base_authorize(subscription, delivery, content, claims)
+        return base_authorize(subscription, delivery, week_start, references)
 
     service._authorize = authorize_after_owner_command
     result = service.run()
     assert interposed
     assert result["skipped"] == 1
     assert result["sent"] == 0
-    assert selected_member is not None
+    assert selected_reference is not None
 
     with psycopg.connect(context.database_url) as connection:
         recommendation = connection.execute(
@@ -786,8 +905,8 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
             connection.execute(
                 "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
                 (context.business_id,),
-            ).fetchone()[0]
-            == "abandoned"
+            ).fetchall()
+            == []
         )
         block_kinds = tuple(
             row[0]
@@ -809,15 +928,15 @@ def test_owner_decision_after_content_preparation_suppresses_weekly_authorizatio
     view = context.read_service.get_recommendation(
         context.principal,
         recommendation[0],
-        assessment_revision_id=selected_member.assessment_revision_id,
+        assessment_revision_id=selected_reference.revision_id,
     )
     assert view.recommendation.status.value == recommendation[1]
     assert view.assessment is not None
-    assert view.assessment.id == selected_member.assessment_revision_id
+    assert view.assessment.id == selected_reference.revision_id
     assert view.recommendation.first_presented_at is None
 
 
-def test_weekly_preparing_claim_suppresses_generation_and_conflicts_with_app_prepare(
+def test_weekly_sending_claim_suppresses_generation_and_conflicts_with_app_prepare(
     weekly_service_database_url, monkeypatch
 ):
     context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
@@ -839,10 +958,13 @@ def test_weekly_preparing_claim_suppresses_generation_and_conflicts_with_app_pre
     base_authorize = service._authorize
     checked = False
 
-    def verify_preparing_conflicts(subscription, delivery, content, claims):
+    def verify_sending_conflicts(subscription, delivery, week_start, references):
         nonlocal checked
         assert not checked
         checked = True
+        authorized = base_authorize(subscription, delivery, week_start, references)
+        assert authorized is not None
+        _, content, _ = authorized
         member = content.members[0]
         with psycopg.connect(context.database_url) as connection:
             before_revisions = connection.execute(
@@ -866,15 +988,15 @@ def test_weekly_preparing_claim_suppresses_generation_and_conflicts_with_app_pre
                 "SELECT status FROM operational.offer_cycles "
                 "WHERE business_id=%s AND company_id=%s",
                 (context.business_id, member.company_id),
-            ).fetchall() == [("preparing",)]
+            ).fetchall() == [("sending",)]
 
-        prepare = PrepareRecommendationOfferService(
+        prepare = RecommendationOfferService(
             lambda: PostgresProspectingUnitOfWork(context.connection_factory),
             source_factory=PostgresRecommendationGenerationSource,
             clock=lambda: context.current_time[0],
         )
         with pytest.raises(ConflictError):
-            prepare.execute(
+            prepare.prepare(
                 context.principal,
                 PrepareRecommendationOfferRequest(
                     member.recommendation_id,
@@ -891,9 +1013,9 @@ def test_weekly_preparing_claim_suppresses_generation_and_conflicts_with_app_pre
         assert view.assessment is not None
         assert view.assessment.id == member.assessment_revision_id
         assert view.recommendation.status.value == "open"
-        return base_authorize(subscription, delivery, content, claims)
+        return authorized
 
-    service._authorize = verify_preparing_conflicts
+    service._authorize = verify_sending_conflicts
     result = service.run()
     assert checked
     assert result["sent"] == 1
@@ -925,7 +1047,7 @@ def test_weekly_preparing_claim_suppresses_generation_and_conflicts_with_app_pre
         )
 
 
-def test_opt_out_before_authorization_abandons_claim_without_sending(
+def test_opt_out_before_authorization_creates_no_claim_or_content(
     weekly_service_database_url, monkeypatch
 ):
     context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
@@ -936,24 +1058,6 @@ def test_opt_out_before_authorization_abandons_claim_without_sending(
         )
         connection.commit()
     _subscribe(context)
-    base_renderer = PlainTextWeeklyDigestRenderer(
-        "https://huginn.example", "weekly-test-signing-key", "huginn.example"
-    )
-
-    class OptOutDuringRender:
-        def render(self, subscription, week_start, content_id, revisions):
-            message = base_renderer.render(
-                subscription, week_start, content_id, revisions
-            )
-            context.current_time[0] += timedelta(seconds=2)
-            with PostgresProspectingUnitOfWork(context.connection_factory) as work:
-                PostgresDigestSubscriptionAccess(work.connection).unsubscribe(
-                    context.owner_user_id,
-                    context.business_id,
-                    context.current_time[0],
-                )
-                work.commit()
-            return message
 
     class Sender:
         def __init__(self):
@@ -964,7 +1068,19 @@ def test_opt_out_before_authorization_abandons_claim_without_sending(
             raise AssertionError("Opt-out before authorization must suppress send")
 
     sender = Sender()
-    service = _make_service(context, sender, OptOutDuringRender())
+    service = _make_service(context, sender)
+    base_authorize = service._authorize
+
+    def authorize_after_opt_out(*args):
+        context.current_time[0] += timedelta(seconds=2)
+        with PostgresProspectingUnitOfWork(context.connection_factory) as work:
+            PostgresDigestSubscriptionAccess(work.connection).unsubscribe(
+                context.owner_user_id, context.business_id, context.current_time[0]
+            )
+            work.commit()
+        return base_authorize(*args)
+
+    service._authorize = authorize_after_opt_out
     result = service.run()
     assert result["skipped"] == 1
     assert not sender.called
@@ -980,8 +1096,8 @@ def test_opt_out_before_authorization_abandons_claim_without_sending(
             connection.execute(
                 "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
                 (context.business_id,),
-            ).fetchone()[0]
-            == "abandoned"
+            ).fetchall()
+            == []
         )
         assert (
             connection.execute(
@@ -989,7 +1105,7 @@ def test_opt_out_before_authorization_abandons_claim_without_sending(
                 "WHERE business_id=%s AND event_kind='preparing_abandoned' AND actor_user_id IS NULL",
                 (context.business_id,),
             ).fetchone()[0]
-            == 1
+            == 0
         )
         assert (
             connection.execute(
@@ -1107,35 +1223,26 @@ def test_recipient_change_before_authorization_suppresses_old_frozen_recipient(
         )
         connection.commit()
     _subscribe(context)
-    base_renderer = PlainTextWeeklyDigestRenderer(
-        "https://huginn.example", "weekly-test-signing-key", "huginn.example"
-    )
     replacement_email = f"replacement-{context.suffix}@example.test"
-
-    class RecipientChangeDuringRender:
-        def render(self, subscription, week_start, content_id, revisions):
-            message = base_renderer.render(
-                subscription, week_start, content_id, revisions
-            )
-            context.current_time[0] += timedelta(seconds=2)
-            with psycopg.connect(context.database_url) as connection:
-                connection.execute(
-                    "UPDATE operational.account_recovery_identity "
-                    "SET verified_email=%s,verified_at=%s WHERE account_id=%s",
-                    (
-                        replacement_email,
-                        context.current_time[0],
-                        context.account_id,
-                    ),
-                )
-                connection.commit()
-            return message
 
     class Sender:
         def send(self, message):
             raise AssertionError("Stale recipient content must not reach SMTP")
 
-    service = _make_service(context, Sender(), RecipientChangeDuringRender())
+    service = _make_service(context, Sender())
+    base_authorize = service._authorize
+
+    def authorize_after_recipient_change(*args):
+        context.current_time[0] += timedelta(seconds=2)
+        with psycopg.connect(context.database_url) as connection:
+            connection.execute(
+                "UPDATE operational.account_recovery_identity "
+                "SET verified_email=%s,verified_at=%s WHERE account_id=%s",
+                (replacement_email, context.current_time[0], context.account_id),
+            )
+        return base_authorize(*args)
+
+    service._authorize = authorize_after_recipient_change
     assert service.run()["skipped"] == 1
     with psycopg.connect(context.database_url) as connection:
         assert (
@@ -1158,15 +1265,15 @@ def test_recipient_change_before_authorization_suppresses_old_frozen_recipient(
                 "SELECT DISTINCT c.recipient FROM operational.weekly_digest_contents c "
                 "WHERE c.business_id=%s",
                 (context.business_id,),
-            ).fetchone()[0]
-            != replacement_email
+            ).fetchall()
+            == []
         )
         assert (
             connection.execute(
                 "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
                 (context.business_id,),
-            ).fetchone()[0]
-            == "abandoned"
+            ).fetchall()
+            == []
         )
         assert (
             connection.execute(
@@ -1499,10 +1606,9 @@ def test_stopped_sender_reconciliation_preserves_frozen_delivery_and_cadence(
         )
 
 
-@pytest.mark.parametrize("phase", ["prepare", "authorize"])
 @pytest.mark.parametrize("error_type", [RuntimeError, TypeError])
 def test_unexpected_candidate_failure_is_persisted_as_failed_without_smtp(
-    weekly_service_database_url, monkeypatch, phase, error_type
+    weekly_service_database_url, monkeypatch, error_type
 ):
     context = seed_retained_brightroom_context(weekly_service_database_url, monkeypatch)
     with psycopg.connect(context.database_url) as connection:
@@ -1520,22 +1626,10 @@ def test_unexpected_candidate_failure_is_persisted_as_failed_without_smtp(
     def selection_failure(*args):
         raise error_type("Unexpected current selection failure")
 
-    if phase == "prepare":
-        monkeypatch.setattr(
-            "huginn.management.application.services.weekly_digest.load_current_offer_selection",
-            selection_failure,
-        )
-    else:
-        original_authorize = service._authorize
-
-        def fail_during_authorization(*args):
-            monkeypatch.setattr(
-                "huginn.management.application.services.weekly_digest.load_current_offer_selection",
-                selection_failure,
-            )
-            return original_authorize(*args)
-
-        monkeypatch.setattr(service, "_authorize", fail_during_authorization)
+    monkeypatch.setattr(
+        "huginn.management.application.services.weekly_digest.load_current_offer_selection",
+        selection_failure,
+    )
     result = service.run()
     assert result["failed"] == 1
     assert result["skipped"] == result["sent"] == 0
@@ -1544,10 +1638,18 @@ def test_unexpected_candidate_failure_is_persisted_as_failed_without_smtp(
             "SELECT state FROM operational.weekly_digest_deliveries WHERE business_id=%s",
             (context.business_id,),
         ).fetchall() == [("failed",)]
-        assert connection.execute(
-            "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
-            (context.business_id,),
-        ).fetchall() == ([("abandoned",)] if phase == "authorize" else [])
+        assert (
+            connection.execute(
+                "SELECT status FROM operational.offer_cycles WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchall()
+            == []
+        )
+        for table in ("weekly_digest_contents", "offer_cycle_events"):
+            assert connection.execute(
+                f"SELECT count(*) FROM operational.{table} WHERE business_id=%s",
+                (context.business_id,),
+            ).fetchone() == (0,)
         assert connection.execute(
             "SELECT first_presented_at FROM operational.recommendations WHERE business_id=%s",
             (context.business_id,),
