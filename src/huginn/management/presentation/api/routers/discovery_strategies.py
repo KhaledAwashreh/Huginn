@@ -24,6 +24,7 @@ from huginn.management.presentation.api.openapi.responses import error_responses
 from huginn.management.presentation.api.requests.discovery_strategy import (
     DiscoveryStrategyCreateRequest,
     DiscoveryStrategyUpdateRequest,
+    SingleDiscoveryConfigurationRequest,
 )
 from huginn.management.presentation.api.responses.common import PageResponse
 from huginn.management.presentation.api.responses.discovery_strategy import (
@@ -88,6 +89,24 @@ def list_discovery_strategies(
         limit=page.limit,
         has_more=page.has_more,
     )
+
+
+@router.put(
+    "/single-configuration",
+    response_model=DiscoveryStrategyResponse,
+    responses=error_responses(400, 401, 403, 404, 409, 422),
+)
+def set_single_discovery_configuration(
+    body: SingleDiscoveryConfigurationRequest,
+    authenticated: CsrfProtected,
+    service: DiscoveryStrategies,
+) -> DiscoveryStrategyResponse:
+    value = service.set_single_configuration(
+        authenticated.principal,
+        service_offering_id=body.service_offering_id,
+        ideal_client_profile_id=body.ideal_client_profile_id,
+    )
+    return response_from_domain(value, DiscoveryStrategyResponse)
 
 
 @router.get(

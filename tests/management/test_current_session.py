@@ -40,6 +40,7 @@ def test_bootstrap_returns_identity_and_stable_proof_without_opaque_credential()
         second = client.get("/api/v1/sessions/current")
         assert first.status_code == 200
         assert first.json() == second.json()
+        assert first.json()["simple_discovery_enabled"] is False
         assert first.json()["account_id"] == str(repository.account_id)
         assert first.json()["user_id"] == str(repository.user_id)
         assert SESSION_TOKEN not in first.text
@@ -161,3 +162,20 @@ def test_login_http_proof_is_hidden_from_model_repr():
     assert "proof-sentinel" not in repr(
         LoginResponse(csrf_token="proof-sentinel", expires_at=NOW)
     )
+
+
+def test_bootstrap_projects_enabled_simple_discovery_config():
+    from huginn.management.config import ManagementConfig
+
+    app, _, _ = make_app(
+        BootstrapSessions(),
+        config=ManagementConfig(
+            "unused", environment="test", simple_discovery_enabled=True
+        ),
+    )
+    with TestClient(app) as client:
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        assert (
+            client.get("/api/v1/sessions/current").json()["simple_discovery_enabled"]
+            is True
+        )

@@ -53,6 +53,11 @@ class Connection:
     def cursor(self):
         return Cursor(self)
 
+    def execute(self, query, params=()):
+        cursor = self.cursor()
+        cursor.execute(query, params)
+        return cursor
+
 
 def test_all_management_updated_at_updates_use_write_time_clock():
     connection = Connection()
@@ -90,8 +95,18 @@ def test_all_management_updated_at_updates_use_write_time_clock():
         ClientDiscoveryStrategyChanges({"is_active": True}, frozenset({"is_active"})),
     )
 
-    assert len(connection.calls) == 7
-    for query, _params in connection.calls:
+    updates = [
+        (query, params)
+        for query, params in connection.calls
+        if query.startswith("UPDATE ")
+    ]
+    assert len(updates) == 7
+    assert [
+        (query, params)
+        for query, params in connection.calls
+        if query.startswith("SELECT ")
+    ] == [("SELECT id FROM operational.businesses WHERE id=%s FOR UPDATE", (user_id,))]
+    for query, _params in updates:
         assert "clock_timestamp()" in query
         assert "updated_at = now()" not in query
         assert "updated_at=now()" not in query

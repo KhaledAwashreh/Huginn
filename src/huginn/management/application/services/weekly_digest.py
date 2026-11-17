@@ -97,9 +97,11 @@ class WeeklyDigestService:
         sender_address: str,
         clock: Callable[[], datetime] | None = None,
         claim_token_factory: Callable[[], str] | None = None,
+        simple_discovery_enabled: bool = False,
     ) -> None:
         if not sender_address or "@" not in sender_address:
             raise ValueError("Digest sender address is required")
+        self._simple_discovery_enabled = simple_discovery_enabled
         self._uow_factory = unit_of_work_factory
         self._subscription_access_factory = subscription_access_factory
         self._delivery_repository = delivery_repository_factory
@@ -222,6 +224,8 @@ class WeeklyDigestService:
         with self._uow_factory() as work:
             source = self._source(work)
             profiles = source.active_profiles(subscription.user_id)
+            if self._simple_discovery_enabled and len(profiles) != 1:
+                return False
             for profile in profiles:
                 try:
                     validated_profile_inputs(profile)
@@ -275,6 +279,9 @@ class WeeklyDigestService:
         references: tuple[GeneratedRecommendationReference, ...],
     ):
         with self._uow_factory() as work:
+            source = self._source(work)
+            if self._simple_discovery_enabled:
+                source.lock_configuration(subscription.business_id)
             current_subscription = self._subscription_access(
                 work
             ).get_for_authorization(subscription.business_id)
@@ -289,6 +296,10 @@ class WeeklyDigestService:
                 or current_subscription.recipient != subscription.recipient
                 or current_subscription.updated_at != subscription.updated_at
                 or current_delivery.state != "preparing"
+                or (
+                    self._simple_discovery_enabled
+                    and len(source.active_profiles(subscription.user_id)) != 1
+                )
             ):
                 if (
                     current_delivery is not None
@@ -317,7 +328,6 @@ class WeeklyDigestService:
             for company_id in sorted(company_ids, key=str):
                 work.lock_business_company(subscription.business_id, company_id)
 
-            source = self._source(work)
             selected: list[tuple[UUID, UUID, AssessmentRevision]] = []
             claims: dict[UUID, str] = {}
             for reference in references:

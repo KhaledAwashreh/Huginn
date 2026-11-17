@@ -257,3 +257,150 @@ it('does not read suppressions until the user opens their manager', async () => 
     expect.any(AbortSignal),
   );
 });
+
+it('automatically filters by the only active configuration in simple mode', async () => {
+  mocks.session.value = {
+    account_id: 'account-1',
+    user_id: 'user-1',
+    csrf_token: 'csrf-1',
+    simple_discovery_enabled: true,
+  };
+  mocks.strategies.mockResolvedValue({
+    items: [
+      {
+        id: 'chosen',
+        is_active: true,
+        service_offering_id: 'offering',
+        ideal_client_profile_id: 'icp',
+      },
+    ],
+    has_more: false,
+    offset: 0,
+    limit: 100,
+  });
+  const { workspace } = setup();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('chosen');
+  expect(mocks.list).toHaveBeenCalledWith(
+    expect.objectContaining({ strategyId: 'chosen' }),
+    expect.any(AbortSignal),
+  );
+});
+
+it('blocks ambiguous simple mode instead of selecting the first active configuration', async () => {
+  mocks.session.value = {
+    account_id: 'account-1',
+    user_id: 'user-1',
+    csrf_token: 'csrf-1',
+    simple_discovery_enabled: true,
+  };
+  mocks.strategies.mockResolvedValue({
+    items: [{ id: 'first' }, { id: 'second' }],
+    has_more: false,
+    offset: 0,
+    limit: 100,
+  });
+  const { workspace } = setup();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('');
+  expect(await workspace.generate('first')).toBe(false);
+  expect(mocks.list).not.toHaveBeenCalled();
+  expect(mocks.generate).not.toHaveBeenCalled();
+});
+
+it('reads every active strategy page before accepting a simple configuration', async () => {
+  mocks.session.value = {
+    account_id: 'a',
+    user_id: 'u',
+    csrf_token: 'c',
+    simple_discovery_enabled: true,
+  };
+  mocks.strategies
+    .mockResolvedValueOnce({
+      items: [{ id: 'first', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+      offset: 0,
+      limit: 100,
+      has_more: true,
+    })
+    .mockResolvedValueOnce({
+      items: [{ id: 'later', service_offering_id: 'o2', ideal_client_profile_id: 'i2' }],
+      offset: 100,
+      limit: 100,
+      has_more: false,
+    });
+  const { workspace } = setup();
+  await flushPromises();
+  expect(mocks.strategies).toHaveBeenLastCalledWith(100, 100, true, expect.any(AbortSignal));
+  expect(workspace.strategyId.value).toBe('');
+  expect(mocks.list).not.toHaveBeenCalled();
+});
+
+it('drops the previous simple selection when identity changes and ignores its late response', async () => {
+  mocks.session.value = {
+    account_id: 'a',
+    user_id: 'u',
+    csrf_token: 'c',
+    simple_discovery_enabled: true,
+  };
+  mocks.strategies.mockResolvedValueOnce({
+    items: [{ id: 'old', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+    offset: 0,
+    limit: 100,
+    has_more: false,
+  });
+  const { workspace } = setup();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('old');
+  let resolveStrategies!: (value: unknown) => void;
+  mocks.strategies.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveStrategies = resolve;
+      }),
+  );
+  mocks.session.value = {
+    account_id: 'new',
+    user_id: 'new',
+    csrf_token: 'new',
+    simple_discovery_enabled: true,
+  };
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('');
+  expect(workspace.recommendations.data.value).toBeUndefined();
+  resolveStrategies({
+    items: [{ id: 'new', service_offering_id: 'o2', ideal_client_profile_id: 'i2' }],
+    offset: 0,
+    limit: 100,
+    has_more: false,
+  });
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('new');
+  expect(mocks.list).toHaveBeenLastCalledWith(
+    expect.objectContaining({ strategyId: 'new' }),
+    expect.any(AbortSignal),
+  );
+});
+
+it('blocks a previously selected simple configuration after its refresh fails', async () => {
+  mocks.session.value = {
+    account_id: 'a',
+    user_id: 'u',
+    csrf_token: 'c',
+    simple_discovery_enabled: true,
+  };
+  mocks.strategies.mockResolvedValueOnce({
+    items: [{ id: 'only', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+    offset: 0,
+    limit: 100,
+    has_more: false,
+  });
+  const { workspace } = setup();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('only');
+  mocks.strategies.mockRejectedValueOnce(new Error('Unavailable'));
+  await workspace.strategies.refetch();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('');
+  expect(workspace.recommendations.data.value).toBeUndefined();
+  expect(await workspace.generate('only')).toBe(false);
+});

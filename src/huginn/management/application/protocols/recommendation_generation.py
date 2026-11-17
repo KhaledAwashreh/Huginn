@@ -18,6 +18,7 @@ from huginn.matchmaking.domain.value_objects.business_company_state import (
 
 
 class RecommendationGenerationSource(BusinessCompanyStateQuery, Protocol):
+    def lock_configuration(self, business_id: UUID) -> None: ...
     def lock_successful_run_window(self, business_id: UUID) -> None: ...
     def successful_on_demand_runs_since(
         self, business_id: UUID, since: datetime

@@ -20,6 +20,8 @@ import SkillRows from '../../configuration/professional-profile/components/Skill
 import type { SkillDraft } from '../../configuration/professional-profile/forms/professionalProfileDraft';
 import { useMatchReactions } from '../../matches/composables/useMatchReactions';
 import { canonicalFeedbackReason } from '../../recommendations/models/canonicalFeedbackReason';
+import { useSession } from '../../session/composables/useSession';
+import SimpleDiscoverySetup from '../components/SimpleDiscoverySetup.vue';
 import BusinessCard from '../components/BusinessCard.vue';
 import BusinessProfileForm from '../components/BusinessProfileForm.vue';
 import ProfileSection from '../components/ProfileSection.vue';
@@ -33,6 +35,9 @@ import {
 type Editing = { kind: 'about' } | { kind: 'skills' } | { kind: 'service'; id: string | null };
 
 const openSettings = inject(openSettingsKey, null);
+const session = useSession();
+const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
+const discoverySetup = ref<InstanceType<typeof SimpleDiscoverySetup> | null>(null);
 const availabilityScope = useId();
 const { account } = useAccount();
 const { profile, save } = useProfessionalProfile();
@@ -87,7 +92,7 @@ const dialogTitle = computed(() => {
 });
 const canDelete = computed(() => {
   const current = editing.value;
-  return current?.kind === 'service' && current.id !== null;
+  return !simpleDiscovery.value && current?.kind === 'service' && current.id !== null;
 });
 
 function open(next: Editing, values: Record<string, string>): void {
@@ -125,6 +130,7 @@ function canClose(): boolean {
 
 async function canLeaveProfile(): Promise<boolean> {
   if (!canClose()) return false;
+  if (discoverySetup.value && !(await discoverySetup.value.canClose())) return false;
   return businessForm.value?.canClose ? await businessForm.value.canClose() : true;
 }
 
@@ -355,7 +361,15 @@ async function removeItem(): Promise<void> {
         :profile="businessData"
       />
 
+      <SimpleDiscoverySetup
+        v-if="simpleDiscovery"
+        ref="discoverySetup"
+        @edit-service="editService($event)"
+        @create-service="editService()"
+        @edit-icp="openSettings?.('icp', $event)"
+      />
       <ProfileSection
+        v-if="!simpleDiscovery"
         title="ICP definition"
         :add-label="icpsEmpty ? 'Add your ICP' : undefined"
         @add="openSettings?.('icp')"
@@ -423,6 +437,7 @@ async function removeItem(): Promise<void> {
       </ProfileSection>
 
       <ProfileSection
+        v-if="!simpleDiscovery"
         title="Services"
         :add-label="
           offerings.list.isError.value && !offerings.list.data.value ? undefined : 'Add a service'

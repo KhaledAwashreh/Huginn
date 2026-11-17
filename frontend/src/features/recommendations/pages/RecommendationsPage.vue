@@ -175,7 +175,7 @@ function statusLabel(item: RecommendationResponse): string {
     <p class="search-help">Search your recommendations by company name or domain.</p>
 
     <section class="generation" aria-label="Generate recommendations">
-      <div class="field">
+      <div v-if="!workspace.simpleDiscovery?.value" class="field">
         <label for="recommendation-strategy">Discovery strategy</label>
         <Select
           input-id="recommendation-strategy"
@@ -199,8 +199,27 @@ function statusLabel(item: RecommendationResponse): string {
         @click="generate"
       />
       <p v-if="workspace.strategies.isError.value" class="error-inline" role="alert">
-        Active strategies could not be loaded.
-        <Button label="Retry strategies" text @click="workspace.strategies.refetch()" />
+        {{
+          workspace.simpleDiscovery?.value
+            ? 'Discovery setup could not be loaded.'
+            : 'Active strategies could not be loaded.'
+        }}
+        <Button
+          :label="workspace.simpleDiscovery?.value ? 'Retry discovery setup' : 'Retry strategies'"
+          text
+          @click="workspace.strategies.refetch()"
+        />
+      </p>
+      <LoadingState
+        v-else-if="workspace.simpleDiscovery?.value && workspace.strategies.isPending.value"
+        message="Loading discovery setup…"
+      />
+      <p
+        v-else-if="workspace.simpleDiscovery?.value && !workspace.strategyId.value"
+        class="search-help"
+      >
+        Choose one service offering and ICP before viewing recommendations.
+        <RouterLink to="/profile">Set up discovery in Profile</RouterLink>.
       </p>
       <p v-else-if="workspace.strategies.data.value?.length === 0" class="search-help">
         No active strategies are available.
@@ -224,7 +243,11 @@ function statusLabel(item: RecommendationResponse): string {
     </ErrorState>
     <EmptyState
       v-if="!workspace.strategyId.value"
-      message="Choose a discovery strategy to view its recommendations."
+      :message="
+        workspace.simpleDiscovery?.value
+          ? 'Complete discovery setup in Profile to view recommendations.'
+          : 'Choose a discovery strategy to view its recommendations.'
+      "
     />
     <LoadingState
       v-else-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"

@@ -64,7 +64,51 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
                 "strategy violates a database constraint"
             ) from exc
 
+    def _lock_configuration(self, business_id: UUID) -> None:
+        # Readers hold FOR SHARE through generation/publication; writers serialize.
+        self.connection.execute(
+            "SELECT id FROM operational.businesses WHERE id=%s FOR UPDATE",
+            (business_id,),
+        ).fetchone()
+
+    def set_single_configuration(
+        self, business_id: UUID, offering_id: UUID, profile_id: UUID
+    ) -> ClientDiscoveryStrategy:
+        self._lock_configuration(business_id)
+        row = self._one(
+            f"SELECT {self._columns} FROM operational.client_discovery_strategies "
+            "WHERE business_id=%s AND service_offering_id=%s "
+            "AND ideal_client_profile_id=%s "
+            "ORDER BY is_active DESC,created_at,id LIMIT 1 FOR UPDATE",
+            (business_id, offering_id, profile_id),
+        )
+        current = self._map(row) if row else None
+        self.connection.execute(
+            "UPDATE operational.client_discovery_strategies "
+            "SET is_active=false,updated_at=clock_timestamp() "
+            "WHERE business_id=%s AND is_active AND id IS DISTINCT FROM %s",
+            (business_id, current.id if current else None),
+        )
+        if current is None:
+            return self.create(
+                NewClientDiscoveryStrategy(
+                    business_id, "Discovery", offering_id, profile_id, True
+                )
+            )
+        if current.is_active:
+            return current
+        value = self.update_owned(
+            business_id,
+            current.id,
+            ClientDiscoveryStrategyChanges(
+                {"is_active": True}, frozenset({"is_active"})
+            ),
+        )
+        assert value is not None
+        return value
+
     def create(self, strategy: NewClientDiscoveryStrategy) -> ClientDiscoveryStrategy:
+        self._lock_configuration(strategy.business_id)
         row = self._one(
             "INSERT INTO operational.client_discovery_strategies "
             "(business_id,name,service_offering_id,ideal_client_profile_id,is_active) "
@@ -126,6 +170,7 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
             return self.get_owned(business_id, strategy_id)
         if not supplied <= self._update_columns.keys():
             raise ValueError("unsupported strategy update field")
+        self._lock_configuration(business_id)
         ordered = sorted(supplied)
         assignments = ", ".join(
             f"{self._update_columns[field]}=%s" for field in ordered
@@ -138,6 +183,7 @@ class PostgresClientDiscoveryStrategyRepository(ClientDiscoveryStrategyRepositor
         return self._map(row) if row else None
 
     def delete_owned(self, business_id: UUID, strategy_id: UUID) -> bool:
+        self._lock_configuration(business_id)
         row = self._one(
             "DELETE FROM operational.client_discovery_strategies "
             "WHERE business_id=%s AND id=%s RETURNING id",

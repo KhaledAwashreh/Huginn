@@ -374,3 +374,258 @@ def test_live_strategy_update_losing_to_concurrent_delete_returns_not_found(
                 "DELETE FROM operational.accounts WHERE id = %s", (account.id,)
             )
             cleanup_connection.commit()
+
+
+def test_single_configuration_endpoint_is_csrf_protected_and_passes_owned_principal():
+    from fastapi.testclient import TestClient
+
+    from huginn.management.domain.entities.client_discovery_strategy import (
+        ClientDiscoveryStrategy,
+    )
+    from tests.management.test_app_authentication import (
+        CSRF_TOKEN,
+        NOW,
+        SESSION_TOKEN,
+        make_app,
+    )
+
+    class Strategies:
+        calls = []
+
+        def set_single_configuration(
+            self, principal, *, service_offering_id, ideal_client_profile_id
+        ):
+            self.calls.append((principal, service_offering_id, ideal_client_profile_id))
+            return ClientDiscoveryStrategy(
+                uuid4(),
+                uuid4(),
+                "Discovery",
+                service_offering_id,
+                ideal_client_profile_id,
+                True,
+                NOW,
+                NOW,
+            )
+
+    service = Strategies()
+    app, sessions, _ = make_app(discovery_strategy_service=service)
+    payload = {
+        "service_offering_id": str(uuid4()),
+        "ideal_client_profile_id": str(uuid4()),
+    }
+    with TestClient(app) as client:
+        assert (
+            client.put(
+                "/api/v1/discovery-strategies/single-configuration", json=payload
+            ).status_code
+            == 401
+        )
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        assert (
+            client.put(
+                "/api/v1/discovery-strategies/single-configuration", json=payload
+            ).status_code
+            == 403
+        )
+        response = client.put(
+            "/api/v1/discovery-strategies/single-configuration",
+            json=payload,
+            headers={"X-CSRF-Token": CSRF_TOKEN},
+        )
+    assert response.status_code == 200
+    assert response.json()["is_active"] is True
+    assert len(service.calls) == 1
+    assert service.calls[0][0] == Principal(sessions.account_id, sessions.user_id)
+
+
+def test_single_configuration_serializes_and_preserves_real_assessment_history(
+    retained_management_database_url, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Barrier
+
+    from fastapi.testclient import TestClient
+
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+    from tests.management.test_app_authentication import (
+        CSRF_TOKEN,
+        SESSION_TOKEN,
+        FakeSessions,
+        make_app,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    factory = context.connection_factory
+    service = ClientDiscoveryStrategyService(
+        lambda: UnitOfWork(factory),
+        businesses_factory=lambda uow: PostgresBusinessRepository(uow.connection),
+        strategies_factory=lambda uow: PostgresClientDiscoveryStrategyRepository(
+            uow.connection
+        ),
+        offerings_factory=lambda uow: PostgresServiceOfferingRepository(uow.connection),
+        profiles_factory=lambda uow: PostgresIdealClientProfileRepository(
+            uow.connection
+        ),
+    )
+    with psycopg.connect(context.database_url) as connection:
+        strategies_before = connection.execute(
+            "SELECT id,name,service_offering_id,ideal_client_profile_id FROM operational.client_discovery_strategies WHERE business_id=%s ORDER BY id",
+            (context.business_id,),
+        ).fetchall()
+        revision_before = connection.execute(
+            "SELECT to_jsonb(r) FROM operational.assessment_revisions r WHERE id=%s",
+            (selection.revision_id,),
+        ).fetchone()[0]
+        assert "brightroom" in str(revision_before).lower()
+        references_before = (
+            connection.execute(
+                "SELECT to_jsonb(o) FROM operational.service_offerings o WHERE business_id=%s ORDER BY id",
+                (context.business_id,),
+            ).fetchall(),
+            connection.execute(
+                "SELECT to_jsonb(i) FROM operational.ideal_client_profiles i WHERE business_id=%s ORDER BY id",
+                (context.business_id,),
+            ).fetchall(),
+        )
+        first, second = strategies_before
+        # A real foreign Business reference must fail without deactivating anything.
+        account = connection.execute(
+            "INSERT INTO operational.accounts(username,password_hash) VALUES (%s,'hash') RETURNING id",
+            (f"other-{uuid4()}",),
+        ).fetchone()[0]
+        owner = connection.execute(
+            "INSERT INTO operational.users(account_id,first_name,last_name,email,phone_number,country_of_residence) VALUES (%s,'Other','Owner',%s,'1','US') RETURNING id",
+            (account, f"{uuid4()}@example.test"),
+        ).fetchone()[0]
+        other_business = connection.execute(
+            "INSERT INTO operational.businesses(owner_user_id) VALUES (%s) RETURNING id",
+            (owner,),
+        ).fetchone()[0]
+        foreign_profile = connection.execute(
+            "INSERT INTO operational.ideal_client_profiles(business_id,name) VALUES (%s,'Foreign') RETURNING id",
+            (other_business,),
+        ).fetchone()[0]
+
+        foreign_offering = connection.execute(
+            "INSERT INTO operational.service_offerings(business_id,name,description) VALUES (%s,'Foreign','Other business') RETURNING id",
+            (other_business,),
+        ).fetchone()[0]
+
+    sessions = FakeSessions()
+    sessions.account_id, sessions.user_id = context.account_id, context.owner_user_id
+    sessions.row = replace(sessions.row, account_id=context.account_id)
+    app, _, _ = make_app(sessions, discovery_strategy_service=service)
+    payload = {
+        "service_offering_id": str(first[2]),
+        "ideal_client_profile_id": str(first[3]),
+    }
+    with TestClient(app) as client:
+        client.cookies.set("huginn_management_session", SESSION_TOKEN)
+        headers = {"X-CSRF-Token": CSRF_TOKEN}
+        for invalid_reference in (
+            {"ideal_client_profile_id": str(foreign_profile)},
+            {"service_offering_id": str(foreign_offering)},
+        ):
+            invalid = client.put(
+                "/api/v1/discovery-strategies/single-configuration",
+                json={**payload, **invalid_reference},
+                headers=headers,
+            )
+            assert invalid.status_code == 404
+            with psycopg.connect(context.database_url) as connection:
+                assert (
+                    connection.execute(
+                        "SELECT count(*) FROM operational.client_discovery_strategies WHERE business_id=%s AND is_active",
+                        (context.business_id,),
+                    ).fetchone()[0]
+                    == 2
+                )
+        saved = client.put(
+            "/api/v1/discovery-strategies/single-configuration",
+            json=payload,
+            headers=headers,
+        )
+        repeated = client.put(
+            "/api/v1/discovery-strategies/single-configuration",
+            json=payload,
+            headers=headers,
+        )
+    assert saved.status_code == repeated.status_code == 200
+    assert saved.json() == repeated.json()
+    assert saved.json()["id"] == str(first[0])
+    # Race two commands for an initially absent pair. The Business lock prevents duplicate creation.
+    new_pair = (first[2], second[3])
+    barrier = Barrier(2)
+
+    def configure(pair):
+        barrier.wait(timeout=5)
+        return service.set_single_configuration(
+            context.principal,
+            service_offering_id=pair[0],
+            ideal_client_profile_id=pair[1],
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(configure, [new_pair, new_pair]))
+    assert results[0].id == results[1].id
+    assert results[0].updated_at == results[1].updated_at
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        different = list(
+            pool.map(configure, [(first[2], first[3]), (second[2], second[3])])
+        )
+    assert {value.id for value in different} == {first[0], second[0]}
+    with psycopg.connect(context.database_url) as connection:
+        active = connection.execute(
+            "SELECT id FROM operational.client_discovery_strategies WHERE business_id=%s AND is_active",
+            (context.business_id,),
+        ).fetchall()
+        assert len(active) == 1
+        assert active[0][0] in {first[0], second[0]}
+    switched = service.set_single_configuration(
+        context.principal,
+        service_offering_id=second[2],
+        ideal_client_profile_id=second[3],
+    )
+    assert switched.id == second[0]
+    with psycopg.connect(context.database_url) as connection:
+        rows = connection.execute(
+            "SELECT id,is_active FROM operational.client_discovery_strategies WHERE business_id=%s",
+            (context.business_id,),
+        ).fetchall()
+        assert len(rows) == 3
+        assert [identifier for identifier, active in rows if active] == [second[0]]
+        assert (
+            connection.execute(
+                "SELECT id,name,service_offering_id,ideal_client_profile_id FROM operational.client_discovery_strategies WHERE business_id=%s AND id=ANY(%s) ORDER BY id",
+                (context.business_id, [first[0], second[0]]),
+            ).fetchall()
+            == strategies_before
+        )
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(r) FROM operational.assessment_revisions r WHERE id=%s",
+                (selection.revision_id,),
+            ).fetchone()[0]
+            == revision_before
+        )
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(o) FROM operational.service_offerings o WHERE business_id=%s ORDER BY id",
+                (context.business_id,),
+            ).fetchall()
+            == references_before[0]
+        )
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(i) FROM operational.ideal_client_profiles i WHERE business_id=%s ORDER BY id",
+                (context.business_id,),
+            ).fetchall()
+            == references_before[1]
+        )

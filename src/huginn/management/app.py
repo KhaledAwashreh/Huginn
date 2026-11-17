@@ -458,6 +458,7 @@ def create_app(
         if recommendation_generation_service is not None
         else RecommendationGenerationService(
             make_prospecting_uow,
+            simple_discovery_enabled=resolved_config.simple_discovery_enabled,
             source_factory=PostgresRecommendationGenerationSource,
             clock=clock,
         ),

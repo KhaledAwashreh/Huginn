@@ -205,6 +205,7 @@ def test_management_routes_are_registered():
         ("/api/v1/ideal-client-profiles/{profile_id}", "DELETE"),
         ("/api/v1/discovery-strategies", "GET"),
         ("/api/v1/discovery-strategies", "POST"),
+        ("/api/v1/discovery-strategies/single-configuration", "PUT"),
         ("/api/v1/discovery-strategies/{strategy_id}", "GET"),
         ("/api/v1/discovery-strategies/{strategy_id}", "PATCH"),
         ("/api/v1/discovery-strategies/{strategy_id}", "DELETE"),

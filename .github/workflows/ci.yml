@@ -137,7 +137,7 @@ jobs:
 
       - name: Run browser checks
         working-directory: frontend
-        run: npm run test:e2e
+        run: npm run test:e2e:all
 
       - name: Preserve browser failure reports
         if: always()

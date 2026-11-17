@@ -1,7 +1,13 @@
 import { mount } from '@vue/test-utils';
-import { expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { components } from '../../../src/api/generated/schema';
 import RecommendationAssessment from '../../../src/features/recommendations/components/RecommendationAssessment.vue';
+
+const mode = vi.hoisted(() => ({ context: { value: { simple_discovery_enabled: false } } }));
+vi.mock('../../../src/features/session/composables/useSession', () => ({ useSession: () => mode }));
+beforeEach(() => {
+  mode.context.value.simple_discovery_enabled = false;
+});
 
 const assessment: components['schemas']['AssessmentRevisionResponse'] = {
   id: 'revision-1',
@@ -220,4 +226,32 @@ it('shows unavailable evidence and keeps unsafe source URLs unlinked', () => {
   expect(wrapper.get('blockquote').text()).toBe('Source excerpt unavailable.');
   expect(wrapper.find('a').exists()).toBe(false);
   expect(wrapper.text()).toContain('Source link unavailable');
+});
+
+it('keeps legacy assessments readable without exposing strategy names in simple mode', () => {
+  mode.context.value.simple_discovery_enabled = true;
+  const wrapper = mount(RecommendationAssessment, {
+    props: {
+      assessment: {
+        ...assessment,
+        strategy_assessments: [
+          strategy,
+          {
+            ...strategy,
+            strategy_id: 'other',
+            strategy_snapshot: { name: 'Hidden legacy strategy' },
+          },
+        ],
+      },
+    },
+  });
+  expect(wrapper.text()).not.toContain('Research strategy');
+  expect(wrapper.text()).not.toContain('Hidden legacy strategy');
+  expect(wrapper.html()).not.toContain('Evidence for Research strategy');
+  expect(wrapper.findAll('.strategy-assessment')).toHaveLength(2);
+  expect(wrapper.findAll('h4').map((item) => item.text())).toEqual([
+    'Product research',
+    'Product research',
+  ]);
+  expect(wrapper.text()).toContain('Current hiring suggests');
 });

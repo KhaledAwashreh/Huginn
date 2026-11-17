@@ -97,3 +97,62 @@ def test_selection_only_skips_expected_conflicts(error_type, monkeypatch, caplog
     assert sent == []
     if unexpected:
         assert "Weekly digest processing failed" in caplog.text
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_simple_mode_publication_suppresses_configuration_changed_after_generation(
+    count,
+):
+    subscription = DigestSubscription(uuid4(), uuid4(), "verified@example.test", NOW)
+    delivery = SimpleNamespace(id=uuid4(), version=1, state="preparing")
+    settlements = []
+    events = []
+
+    class Work:
+        connection = object()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def commit(self):
+            pass
+
+    service = WeeklyDigestService(
+        Work,
+        subscription_access_factory=lambda work: SimpleNamespace(
+            get_for_authorization=lambda business_id: (
+                events.append("subscription") or subscription
+            )
+        ),
+        delivery_repository_factory=lambda work: SimpleNamespace(
+            get_for_update=lambda *args: delivery,
+            settle=lambda *args: settlements.append(args[3]),
+        ),
+        content_repository_factory=lambda work: None,
+        source_factory=lambda connection: SimpleNamespace(
+            lock_configuration=lambda business_id: events.append("configuration"),
+            active_profiles=lambda user_id: (
+                events.append("profiles") or (object(),) * count
+            ),
+        ),
+        generation=object(),
+        renderer=object(),
+        sender=object(),
+        sender_address="weekly@example.test",
+        clock=lambda: NOW,
+        simple_discovery_enabled=True,
+    )
+    assert (
+        service._authorize(
+            subscription,
+            delivery,
+            NOW.date(),
+            (SimpleNamespace(recommendation_id=uuid4(), revision_id=uuid4()),),
+        )
+        is None
+    )
+    assert settlements == ["suppressed"]
+    assert events == ["configuration", "subscription", "profiles"]

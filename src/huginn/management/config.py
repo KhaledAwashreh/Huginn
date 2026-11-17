@@ -45,8 +45,11 @@ class ManagementConfig:
     smtp_username: str | None = field(default=None, repr=False)
     smtp_password: str | None = field(default=None, repr=False)
     discovery_new_work_enabled: bool = True
+    simple_discovery_enabled: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.simple_discovery_enabled) is not bool:
+            raise ValueError("simple discovery setting must be a boolean")
         if type(self.discovery_new_work_enabled) is not bool:
             raise ValueError("discovery new-work setting must be a boolean")
         if self.lifecycle_proof_key is not None:
@@ -142,6 +145,11 @@ def load_config() -> ManagementConfig:
         )
         if discovery_new_work not in {"true", "false"}:
             raise ValueError("invalid discovery new-work setting")
+        simple_discovery = (
+            os.environ.get("HUGINN_SIMPLE_DISCOVERY_ENABLED", "false").strip().lower()
+        )
+        if simple_discovery not in {"true", "false"}:
+            raise ValueError("invalid simple discovery setting")
         ttl_seconds = int(
             os.environ.get(
                 "HUGINN_MANAGEMENT_SESSION_TTL_SECONDS", str(SESSION_TTL_SECONDS)
@@ -156,6 +164,7 @@ def load_config() -> ManagementConfig:
         return ManagementConfig(
             database_url=database_url,
             discovery_new_work_enabled=discovery_new_work == "true",
+            simple_discovery_enabled=simple_discovery == "true",
             lifecycle_proof_key=os.environ.get("HUGINN_LIFECYCLE_PROOF_KEY") or None,
             web_origin=os.environ.get("HUGINN_WEB_ORIGIN") or None,
             verification_ttl_seconds=int(

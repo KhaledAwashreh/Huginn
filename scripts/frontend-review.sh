@@ -155,7 +155,7 @@ run_pre_push_checks() {
         if [ ! -x frontend/node_modules/.bin/playwright ]; then
             echo "Playwright dependency is missing. Run npm --prefix frontend ci." >&2
             fail=1
-        elif ! npm --prefix frontend run test:e2e; then
+        elif ! npm --prefix frontend run test:e2e:all; then
             echo "Browser checks failed. If Chromium is missing, install it manually with npm --prefix frontend exec -- playwright install chromium; this hook never installs browsers." >&2
             fail=1
         fi

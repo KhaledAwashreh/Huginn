@@ -14,3 +14,4 @@ class CurrentSessionResponse(ResponseModel):
     csrf_token: str = Field(repr=False)
     expires_at: datetime
     role: str
+    simple_discovery_enabled: bool

@@ -19,7 +19,9 @@
     "api:export": "cd .. && uv run python scripts/export-management-openapi.py --output frontend/src/api/generated/openapi.json",
     "api:generate": "npm run api:export && openapi-typescript src/api/generated/openapi.json -o src/api/generated/schema.d.ts",
     "api:check": "node scripts/checkApiTypes.mjs",
-    "check": "npm run api:check && npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run build"
+    "check": "npm run api:check && npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run build",
+    "test:e2e:simple": "HUGINN_BROWSER_SIMPLE_MODE=1 playwright test",
+    "test:e2e:all": "npm run test:e2e && npm run test:e2e:simple"
   },
   "dependencies": {
     "@lucide/vue": "1.57.0",

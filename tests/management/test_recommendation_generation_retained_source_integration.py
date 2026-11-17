@@ -803,3 +803,100 @@ def test_retained_brightroom_generates_shared_revision_with_currentness_and_quot
             ).fetchone()[0]
             == 6
         )
+
+
+def test_simple_generation_holds_configuration_until_revision_commit(
+    retained_management_database_url, monkeypatch
+):
+    from threading import Event
+    from time import monotonic, sleep
+
+    from huginn.management.persistence.repositories.discovery_strategy import (
+        PostgresClientDiscoveryStrategyRepository,
+    )
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    with psycopg.connect(context.database_url) as connection:
+        repository = PostgresClientDiscoveryStrategyRepository(
+            PsycopgDatabaseSession(connection)
+        )
+        first = repository.get_owned(context.business_id, context.strategy_id)
+        second = repository.get_owned(context.business_id, context.second_strategy_id)
+        repository.set_single_configuration(
+            context.business_id,
+            first.service_offering_id,
+            first.ideal_client_profile_id,
+        )
+        old_revision = connection.execute(
+            "SELECT to_jsonb(r) FROM operational.assessment_revisions r WHERE id=%s",
+            (selection.revision_id,),
+        ).fetchone()[0]
+    profiles_read, proceed = Event(), Event()
+
+    class PausingSource(PostgresRecommendationGenerationSource):
+        def active_profiles(self, owner_user_id):
+            profiles = super().active_profiles(owner_user_id)
+            profiles_read.set()
+            assert proceed.wait(10)
+            return profiles
+
+    service = RecommendationGenerationService(
+        lambda: PostgresProspectingUnitOfWork(context.connection_factory),
+        source_factory=PausingSource,
+        clock=lambda: context.current_time[0],
+        simple_discovery_enabled=True,
+    )
+
+    def switch():
+        with psycopg.connect(context.database_url) as connection:
+            return PostgresClientDiscoveryStrategyRepository(
+                PsycopgDatabaseSession(connection)
+            ).set_single_configuration(
+                context.business_id,
+                second.service_offering_id,
+                second.ideal_client_profile_id,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        generated = pool.submit(
+            service.execute,
+            context.principal,
+            GenerateRecommendationsRequest(context.strategy_id),
+        )
+        try:
+            assert profiles_read.wait(5)
+            switched = pool.submit(switch)
+            deadline = monotonic() + 5
+            waiting = False
+            while monotonic() < deadline and not switched.done():
+                with psycopg.connect(context.database_url) as observer:
+                    waiting = observer.execute(
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND cardinality(pg_blocking_pids(pid))>0 AND query LIKE '%operational.businesses%FOR UPDATE%')"
+                    ).fetchone()[0]
+                if waiting:
+                    break
+                sleep(0.01)
+            assert waiting, "setup must wait for the generation configuration lock"
+            assert not switched.done()
+        finally:
+            proceed.set()
+        assert generated.result(timeout=10).references
+        assert switched.result(timeout=10).id == context.second_strategy_id
+    with psycopg.connect(context.database_url) as connection:
+        assert connection.execute(
+            "SELECT id FROM operational.client_discovery_strategies WHERE business_id=%s AND is_active",
+            (context.business_id,),
+        ).fetchall() == [(context.second_strategy_id,)]
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(r) FROM operational.assessment_revisions r WHERE id=%s",
+                (selection.revision_id,),
+            ).fetchone()[0]
+            == old_revision
+        )

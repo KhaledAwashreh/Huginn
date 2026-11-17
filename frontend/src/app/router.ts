@@ -65,6 +65,15 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAuth && !session.isAuthenticated.value)
     return { name: 'login', query: { return: validateReturnPath(to.fullPath) } };
+  if (
+    session.isAuthenticated.value &&
+    session.context.value?.simple_discovery_enabled === true &&
+    (to.path === '/strategies' ||
+      to.path.startsWith('/strategies/') ||
+      to.path === '/offerings' ||
+      to.path.startsWith('/offerings/'))
+  )
+    return '/profile';
   if (to.name === 'login' && session.isAuthenticated.value)
     return validateReturnPath(to.query.return);
 });

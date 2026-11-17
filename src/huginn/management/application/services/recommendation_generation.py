@@ -97,7 +97,9 @@ class RecommendationGenerationService:
         *,
         source_factory: Callable[[DatabaseSession], RecommendationGenerationSource],
         clock: Callable[[], datetime] | None = None,
+        simple_discovery_enabled: bool = False,
     ) -> None:
+        self._simple_discovery_enabled = simple_discovery_enabled
         self._uow_factory = unit_of_work_factory
         self._source_factory = source_factory
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -166,6 +168,8 @@ class RecommendationGenerationService:
             if connection is None:
                 raise RuntimeError("Recommendation generation UOW has no connection")
             source = self._source_factory(connection)
+            if self._simple_discovery_enabled:
+                source.lock_configuration(business_id)
             if not weekly:
                 source.lock_successful_run_window(business_id)
                 successful = source.successful_on_demand_runs_since(
@@ -176,6 +180,17 @@ class RecommendationGenerationService:
                     raise RateLimitError(
                         "Recommendation generation limit reached", retry_after
                     )
+            if self._simple_discovery_enabled:
+                profiles = source.active_profiles(owner_user_id)
+                if len(profiles) != 1:
+                    raise ValidationDomainError(
+                        "Select exactly one discovery configuration in Profile"
+                    )
+                if not weekly and profiles[0].strategy_id != strategy_id:
+                    raise ValidationDomainError(
+                        "Discovery setup changed; refresh and try again"
+                    )
+            elif not weekly:
                 profiles = (source.profile(owner_user_id, strategy_id),)
                 if profiles[0] is None:
                     raise NotFoundError("Active strategy not found")

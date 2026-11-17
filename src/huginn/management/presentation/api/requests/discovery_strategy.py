@@ -13,6 +13,11 @@ from huginn.management.presentation.api.requests.common import (
 )
 
 
+class SingleDiscoveryConfigurationRequest(RequestModel):
+    service_offering_id: RequestUUID
+    ideal_client_profile_id: RequestUUID
+
+
 class DiscoveryStrategyCreateRequest(RequestModel):
     name: NonBlank
     service_offering_id: RequestUUID
