@@ -313,7 +313,8 @@ function statusLabel(item: RecommendationResponse): string {
                   v-if="
                     item.assessment &&
                     (workspace.commandDraftFor(item.id).laterConfirmationOpen ||
-                      workspace.commandDraftFor(item.id).feedback.intent)
+                      workspace.commandDraftFor(item.id).feedback.intent ||
+                      workspace.commandDraftFor(item.id).feedback.status === 'error')
                   "
                   :recommendation="item"
                   :identity="workspace.identity.value"

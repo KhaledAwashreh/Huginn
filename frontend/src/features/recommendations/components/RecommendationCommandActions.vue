@@ -104,6 +104,10 @@ function openMute(): void {
 function complete(kind: Completion['kind'], result: unknown): void {
   if (!result) return;
   if (kind === 'saved') {
+    if (draft.value.feedback.status === 'error')
+      draft.value.feedback = createRecommendationCommandDraft(
+        draft.value.recommendationId,
+      ).feedback;
     emit('completed', { kind, message: 'Saved as a prospect.' });
   } else if (kind === 'later') {
     const muted = result as { expires_at: string | null };

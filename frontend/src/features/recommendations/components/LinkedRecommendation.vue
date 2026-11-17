@@ -80,7 +80,11 @@ watch(
         @completed="$emit('completed', $event)"
       />
       <RecommendationQualityFeedback
-        v-if="draftState.laterConfirmationOpen || draftState.feedback.intent"
+        v-if="
+          draftState.laterConfirmationOpen ||
+          draftState.feedback.intent ||
+          draftState.feedback.status === 'error'
+        "
         :recommendation="detail.data.value"
         :identity="identity"
         :draft-state="draftState"

@@ -1,29 +1,26 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { reactive, ref } from 'vue';
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
+import PrimeVue from 'primevue/config';
+import { ApiError } from '../../../src/api/apiError';
+import {
+  createRecommendationCommandDraft,
+  type RecommendationCommandDraft,
+} from '../../../src/features/recommendations/models/recommendationCommandDraft';
 import { beforeEach, expect, it, vi } from 'vitest';
 import RecommendationsPage from '../../../src/features/recommendations/pages/RecommendationsPage.vue';
 import type { RecommendationView } from '../../../src/features/recommendations/models/prospecting';
 
-const mocks = vi.hoisted(() => ({ workspace: null as unknown }));
+const mocks = vi.hoisted(() => ({ workspace: null as unknown, record: vi.fn(), save: vi.fn() }));
 vi.mock('../../../src/features/recommendations/composables/useRecommendationWorkspace', () => ({
   useRecommendationWorkspace: () => mocks.workspace,
 }));
-vi.mock(
-  '../../../src/features/recommendations/components/RecommendationCommandActions.vue',
-  () => ({
-    default: {
-      props: ['draftState'],
-      template:
-        '<div data-test="decision-actions" :data-reason="draftState?.reason" :data-status="draftState?.status" />',
-    },
-  }),
-);
-vi.mock(
-  '../../../src/features/recommendations/components/RecommendationQualityFeedback.vue',
-  () => ({
-    default: { template: '<div data-test="quality-feedback" />' },
-  }),
-);
+vi.mock('../../../src/features/recommendations/api/saveRecommendation', () => ({
+  saveRecommendation: mocks.save,
+}));
+vi.mock('../../../src/features/recommendations/api/recordRecommendationFeedback', () => ({
+  recordRecommendationFeedback: mocks.record,
+}));
 function recommendation(status: RecommendationView['status'] = 'open'): RecommendationView {
   return {
     id: 'recommendation-1',
@@ -109,21 +106,8 @@ function recommendation(status: RecommendationView['status'] = 'open'): Recommen
     active_blocks: [],
   };
 }
-function setup(items = [recommendation()]) {
-  const commandDrafts = new Map<
-    string,
-    {
-      reason: string;
-      pauseChoice: string;
-      laterConfirmationOpen: boolean;
-      recommendationId: string;
-      snapshot: RecommendationView | null;
-      status: string;
-      error: string;
-      intent: unknown;
-      feedback: { open: boolean };
-    }
-  >();
+function setup(items = [recommendation()], realCommands = false) {
+  const commandDrafts = new Map<string, RecommendationCommandDraft>();
   const list = {
     data: ref({ items, offset: 0, limit: 25, has_more: false }),
     isPending: ref(false),
@@ -174,17 +158,7 @@ function setup(items = [recommendation()]) {
     commandDraftFor: (id: string) => {
       let draft = commandDrafts.get(id);
       if (!draft) {
-        draft = reactive({
-          recommendationId: id,
-          snapshot: null,
-          reason: '',
-          pauseChoice: 'x1',
-          laterConfirmationOpen: false,
-          status: 'idle',
-          error: '',
-          intent: null,
-          feedback: { open: false },
-        });
+        draft = reactive(createRecommendationCommandDraft(id));
         commandDrafts.set(id, draft);
       }
       return draft;
@@ -193,7 +167,21 @@ function setup(items = [recommendation()]) {
   mocks.workspace = workspace;
   return mount(RecommendationsPage, {
     global: {
+      plugins: [
+        PrimeVue,
+        [
+          VueQueryPlugin,
+          { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        ],
+      ],
       stubs: {
+        RecommendationCommandActions: realCommands
+          ? false
+          : {
+              props: ['draftState'],
+              template:
+                '<div data-test="decision-actions" :data-reason="draftState?.reason" :data-status="draftState?.status" />',
+            },
         PageHeader: {
           template: '<header><h1>{{ title }}</h1></header>',
           props: ['title', 'description'],
@@ -209,6 +197,7 @@ function setup(items = [recommendation()]) {
   });
 }
 beforeEach(() => {
+  vi.resetAllMocks();
   mocks.workspace = null;
 });
 
@@ -224,7 +213,7 @@ it('keeps company signals collapsed before decision actions without metadata boi
   expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toContain('Open source');
   expect(text).toContain('Source date:');
   expect(text).toContain('Company info');
-  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
+  expect(wrapper.find('.quality-feedback').exists()).toBe(false);
   expect(wrapper.get('details').attributes('open')).toBeUndefined();
   expect(text).not.toContain('differs from this assessment');
   expect(cardHtml.indexOf('Company signals')).toBeLessThan(
@@ -323,16 +312,121 @@ it('uses the server search input without locally filtering loaded rows', async (
   expect(wrapper.find('ol.recommendation-list').exists()).toBe(true);
 });
 
-it('shows recommendation feedback only while a negative decision is open', async () => {
+it('shows unsubmitted recommendation feedback only while a negative decision is open', async () => {
   const wrapper = setup();
   const workspace = mocks.workspace as {
     commandDraftFor: (id: string) => { laterConfirmationOpen: boolean };
   };
-  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
+  expect(wrapper.find('.quality-feedback').exists()).toBe(false);
   workspace.commandDraftFor('recommendation-1').laterConfirmationOpen = true;
   await wrapper.vm.$forceUpdate();
-  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(true);
+  expect(wrapper.find('.quality-feedback').exists()).toBe(true);
   workspace.commandDraftFor('recommendation-1').laterConfirmationOpen = false;
   await wrapper.vm.$forceUpdate();
-  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
+  expect(wrapper.find('.quality-feedback').exists()).toBe(false);
 });
+
+it('keeps a rejected report editable after cancelling a decision while the report is pending', async () => {
+  let rejectReport!: (error: unknown) => void;
+  mocks.record.mockReturnValue(
+    new Promise((_, reject) => {
+      rejectReport = reject;
+    }),
+  );
+  const wrapper = setup([recommendation()], true);
+  const workspace = mocks.workspace as {
+    commandDraftFor: (id: string) => RecommendationCommandDraft;
+  };
+  const draft = workspace.commandDraftFor('recommendation-1');
+  await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+  const report = wrapper.get('.quality-feedback');
+  await report.get('select').setValue('not_useful');
+  await report.get('input[value="evidence_wrong"]').setValue(true);
+  await report.get('textarea').setValue('The source has changed.');
+  await report.get('label:last-of-type textarea').setValue('Please review the original evidence.');
+  await report.get('form').trigger('submit');
+  expect(draft.feedback.status).toBe('pending');
+  const cancel = wrapper.findAll('button').find((button) => button.text() === 'Cancel');
+  if (!cancel) throw new Error('Decision cancellation was not rendered');
+  await cancel.trigger('click');
+  expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+  rejectReport(new ApiError(422, 'validation_error', 'Invalid report'));
+  await flushPromises();
+
+  expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+  expect(wrapper.get('.quality-feedback [role="alert"]').text()).toContain(
+    'Feedback was not accepted',
+  );
+  expect(wrapper.get<HTMLSelectElement>('.quality-feedback select').element.value).toBe(
+    'not_useful',
+  );
+  expect(wrapper.get<HTMLInputElement>('input[value="evidence_wrong"]').element.checked).toBe(true);
+  expect(wrapper.get<HTMLTextAreaElement>('.quality-feedback textarea').element.value).toBe(
+    'The source has changed.',
+  );
+  expect(
+    wrapper.get<HTMLTextAreaElement>('.quality-feedback label:last-of-type textarea').element.value,
+  ).toBe('Please review the original evidence.');
+  expect(wrapper.get('.quality-feedback select').attributes('disabled')).toBeUndefined();
+  expect(draft.feedback.intent).toBeNull();
+  await wrapper.get('.quality-feedback textarea').setValue('Corrected source details.');
+  expect(draft.feedback.correction).toBe('Corrected source details.');
+  wrapper.unmount();
+});
+
+it.each(['idle', 'error'] as const)(
+  'closes and discards an %s report after saving as a prospect',
+  async (status) => {
+    mocks.save.mockResolvedValue({ prospect_id: 'saved-prospect' });
+    const wrapper = setup([recommendation()], true);
+    const draft = (
+      mocks.workspace as { commandDraftFor: (id: string) => RecommendationCommandDraft }
+    ).commandDraftFor('recommendation-1');
+    await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+    await wrapper.get('.quality-feedback select').setValue('not_useful');
+    await wrapper.get('.quality-feedback textarea').setValue('Temporary correction.');
+    if (status === 'error') {
+      mocks.record.mockRejectedValue(new ApiError(422, 'validation_error', 'Invalid report'));
+      await wrapper.get('.quality-feedback form').trigger('submit');
+      await flushPromises();
+      expect(draft.feedback.status).toBe('error');
+    }
+    await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
+    await flushPromises();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(wrapper.find('.quality-feedback').exists()).toBe(false);
+    expect(draft.feedback).toEqual(
+      createRecommendationCommandDraft(draft.recommendationId).feedback,
+    );
+    wrapper.unmount();
+  },
+);
+
+it.each(['pending', 'uncertain'] as const)(
+  'preserves a submitted %s report after saving as a prospect',
+  async (status) => {
+    mocks.save.mockResolvedValue({ prospect_id: 'saved-prospect' });
+    if (status === 'pending') mocks.record.mockReturnValue(new Promise(() => {}));
+    else mocks.record.mockRejectedValue(new TypeError('Network interrupted'));
+    const wrapper = setup([recommendation()], true);
+    const draft = (
+      mocks.workspace as { commandDraftFor: (id: string) => RecommendationCommandDraft }
+    ).commandDraftFor('recommendation-1');
+    await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+    await wrapper.get('.quality-feedback select').setValue('not_useful');
+    await wrapper.get('.quality-feedback textarea').setValue('Submitted correction.');
+    await wrapper.get('.quality-feedback form').trigger('submit');
+    await flushPromises();
+    const intent = draft.feedback.intent;
+    expect(intent).not.toBeNull();
+    expect(draft.feedback.status).toBe(status);
+    await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
+    await flushPromises();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+    expect(draft.feedback.intent).toBe(intent);
+    expect(draft.feedback.status).toBe(status);
+    expect(draft.feedback.correction).toBe('Submitted correction.');
+    wrapper.unmount();
+  },
+);

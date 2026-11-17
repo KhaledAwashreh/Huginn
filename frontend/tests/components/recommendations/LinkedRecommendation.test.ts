@@ -2,17 +2,23 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import PrimeVue from 'primevue/config';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { reactive } from 'vue';
+import { ApiError } from '../../../src/api/apiError';
 import LinkedRecommendation from '../../../src/features/recommendations/components/LinkedRecommendation.vue';
 import { createRecommendationCommandDraft } from '../../../src/features/recommendations/models/recommendationCommandDraft';
 import type { RecommendationView } from '../../../src/features/recommendations/models/prospecting';
 import { prospect } from '../prospects/prospectFixture';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), record: vi.fn() }));
 vi.mock('../../../src/features/recommendations/api/getRecommendation', () => ({
   getRecommendation: mocks.get,
 }));
 vi.mock('../../../src/features/recommendations/api/saveRecommendation', () => ({
   saveRecommendation: mocks.save,
+}));
+
+vi.mock('../../../src/features/recommendations/api/recordRecommendationFeedback', () => ({
+  recordRecommendationFeedback: mocks.record,
 }));
 
 function historical(): RecommendationView {
@@ -88,8 +94,12 @@ async function render() {
       recommendationId: item.id,
       assessmentRevisionId: 'old-revision',
       identity: 'owner:session',
-      draftState: createRecommendationCommandDraft(item.id),
-      preferences: null,
+      draftState: reactive(createRecommendationCommandDraft(item.id)),
+      preferences: {
+        business_id: item.business_id,
+        repeat_interval_days: 30,
+        updated_at: item.updated_at,
+      },
       preferencesLoading: false,
       preferencesFailed: false,
       refreshPreferences: vi.fn(),
@@ -139,3 +149,102 @@ it('does not substitute the current assessment when the exact linked revision is
   expect(mocks.save).not.toHaveBeenCalled();
   wrapper.unmount();
 });
+
+it('keeps a rejected report editable after cancelling a decision while the report is pending', async () => {
+  let rejectReport!: (error: unknown) => void;
+  mocks.record.mockReturnValue(
+    new Promise((_, reject) => {
+      rejectReport = reject;
+    }),
+  );
+  const { wrapper } = await render();
+  const draft = wrapper.props('draftState');
+  expect(wrapper.find('.quality-feedback').exists()).toBe(false);
+  await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+  const report = wrapper.get('.quality-feedback');
+  await report.get('select').setValue('not_useful');
+  await report.get('input[value="evidence_wrong"]').setValue(true);
+  await report.get('textarea').setValue('The source has changed.');
+  await report.get('label:last-of-type textarea').setValue('Please review the original evidence.');
+  await report.get('form').trigger('submit');
+  expect(draft.feedback.status).toBe('pending');
+  const cancel = wrapper.findAll('button').find((button) => button.text() === 'Cancel');
+  if (!cancel) throw new Error('Decision cancellation was not rendered');
+  await cancel.trigger('click');
+  expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+  rejectReport(new ApiError(422, 'validation_error', 'Invalid report'));
+  await flushPromises();
+
+  expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+  expect(wrapper.get('.quality-feedback [role="alert"]').text()).toContain(
+    'Feedback was not accepted',
+  );
+  expect(wrapper.get<HTMLSelectElement>('.quality-feedback select').element.value).toBe(
+    'not_useful',
+  );
+  expect(wrapper.get<HTMLInputElement>('input[value="evidence_wrong"]').element.checked).toBe(true);
+  expect(wrapper.get<HTMLTextAreaElement>('.quality-feedback textarea').element.value).toBe(
+    'The source has changed.',
+  );
+  expect(
+    wrapper.get<HTMLTextAreaElement>('.quality-feedback label:last-of-type textarea').element.value,
+  ).toBe('Please review the original evidence.');
+  expect(wrapper.get('.quality-feedback select').attributes('disabled')).toBeUndefined();
+  expect(draft.feedback.intent).toBeNull();
+  await wrapper.get('.quality-feedback textarea').setValue('Corrected source details.');
+  expect(draft.feedback.correction).toBe('Corrected source details.');
+  wrapper.unmount();
+});
+
+it.each(['idle', 'error'] as const)(
+  'closes and discards an %s report after saving as a prospect',
+  async (status) => {
+    mocks.save.mockResolvedValue({ prospect_id: 'saved-prospect' });
+    const { wrapper } = await render();
+    const draft = wrapper.props('draftState');
+    await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+    await wrapper.get('.quality-feedback select').setValue('not_useful');
+    await wrapper.get('.quality-feedback textarea').setValue('Temporary correction.');
+    if (status === 'error') {
+      mocks.record.mockRejectedValue(new ApiError(422, 'validation_error', 'Invalid report'));
+      await wrapper.get('.quality-feedback form').trigger('submit');
+      await flushPromises();
+      expect(draft.feedback.status).toBe('error');
+    }
+    await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
+    await flushPromises();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(wrapper.find('.quality-feedback').exists()).toBe(false);
+    expect(draft.feedback).toEqual(
+      createRecommendationCommandDraft(draft.recommendationId).feedback,
+    );
+    wrapper.unmount();
+  },
+);
+
+it.each(['pending', 'uncertain'] as const)(
+  'preserves a submitted %s report after saving as a prospect',
+  async (status) => {
+    mocks.save.mockResolvedValue({ prospect_id: 'saved-prospect' });
+    if (status === 'pending') mocks.record.mockReturnValue(new Promise(() => {}));
+    else mocks.record.mockRejectedValue(new TypeError('Network interrupted'));
+    const { wrapper } = await render();
+    const draft = wrapper.props('draftState');
+    await wrapper.get('button[aria-label="Not relevant"]').trigger('click');
+    await wrapper.get('.quality-feedback select').setValue('not_useful');
+    await wrapper.get('.quality-feedback textarea').setValue('Submitted correction.');
+    await wrapper.get('.quality-feedback form').trigger('submit');
+    await flushPromises();
+    const intent = draft.feedback.intent;
+    expect(intent).not.toBeNull();
+    expect(draft.feedback.status).toBe(status);
+    await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
+    await flushPromises();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(wrapper.find('.quality-feedback').exists()).toBe(true);
+    expect(draft.feedback.intent).toBe(intent);
+    expect(draft.feedback.status).toBe(status);
+    expect(draft.feedback.correction).toBe('Submitted correction.');
+    wrapper.unmount();
+  },
+);
