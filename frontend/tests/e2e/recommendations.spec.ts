@@ -18,6 +18,7 @@ const recommendation: components['schemas']['RecommendationResponse'] = {
   version: 4,
   company: {
     name: 'Northstar Research',
+    description: 'Research software for teams working with complex customer data.',
     domain: 'northstar.example',
     country: 'US',
     business_sector: ['Research'],
@@ -41,6 +42,7 @@ const recommendation: components['schemas']['RecommendationResponse'] = {
         offering_snapshot: { name: 'Product research' },
         ideal_client_profile_snapshot: { name: 'Research teams' },
         assessment_snapshot: {
+          score: 84,
           rationale: 'Their current hiring supports reviewing their research workflow.',
           unknowns: ['The buying role has not been verified.'],
           evidence: [
@@ -100,6 +102,7 @@ const researchStrategy = {
 async function chooseStrategy(page: import('@playwright/test').Page): Promise<void> {
   await page.getByRole('combobox', { name: 'Discovery strategy', exact: true }).click();
   await page.getByRole('option', { name: 'Research strategy', exact: true }).click();
+  await expect(page.locator('.p-select-overlay')).toHaveCount(0);
 }
 
 test('renders assessment lineage, searches server-side, reports feedback, and saves the exact revision', async ({
@@ -283,14 +286,52 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
   await chooseStrategy(page);
+  const firstCard = page.locator('article.recommendation-card');
   await expect(
-    page.getByText('Their current hiring supports reviewing their research workflow.'),
+    firstCard
+      .locator('summary')
+      .getByText('Research software for teams working with complex customer data.'),
   ).toBeVisible();
+  await expect(firstCard.locator('.relevance-score')).toContainText('84/100');
+  await expect(
+    firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
+  ).not.toBeVisible();
+  await expect(firstCard.getByLabel('How useful was this assessment?')).not.toBeVisible();
+  await firstCard.locator('summary').click();
   await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute(
     'href',
     'https://northstar.example/careers',
   );
-  await expect(page.getByText(/Assessment-time source evidence/)).toBeVisible();
+  await expect(
+    firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
+  ).toBeVisible();
+  await expect(
+    firstCard.getByText('Current source evidence is available and unchanged from this assessment.'),
+  ).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/compact-scan-expanded-wide.png', fullPage: true });
+  await firstCard.locator('summary').click();
+  await page.screenshot({ path: 'test-results/compact-scan-collapsed-wide.png', fullPage: true });
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.screenshot({ path: 'test-results/compact-scan-collapsed-narrow.png', fullPage: true });
+  await firstCard.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: 'test-results/compact-scan-expanded-narrow.png', fullPage: true });
+  const overflow = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('*')).flatMap((element) => {
+      const box = element.getBoundingClientRect();
+      return box.width && (box.right > innerWidth + 1 || box.left < -1)
+        ? [{ tag: element.tagName, className: element.className, left: box.left, right: box.right }]
+        : [];
+    }),
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    JSON.stringify(overflow),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   const search = page.getByRole('searchbox', {
     name: 'Search recommendations by company name or domain',
@@ -308,6 +349,17 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   ).toBeVisible();
 
   await page.getByRole('button', { name: 'Not relevant' }).click();
+  await page.getByLabel('How useful was this assessment?').selectOption('not_useful');
+  await page.getByLabel('Outcome').selectOption('not_relevant');
+  await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');
+  await page.getByRole('button', { name: 'Submit assessment report' }).click();
+  await expect(
+    page.getByText(
+      'Feedback recorded. This report does not change your recommendation or its ranking.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(feedbackRequest).toMatchObject({ assessment_revision_id: recommendation.assessment?.id });
   await page.getByLabel('Reason (optional)').fill('Not a fit right now.');
   await page.getByLabel('Mute days').fill('45');
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -333,18 +385,6 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await expect(
     page.getByText(/Rejection reversed\. Independent blocks remain unchanged/),
   ).toBeVisible();
-
-  await page.getByLabel('How useful was this assessment?').selectOption('not_useful');
-  await page.getByLabel('Outcome').selectOption('not_relevant');
-  await page.getByLabel('Correction').fill('The original hiring evidence is no longer current.');
-  await page.getByRole('button', { name: 'Submit assessment report' }).click();
-  await expect(
-    page.getByText(
-      'Feedback recorded. This report does not change your recommendation or its ranking.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  expect(feedbackRequest).toMatchObject({ assessment_revision_id: recommendation.assessment?.id });
 
   expect(
     (
@@ -453,8 +493,11 @@ test('confirms first presentation only after the exact assessment revision is re
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
   await chooseStrategy(page);
   await expect(
-    page.getByText('Their current hiring supports reviewing their research workflow.'),
+    page
+      .locator('article.recommendation-card summary')
+      .getByText('Research software for teams working with complex customer data.'),
   ).toBeVisible();
+  await expect(page.locator('article.recommendation-card details')).not.toHaveAttribute('open');
   const renderedAssessment = page.locator(`[data-assessment-revision-id="${revisionId}"]`);
   await expect(renderedAssessment).toHaveAttribute('data-assessment-revision-id', revisionId);
   await expect.poll(() => order[0]).toBe('prepare');
@@ -592,10 +635,13 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   );
   await chooseStrategy(page);
   await expect(page.getByRole('heading', { name: 'Recommendation from your email' })).toBeVisible();
+  const historicalCard = page.getByRole('region', { name: 'Recommendation from your email' });
   await expect(
-    page
-      .getByRole('region', { name: 'Recommendation from your email' })
-      .getByText('Their current hiring supports reviewing their research workflow.'),
+    historicalCard.locator(`[data-assessment-revision-id="${oldRevisionId}"]`),
+  ).toBeVisible();
+  await historicalCard.locator('summary').click();
+  await expect(
+    historicalCard.getByText('We are adding two data analysts.', { exact: true }),
   ).toBeVisible();
   await expect.poll(() => detailQueries.at(-1)?.get('assessment_revision_id')).toBe(oldRevisionId);
   const card = page.locator('article.recommendation-card');

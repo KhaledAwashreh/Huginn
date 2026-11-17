@@ -85,3 +85,40 @@ it('keeps heading associations unique when the same recommendation is shown twic
   expect(ids[1]).toBeTruthy();
   expect(new Set(ids).size).toBe(2);
 });
+
+it('keeps a compact summary visible while company info and signals are collapsed', () => {
+  const wrapper = mount(RecommendationEvidence, {
+    props: {
+      recommendation: recommendation({
+        company: { ...recommendation().company, description: 'Tools for research teams.' },
+      }),
+    },
+  });
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();
+  expect(wrapper.get('summary').text()).toContain('Northstar');
+  expect(wrapper.get('summary').text()).toContain('Tools for research teams.');
+  expect(wrapper.get('summary').text()).toContain('View company & signals');
+  expect(wrapper.text()).not.toContain('Current company context');
+  expect(wrapper.text()).not.toContain('These fields describe the company now.');
+  expect(wrapper.text()).toContain('Company info');
+});
+
+it('shows the selected strategy score and keeps the visible revision marker outside collapsed details', () => {
+  const item = recommendation();
+  item.assessment = {
+    id: 'shown-revision',
+    strategy_assessments: [
+      { strategy_id: 'strategy-a', assessment_snapshot: { score: 84, evidence: [] } },
+      { strategy_id: 'strategy-b', assessment_snapshot: { score: 32, evidence: [] } },
+    ],
+    evidence_snapshots: [],
+  } as unknown as NonNullable<RecommendationView['assessment']>;
+  const wrapper = mount(RecommendationEvidence, {
+    props: { recommendation: item, strategyId: 'strategy-a' },
+  });
+  expect(wrapper.get('summary').text()).toContain('84/100');
+  expect(wrapper.get('summary').text()).not.toContain('32/100');
+  expect(wrapper.findAll('[data-assessment-revision-id="shown-revision"]')).toHaveLength(1);
+  const marker = wrapper.get('[data-assessment-revision-id="shown-revision"]');
+  expect(marker.element.closest('details')).toBeNull();
+});

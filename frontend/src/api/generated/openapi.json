@@ -896,6 +896,17 @@
             ],
             "title": "Country"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
           "domain": {
             "title": "Domain",
             "type": "string"

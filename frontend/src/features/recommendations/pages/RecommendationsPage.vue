@@ -93,7 +93,7 @@ function statusLabel(item: RecommendationResponse): string {
   <div class="recommendations-page">
     <PageHeader
       title="Recommendations"
-      description="Review assessment-time rationale and source evidence before choosing what to do. Current company context and independent blockers are shown separately."
+      description="Find companies worth a closer look. Open a card for company info and signals."
     />
     <p class="guidance">
       A fit assessment does not establish buying intent. Confirm the company’s needs and buying role
@@ -280,10 +280,13 @@ function statusLabel(item: RecommendationResponse): string {
                 :identity="workspace.identity.value"
                 @confirmed="workspace.refresh()"
               >
-                <div class="card-heading">
+                <div v-if="item.status !== 'open'" class="card-heading">
                   <span class="status">{{ statusLabel(item) }}</span>
                 </div>
-                <RecommendationEvidence :recommendation="item" />
+                <RecommendationEvidence
+                  :recommendation="item"
+                  :strategy-id="workspace.strategyId.value"
+                />
                 <p v-if="item.prospect" class="saved-link">
                   <RouterLink :to="{ path: '/prospects', query: { prospect_id: item.prospect.id } }"
                     >View prospect</RouterLink
@@ -295,12 +298,6 @@ function statusLabel(item: RecommendationResponse): string {
                   This recommendation is resolved. Its assessment and history remain available; no
                   further decision can be applied here.
                 </p>
-                <RecommendationQualityFeedback
-                  v-if="item.assessment"
-                  :recommendation="item"
-                  :identity="workspace.identity.value"
-                  :draft-state="workspace.commandDraftFor(item.id)"
-                />
                 <RecommendationCommandActions
                   v-if="item.status === 'open'"
                   :recommendation="item"
@@ -311,6 +308,17 @@ function statusLabel(item: RecommendationResponse): string {
                   :identity="workspace.identity.value"
                   :refresh-preferences="workspace.refreshPreferences"
                   @completed="completed"
+                />
+                <RecommendationQualityFeedback
+                  v-if="
+                    item.assessment &&
+                    (workspace.commandDraftFor(item.id).laterConfirmationOpen ||
+                      workspace.commandDraftFor(item.id).feedback.intent ||
+                      workspace.commandDraftFor(item.id).feedback.status === 'error')
+                  "
+                  :recommendation="item"
+                  :identity="workspace.identity.value"
+                  :draft-state="workspace.commandDraftFor(item.id)"
                 />
               </RecommendationPresentation>
             </article>
@@ -455,16 +463,15 @@ label {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--color-border);
-}
-.recommendation-list > li {
-  border-bottom: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-4);
 }
 .recommendation-card {
   display: grid;
-  gap: var(--space-4);
-  padding: var(--space-5) 0;
   min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 .card-heading {
   display: flex;
@@ -472,6 +479,11 @@ label {
   align-items: center;
   flex-wrap: wrap;
   justify-content: space-between;
+}
+.card-heading,
+.saved-link,
+.resolved-note {
+  margin: var(--space-3) var(--space-5);
 }
 .status {
   border-radius: 999px;

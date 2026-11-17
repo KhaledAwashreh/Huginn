@@ -1426,6 +1426,8 @@ export interface components {
             company_status: string | null;
             /** Country */
             country: string | null;
+            /** Description */
+            description?: string | null;
             /** Domain */
             domain: string;
             /** Name */
