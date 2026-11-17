@@ -85,6 +85,7 @@ test('a new business sets up one offering and ICP and generates without a strate
   await expect(settings.getByLabel('Name (required)', { exact: true })).toHaveValue(
     'Growing product teams',
   );
+  await expect(settings.getByLabel('Name (required)', { exact: true })).toBeEnabled();
   await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
   await expect(settings).toHaveCount(0);
   expect(await strategies(page)).toHaveLength(0);
@@ -224,6 +225,7 @@ test('existing multiple pairings require a choice and preserve unselected record
   );
   await settings.getByRole('button', { name: 'Save changes', exact: true }).click();
   expect((await patch).status()).toBe(200);
+  await expect(settings.getByLabel('Name (required)', { exact: true })).toBeEnabled();
   await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
   const untouched = await page.request.get(
     `/api/v1/ideal-client-profiles/${created[0]?.ideal_client_profile_id}`,
