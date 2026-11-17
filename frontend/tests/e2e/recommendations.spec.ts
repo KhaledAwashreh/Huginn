@@ -649,8 +649,10 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   ).toBeVisible();
   await historicalCard.locator('summary').click();
   await expect(
-    historicalCard.getByText('We are adding two data analysts.', { exact: true }),
-  ).toBeVisible();
+    historicalCard.locator(`[data-assessment-revision-id="${oldRevisionId}"] blockquote`),
+  ).toHaveText(
+    'We are adding two data analysts. Our research team is expanding its customer data platform. Learn more at https://northstar.example/careers.',
+  );
   await expect.poll(() => detailQueries.at(-1)?.get('assessment_revision_id')).toBe(oldRevisionId);
   const card = page.locator('article.recommendation-card');
   await card.scrollIntoViewIfNeeded();
