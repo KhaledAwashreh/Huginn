@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { beforeEach, expect, it, vi } from 'vitest';
 import RecommendationsPage from '../../../src/features/recommendations/pages/RecommendationsPage.vue';
 import type { RecommendationView } from '../../../src/features/recommendations/models/prospecting';
@@ -174,7 +174,7 @@ function setup(items = [recommendation()]) {
     commandDraftFor: (id: string) => {
       let draft = commandDrafts.get(id);
       if (!draft) {
-        draft = {
+        draft = reactive({
           recommendationId: id,
           snapshot: null,
           reason: '',
@@ -184,7 +184,7 @@ function setup(items = [recommendation()]) {
           error: '',
           intent: null,
           feedback: { open: false },
-        };
+        });
         commandDrafts.set(id, draft);
       }
       return draft;
@@ -212,20 +212,22 @@ beforeEach(() => {
   mocks.workspace = null;
 });
 
-it('shows revision rationale and cited assessment-time evidence before decision actions', () => {
+it('keeps company signals collapsed before decision actions without metadata boilerplate', () => {
   const wrapper = setup();
   const text = wrapper.text();
   const cardHtml = wrapper.find('article.recommendation-card').html();
   expect(text).toContain('Search your recommendations by company name or domain.');
   expect(text).not.toContain('filters before pagination');
   expect(text).not.toContain('Recommendation version');
-  expect(text).toContain('A cited research group is expanding its data team.');
+  expect(text).not.toContain('A cited research group is expanding its data team.');
   expect(text).toContain('We are hiring two data analysts.');
   expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toContain('Open source');
   expect(text).toContain('Source date:');
-  expect(text).toContain('Current company context');
-  expect(text).toContain('differs from this assessment');
-  expect(cardHtml.indexOf('A cited research group')).toBeLessThan(
+  expect(text).toContain('Company info');
+  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();
+  expect(text).not.toContain('differs from this assessment');
+  expect(cardHtml.indexOf('Company signals')).toBeLessThan(
     cardHtml.indexOf('data-test="decision-actions"'),
   );
   expect(wrapper.find('button[aria-label="Close recommendation"]').exists()).toBe(false);
@@ -306,7 +308,7 @@ it('shows a pinned recovery copy when a command target is outside the current se
 
   const shelf = wrapper.get('[aria-label="Recommendation drafts awaiting recovery"]');
   expect(shelf.text()).toContain('Northstar Labs');
-  expect(shelf.text()).toContain('A cited research group is expanding its data team.');
+  expect(shelf.text()).toContain('Company signals');
   expect(shelf.get('[data-test="decision-actions"]').attributes('data-status')).toBe('uncertain');
 });
 
@@ -319,4 +321,18 @@ it('uses the server search input without locally filtering loaded rows', async (
     'not-on-this-page.example',
   );
   expect(wrapper.find('ol.recommendation-list').exists()).toBe(true);
+});
+
+it('shows recommendation feedback only while a negative decision is open', async () => {
+  const wrapper = setup();
+  const workspace = mocks.workspace as {
+    commandDraftFor: (id: string) => { laterConfirmationOpen: boolean };
+  };
+  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
+  workspace.commandDraftFor('recommendation-1').laterConfirmationOpen = true;
+  await wrapper.vm.$forceUpdate();
+  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(true);
+  workspace.commandDraftFor('recommendation-1').laterConfirmationOpen = false;
+  await wrapper.vm.$forceUpdate();
+  expect(wrapper.find('[data-test="quality-feedback"]').exists()).toBe(false);
 });

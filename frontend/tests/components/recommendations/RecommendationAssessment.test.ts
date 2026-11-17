@@ -118,3 +118,15 @@ it('keeps each strategy name and relevance score together without combining them
   expect(engineering.text()).toContain('Engineering strategy');
   expect(engineering.text()).toContain('Relevance: 91/100');
 });
+
+it('shows company signals without rationale boilerplate or raw company metadata in recommendation cards', () => {
+  const wrapper = mount(RecommendationAssessment, {
+    props: { assessment, signalsOnly: true },
+  });
+  expect(wrapper.text()).toContain('Company signals');
+  expect(wrapper.text()).toContain('We are adding two analysts.');
+  expect(wrapper.text()).not.toContain('Current hiring suggests');
+  expect(wrapper.text()).not.toContain('Current source evidence');
+  expect(wrapper.text()).not.toContain('Assessment-time');
+  expect(wrapper.find('pre').exists()).toBe(false);
+});

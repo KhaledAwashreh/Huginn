@@ -44,9 +44,17 @@ from huginn.matchmaking.domain.value_objects.business_company_state import (
     BusinessCompanyState,
 )
 
-_COMPANY_COLUMNS = (
-    "c.id,c.name,c.domain,c.business_sector,c.country,c.company_scale,c.company_status"
-)
+_COMPANY_COLUMNS = """c.id,c.name,c.domain,c.business_sector,c.country,c.company_scale,c.company_status,
+    (SELECT coalesce(
+        nullif(btrim(s.source_fields->>CASE e.source WHEN 'yc' THEN 'one_liner' ELSE 'short_description' END),''),
+        nullif(btrim(s.source_fields->>'long_description'),''))
+     FROM gold.current_source_evidence e
+     JOIN silver.source_lifecycle_observation o ON o.id=e.observation_id
+     JOIN silver.source_context_snapshot s ON s.id=o.snapshot_id
+     WHERE e.company_id=c.id AND e.source IN ('yc','eu_startups')
+       AND coalesce(nullif(btrim(s.source_fields->>CASE e.source WHEN 'yc' THEN 'one_liner' ELSE 'short_description' END),''),
+                    nullif(btrim(s.source_fields->>'long_description'),'')) IS NOT NULL
+     ORDER BY e.observed_at DESC,e.observation_id DESC LIMIT 1)"""
 _SEARCH = "(strpos(lower(c.name),lower(%s))>0 OR strpos(lower(c.domain),lower(%s))>0)"
 
 
@@ -70,6 +78,7 @@ class PostgresProspectingQuery(ProspectingQuery):
             row[4],
             row[5],
             row[6],
+            row[7],
         )
 
     def _get_company(self, company_id: UUID) -> CurrentCompany:

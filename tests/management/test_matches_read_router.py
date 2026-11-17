@@ -163,6 +163,7 @@ def test_authenticated_matches_routes_map_current_context_and_bound_pages():
             "country": "US",
             "company_scale": "0-10",
             "company_status": "Active",
+            "description": None,
         }
         assert body["items"][0]["historical_evidence_available"] is False
         assert body["items"][0]["current_source_evidence_available"] is False

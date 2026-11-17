@@ -208,6 +208,7 @@ def _company_response(company: CurrentCompany) -> CurrentCompanyResponse:
         country=company.country,
         company_scale=company.company_scale,
         company_status=company.company_status,
+        description=company.description,
     )
 
 

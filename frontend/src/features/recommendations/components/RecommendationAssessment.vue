@@ -11,20 +11,9 @@ import {
 
 defineProps<{
   assessment: components['schemas']['AssessmentRevisionResponse'] | null;
-  evidenceState?: components['schemas']['RecommendationResponse']['evidence_state'];
+  signalsOnly?: boolean;
   heading?: string;
 }>();
-const evidenceLabels: Record<
-  components['schemas']['RecommendationResponse']['evidence_state'],
-  string
-> = {
-  current: 'Current source evidence is available and unchanged from this assessment.',
-  changed:
-    'Current source evidence differs from this assessment. The original evidence is preserved here.',
-  unavailable:
-    'Current source evidence is unavailable. This assessment’s evidence remains available below.',
-  not_assessed: 'Current source evidence has not been reassessed.',
-};
 function utc(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 }
@@ -37,11 +26,10 @@ function safeSource(value: unknown): string | null {
   <section
     class="assessment-context"
     aria-label="Assessment rationale and evidence"
-    :data-assessment-revision-id="assessment?.id"
+    :data-assessment-revision-id="signalsOnly ? undefined : assessment?.id"
   >
-    <h3>{{ heading ?? 'Why this recommendation appeared' }}</h3>
+    <h3>{{ heading ?? (signalsOnly ? 'Company signals' : 'Why this recommendation appeared') }}</h3>
     <p v-if="!assessment">No assessment revision is available for this record.</p>
-    <p v-if="evidenceState" class="evidence-state">{{ evidenceLabels[evidenceState] }}</p>
 
     <template v-if="assessment">
       <article
@@ -50,17 +38,17 @@ function safeSource(value: unknown): string | null {
         class="strategy-assessment"
       >
         <h4 v-if="assessment.strategy_assessments.length > 1">{{ strategyName(item) }}</h4>
-        <p v-if="relevanceScore(item) !== null" class="relevance-score">
+        <p v-if="!signalsOnly && relevanceScore(item) !== null" class="relevance-score">
           Relevance: {{ relevanceScore(item) }}/100
         </p>
-        <p>
+        <p v-if="!signalsOnly">
           {{
             text(record(item.assessment_snapshot).rationale) ||
             'No rationale text was retained for this strategy assessment.'
           }}
         </p>
         <section class="source-evidence" :aria-label="`Evidence for ${strategyName(item)}`">
-          <h5>Assessment-time source evidence</h5>
+          <h5 v-if="!signalsOnly">Company signals</h5>
           <p v-if="!retainedEvidence(assessment, item).length">No source excerpts were retained.</p>
           <figure v-for="(source, index) in retainedEvidence(assessment, item)" :key="index">
             <blockquote>{{ text(source.quote) || 'Source excerpt unavailable.' }}</blockquote>
@@ -78,12 +66,6 @@ function safeSource(value: unknown): string | null {
             </figcaption>
           </figure>
         </section>
-        <details>
-          <summary>Assessment-time company attributes</summary>
-          <pre>{{
-            JSON.stringify(record(record(item.assessment_snapshot).company_facts), null, 2)
-          }}</pre>
-        </details>
       </article>
     </template>
   </section>
@@ -109,10 +91,6 @@ h4 {
 }
 h5 {
   margin-bottom: var(--space-1);
-}
-.evidence-state,
-.offering {
-  color: var(--color-text-muted);
 }
 .relevance-score {
   margin-bottom: 0;
@@ -143,12 +121,6 @@ figcaption {
 }
 a {
   color: var(--color-primary);
-  overflow-wrap: anywhere;
-}
-pre {
-  max-height: 18rem;
-  overflow: auto;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 </style>

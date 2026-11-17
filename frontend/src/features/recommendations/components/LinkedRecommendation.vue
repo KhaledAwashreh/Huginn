@@ -68,11 +68,6 @@ watch(
     </ErrorState>
     <template v-else-if="detail.data.value">
       <RecommendationEvidence :recommendation="detail.data.value" />
-      <RecommendationQualityFeedback
-        :recommendation="detail.data.value"
-        :identity="identity"
-        :draft-state="draftState"
-      />
       <RecommendationCommandActions
         v-if="detail.data.value.status === 'open'"
         :recommendation="detail.data.value"
@@ -83,6 +78,12 @@ watch(
         :preferences-failed="preferencesFailed"
         :refresh-preferences="refreshPreferences"
         @completed="$emit('completed', $event)"
+      />
+      <RecommendationQualityFeedback
+        v-if="draftState.laterConfirmationOpen || draftState.feedback.intent"
+        :recommendation="detail.data.value"
+        :identity="identity"
+        :draft-state="draftState"
       />
     </template>
   </section>

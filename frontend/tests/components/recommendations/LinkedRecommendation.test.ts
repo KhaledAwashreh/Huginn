@@ -116,7 +116,9 @@ it('renders the email revision and attributes Save to it even when a newer revis
   const { wrapper, item } = await render();
   expect(mocks.get).toHaveBeenCalledWith(item.id, expect.any(AbortSignal), 'old-revision');
   expect(wrapper.text()).toContain('Recommendation from your email');
-  expect(wrapper.text()).toContain('Recent hiring suggests a research workflow review.');
+  expect(wrapper.text()).toContain('Company signals');
+  expect(wrapper.text()).not.toContain('Recent hiring suggests a research workflow review.');
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();
   expect(mocks.save).not.toHaveBeenCalled();
   await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
   await flushPromises();

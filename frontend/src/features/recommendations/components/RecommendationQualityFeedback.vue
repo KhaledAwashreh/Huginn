@@ -227,7 +227,7 @@ async function retry(): Promise<void> {
   display: grid;
   gap: var(--space-2);
   border-top: 1px solid var(--color-border);
-  padding-top: var(--space-3);
+  padding: var(--space-4) var(--space-5);
 }
 h3,
 p {

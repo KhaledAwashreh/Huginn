@@ -287,6 +287,10 @@ async function refresh(): Promise<void> {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
 }
 .primary-actions,
 .recovery-actions,
@@ -295,6 +299,9 @@ async function refresh(): Promise<void> {
   gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
+}
+.primary-actions {
+  justify-content: flex-end;
 }
 .field,
 .mute-panel {
@@ -337,5 +344,13 @@ label {
 .error-inline {
   margin: 0;
   color: var(--color-danger, #a12b32);
+}
+@media (max-width: 700px) {
+  .recommendation-actions {
+    padding: var(--space-3) var(--space-4);
+  }
+  .primary-actions {
+    justify-content: flex-start;
+  }
 }
 </style>

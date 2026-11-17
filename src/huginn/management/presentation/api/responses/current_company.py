@@ -10,3 +10,4 @@ class CurrentCompanyResponse(ResponseModel):
     country: str | None
     company_scale: str | None
     company_status: str | None
+    description: str | None = None

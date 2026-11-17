@@ -1209,3 +1209,63 @@ def test_unassessed_recommendation_has_no_assessment_presentation(
         .assessment_presented_at
         is None
     )
+
+
+def test_company_description_uses_guarded_directory_fields_from_retained_source(
+    retained_management_database_url, monkeypatch
+):
+    from huginn.elt.silver.normalizers.eu_startups_context import normalize_eu_startups
+    from huginn.management.presentation.api.prospecting_mapping import (
+        recommendation_response,
+    )
+    from tests.management.persistence.retained_prospecting_fixtures import (
+        generate_retained_brightroom_selection,
+        seed_retained_brightroom_context,
+    )
+
+    context = seed_retained_brightroom_context(
+        retained_management_database_url, monkeypatch
+    )
+    selection = generate_retained_brightroom_selection(context)
+    with psycopg.connect(context.database_url) as connection:
+        before = _snapshot(connection, context.business_id)
+        payload = connection.execute(
+            "SELECT payload FROM bronze.web_scrape_ingest WHERE source='eu_startups' AND stable_id=%s",
+            (context.stable_id,),
+        ).fetchone()[0]
+    expected = normalize_eu_startups(payload).source_fields["short_description"]
+    assert isinstance(expected, str) and expected
+    detail = context.read_service.get_recommendation(
+        context.principal, selection.recommendation_id
+    )
+    assert detail.company.description == expected
+    assert recommendation_response(detail).company.description == expected
+    page = context.read_service.list_recommendations(
+        context.principal, ListProspectingRequest(), strategy_id=context.strategy_id
+    )
+    assert page.items[0].company.description == expected
+    with psycopg.connect(context.database_url) as connection:
+        assert _snapshot(connection, context.business_id) == before
+        payload["html"] += "<!-- subsequent captured version -->"
+        connection.execute(
+            "UPDATE bronze.web_scrape_ingest SET payload=%s WHERE source='eu_startups' AND stable_id=%s",
+            (psycopg.types.json.Jsonb(payload), context.stable_id),
+        )
+    # A newly fetched version invalidates the prior currentness proof; do not
+    # relabel preserved history as the company's current description.
+    changed = context.read_service.get_recommendation(
+        context.principal, selection.recommendation_id
+    )
+    assert changed.company.description is None
+    assert changed.assessment == detail.assessment
+
+
+def test_company_description_is_absent_without_current_directory_context(
+    management_database_url,
+):
+    with psycopg.connect(management_database_url) as connection:
+        identity, recommendation, _ = _seed(connection, "No source bio")
+    result = _service(management_database_url).get_recommendation(
+        _principal(identity), recommendation.id
+    )
+    assert result.company.description is None
