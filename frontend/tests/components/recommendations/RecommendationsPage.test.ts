@@ -210,7 +210,7 @@ it('keeps company signals collapsed before decision actions without metadata boi
   expect(text).not.toContain('Recommendation version');
   expect(text).not.toContain('A cited research group is expanding its data team.');
   expect(text).toContain('We are hiring two data analysts.');
-  expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toContain('Open source');
+  expect(wrapper.get('a[href="https://northstar.example/jobs"]').text()).toBe('YC profile');
   expect(text).toContain('Source date:');
   expect(text).toContain('Company info');
   expect(wrapper.find('.quality-feedback').exists()).toBe(false);

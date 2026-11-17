@@ -60,6 +60,8 @@ const recommendation: components['schemas']['RecommendationResponse'] = {
       {
         observation_id: '90000000-0000-0000-0000-000000000001',
         quote: 'We are adding two data analysts.',
+        description:
+          'We are adding two data analysts. Our research team is expanding its customer data platform. Learn more at https://northstar.example/careers.',
         source: 'company website',
         source_url: 'https://northstar.example/careers',
         occurred_at: '2026-10-30T00:00:00Z',
@@ -298,9 +300,12 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   ).not.toBeVisible();
   await expect(firstCard.getByLabel('How useful was this assessment?')).not.toBeVisible();
   await firstCard.locator('summary').click();
-  await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'company website', exact: true })).toHaveAttribute(
     'href',
     'https://northstar.example/careers',
+  );
+  await expect(firstCard.locator('blockquote')).toContainText(
+    'Our research team is expanding its customer data platform. Learn more at https://northstar.example/careers.',
   );
   await expect(
     firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
@@ -315,6 +320,9 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.screenshot({ path: 'test-results/compact-scan-collapsed-narrow.png', fullPage: true });
   await firstCard.locator('summary').focus();
   await page.keyboard.press('Enter');
+  await expect(firstCard.locator('blockquote')).toContainText(
+    'Our research team is expanding its customer data platform. Learn more at https://northstar.example/careers.',
+  );
   await expect(
     firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
   ).toBeVisible();
@@ -641,8 +649,10 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   ).toBeVisible();
   await historicalCard.locator('summary').click();
   await expect(
-    historicalCard.getByText('We are adding two data analysts.', { exact: true }),
-  ).toBeVisible();
+    historicalCard.locator(`[data-assessment-revision-id="${oldRevisionId}"] blockquote`),
+  ).toHaveText(
+    'We are adding two data analysts. Our research team is expanding its customer data platform. Learn more at https://northstar.example/careers.',
+  );
   await expect.poll(() => detailQueries.at(-1)?.get('assessment_revision_id')).toBe(oldRevisionId);
   const card = page.locator('article.recommendation-card');
   await card.scrollIntoViewIfNeeded();

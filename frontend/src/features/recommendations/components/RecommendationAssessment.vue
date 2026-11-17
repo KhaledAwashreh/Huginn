@@ -17,6 +17,27 @@ defineProps<{
 function utc(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 }
+function sourceDate(value: string): string {
+  return new Date(value).toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+function sourceLabel(value: unknown): string {
+  const source = text(value);
+  switch (source) {
+    case 'hn':
+      return 'Hacker News';
+    case 'yc':
+      return 'YC profile';
+    case 'eu_startups':
+      return 'EU-Startups';
+    default:
+      return source || 'Open source';
+  }
+}
 function safeSource(value: unknown): string | null {
   return typeof value === 'string' ? safeSourceUrl(value) : null;
 }
@@ -51,17 +72,28 @@ function safeSource(value: unknown): string | null {
           <h5 v-if="!signalsOnly">Company signals</h5>
           <p v-if="!retainedEvidence(assessment, item).length">No source excerpts were retained.</p>
           <figure v-for="(source, index) in retainedEvidence(assessment, item)" :key="index">
-            <blockquote>{{ text(source.quote) || 'Source excerpt unavailable.' }}</blockquote>
+            <blockquote>
+              {{
+                (signalsOnly ? text(source.description) : null) ||
+                text(source.quote) ||
+                'Source excerpt unavailable.'
+              }}
+            </blockquote>
             <figcaption>
               <a
                 v-if="text(source.source_url) && safeSource(source.source_url)"
                 :href="safeSource(source.source_url) ?? undefined"
                 target="_blank"
                 rel="noopener noreferrer"
-                >Open source</a
+                >{{ signalsOnly ? sourceLabel(source.source) : 'Open source' }}</a
               ><span v-else>Source link unavailable</span>
               <time v-if="text(source.occurred_at)" :datetime="text(source.occurred_at)!">
-                Source date: {{ utc(text(source.occurred_at)!) }}
+                Source date:
+                {{
+                  signalsOnly
+                    ? sourceDate(text(source.occurred_at)!)
+                    : utc(text(source.occurred_at)!)
+                }}
               </time>
             </figcaption>
           </figure>
@@ -111,6 +143,7 @@ blockquote {
   padding-left: var(--space-3);
   border-left: 3px solid var(--color-border);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 figcaption {
   display: flex;

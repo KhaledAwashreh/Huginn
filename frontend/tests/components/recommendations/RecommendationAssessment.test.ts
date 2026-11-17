@@ -130,3 +130,94 @@ it('shows company signals without rationale boilerplate or raw company metadata 
   expect(wrapper.text()).not.toContain('Assessment-time');
   expect(wrapper.find('pre').exists()).toBe(false);
 });
+
+// Public source snapshots retained in the audited assessment revisions.
+const retainedSources = [
+  {
+    company: 'Rootly',
+    quote:
+      'Rootly | https://rootly.com/ | design, engineering, GTM, sales | SF Bay, Toronto, APAC, Remote\nOn-call, incident response, and AI SRE. Trusted by leading companies like',
+    source: 'hn',
+    source_url: 'https://news.ycombinator.com/item?id=49926195',
+    description:
+      'Rootly | https://rootly.com/ | design, engineering, GTM, sales | SF Bay, Toronto, APAC, Remote\nOn-call, incident response, and AI SRE. Trusted by leading companies like NVIDIA, Dropbox, Canva, Figma, and more.\nHiring across marketing, engineering, product, GTM, and sales https://rootly.com/careers',
+    observed_at: '2026-11-02T09:31:41.742261+00:00',
+    occurred_at: '2026-10-01T19:43:21+00:00',
+    observation_id: '19e2094b-3e32-4b61-bd05-625c660164fb',
+    source_country: null,
+  },
+  {
+    company: 'Edgerun',
+    quote:
+      'Military exoskeletons\n\nEdgerun builds military exoskeletons. The first product is a 10-pound hip system that fits over existing kit and doubles a soldier’s range. Since',
+    source: 'yc',
+    source_url: 'https://www.ycombinator.com/companies/edgerun',
+    description:
+      'Military exoskeletons\n\nEdgerun builds military exoskeletons. The first product is a 10-pound hip system that fits over existing kit and doubles a soldier’s range. Since April 2026, Edgerun built over a dozen iterations of their product through continuous field tests with Ukrainian fighters and secured $150M+ in LOIs. Founder David Venegas previously co-founded Durin (autonomous mining robotics) and worked at Stoke Space (at 19) and Hadrian. He is a high-school dropout, state-championship runner, adventure athlete, and pilot. Edgerun is a Y Combinator company backed by General H.R. McMaster, Cyan Banister, Joshua Steinman and Jason Miller. edgerun.com',
+    observed_at: '2026-11-02T09:32:45.851456+00:00',
+    occurred_at: '2026-08-21T20:22:39+00:00',
+    observation_id: 'f974e95e-c607-4bed-8172-10b37b7b1130',
+    source_country: null,
+  },
+];
+
+function withSource(source: Record<string, unknown>) {
+  return {
+    ...assessment,
+    strategy_assessments: assessment.strategy_assessments.map((item) => ({
+      ...item,
+      assessment_snapshot: {
+        evidence: [{ observation_id: source.observation_id, quote: source.quote }],
+      },
+    })),
+    evidence_snapshots: [source],
+  };
+}
+
+it.each(retainedSources)(
+  'shows the complete retained $company source on cards while preserving the historical assessment quote',
+  (source) => {
+    const retainedAssessment = withSource(source);
+    const card = mount(RecommendationAssessment, {
+      props: { assessment: retainedAssessment, signalsOnly: true },
+    });
+    expect(card.get('blockquote').element.textContent).toBe(source.description);
+    expect(card.get('a').attributes('href')).toBe(source.source_url);
+    expect(card.get('a').text()).toBe(source.source === 'hn' ? 'Hacker News' : 'YC profile');
+    expect(card.get('time').attributes('datetime')).toBe(source.occurred_at);
+    expect(card.get('time').text()).not.toContain('UTC');
+    expect(card.get('time').text()).toContain('2026');
+
+    const historical = mount(RecommendationAssessment, {
+      props: { assessment: retainedAssessment },
+    });
+    expect(historical.get('blockquote').element.textContent).toBe(source.quote);
+    expect(historical.get('a').attributes('href')).toBe(source.source_url);
+    expect(historical.get('time').text()).toContain('UTC');
+  },
+);
+
+it.each([undefined, null, '', '   '])(
+  'falls back to the retained quote for legacy descriptions: %s',
+  (description) => {
+    const wrapper = mount(RecommendationAssessment, {
+      props: {
+        assessment: withSource({ observation_id: 'legacy', description, quote: 'Legacy excerpt.' }),
+        signalsOnly: true,
+      },
+    });
+    expect(wrapper.get('blockquote').text()).toBe('Legacy excerpt.');
+  },
+);
+
+it('shows unavailable evidence and keeps unsafe source URLs unlinked', () => {
+  const wrapper = mount(RecommendationAssessment, {
+    props: {
+      assessment: withSource({ observation_id: 'legacy', source_url: 'javascript:alert(1)' }),
+      signalsOnly: true,
+    },
+  });
+  expect(wrapper.get('blockquote').text()).toBe('Source excerpt unavailable.');
+  expect(wrapper.find('a').exists()).toBe(false);
+  expect(wrapper.text()).toContain('Source link unavailable');
+});
