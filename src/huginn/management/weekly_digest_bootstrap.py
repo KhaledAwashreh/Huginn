@@ -61,10 +61,12 @@ def create_weekly_digest_service(config: ManagementConfig) -> WeeklyDigestServic
 
     generation = RecommendationGenerationService(
         make_work,
+        simple_discovery_enabled=config.simple_discovery_enabled,
         source_factory=PostgresRecommendationGenerationSource,
     )
     return WeeklyDigestService(
         make_work,
+        simple_discovery_enabled=config.simple_discovery_enabled,
         subscription_access_factory=lambda work: PostgresDigestSubscriptionAccess(
             work.connection
         ),

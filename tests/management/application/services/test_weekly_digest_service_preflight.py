@@ -108,3 +108,21 @@ def test_unexpected_profile_validation_failure_is_logged_without_reserving(
     assert result["skipped"] == 0
     assert delivery.reservations == 0
     assert "Weekly digest processing failed" in caplog.text
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_simple_discovery_ambiguous_profile_skips_before_reservation(
+    count, monkeypatch
+):
+    service, delivery = _service()
+    service._simple_discovery_enabled = True
+    monkeypatch.setattr(
+        Source, "active_profiles", lambda self, owner: (object(),) * count
+    )
+    monkeypatch.setattr(
+        "huginn.management.application.services.weekly_digest.validated_profile_inputs",
+        lambda profile: (),
+    )
+    result = service.run()
+    assert result["skipped"] == 1
+    assert delivery.reservations == 0

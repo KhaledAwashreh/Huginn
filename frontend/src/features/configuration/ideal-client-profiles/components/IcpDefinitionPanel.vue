@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import Button from 'primevue/button';
 import type { components } from '../../../../api/generated/schema';
 import ErrorState from '../../../../shared/ui/ErrorState.vue';
 import LoadingState from '../../../../shared/ui/LoadingState.vue';
@@ -108,7 +109,9 @@ defineExpose({ canClose: () => form.value?.canClose() ?? true });
     <ErrorState
       v-else-if="query.isError.value && !query.data.value"
       message="Your ICP definition could not be loaded."
-    />
+    >
+      <Button label="Retry ICP definition" severity="secondary" @click="query.refetch()" />
+    </ErrorState>
     <template v-else>
       <p v-if="!props.selectedIcpId && items.length > 1 && !creating" class="annotations-empty">
         Editing {{ icp?.name }}. Choose a different ICP from Profile.

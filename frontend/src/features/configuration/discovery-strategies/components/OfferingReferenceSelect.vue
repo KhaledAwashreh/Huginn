@@ -4,6 +4,7 @@ import Button from 'primevue/button';
 import FieldFeedback from '../../../../shared/ui/FieldFeedback.vue';
 defineProps<{
   modelValue: string;
+  hideCreateLink?: boolean;
   disabled: boolean;
   items: { id: string; name: string }[];
   hasMore: boolean;
@@ -52,7 +53,7 @@ defineEmits<{ 'update:modelValue': [value: string]; more: [] }>();
       :disabled="loading || disabled"
       @click="$emit('more')"
     />
-    <RouterLink to="/offerings/new">Create service offering</RouterLink>
+    <RouterLink v-if="!hideCreateLink" to="/offerings/new">Create service offering</RouterLink>
   </div>
 </template>
 <style scoped>

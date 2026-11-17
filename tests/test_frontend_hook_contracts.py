@@ -222,7 +222,7 @@ def test_pre_push_runs_schema_gate_and_browser_gate_for_frontend_features(
     assert result.returncode == 0, result.stdout + result.stderr
     commands = npm_log.read_text().splitlines()
     assert "--prefix frontend run check" in commands
-    assert "--prefix frontend run test:e2e" in commands
+    assert "--prefix frontend run test:e2e:all" in commands
 
 
 def test_pre_push_runs_schema_gate_without_browser_for_api_schema_only(
@@ -270,7 +270,7 @@ def test_pre_push_runs_browser_gate_for_authentication_changes(tmp_path: Path) -
     assert result.returncode == 0, result.stdout + result.stderr
     commands = npm_log.read_text().splitlines()
     assert "--prefix frontend run check" in commands
-    assert "--prefix frontend run test:e2e" in commands
+    assert "--prefix frontend run test:e2e:all" in commands
 
 
 def test_pre_push_fails_closed_when_remote_commit_is_unknown(tmp_path: Path) -> None:

@@ -98,6 +98,7 @@ class _Source:
         self.strategy = strategy
         self.run_times = run_times
         self.locked = False
+        self.configuration_events = []
         self.profile_reads = 0
         self.profile_value = RecommendationProfile(
             strategy,
@@ -122,7 +123,11 @@ class _Source:
             "Onboarding services customer onboarding consulting",
         )
 
+    def lock_configuration(self, business_id):
+        self.configuration_events.append("configuration")
+
     def lock_successful_run_window(self, business_id):
+        self.configuration_events.append("quota")
         self.locked = True
 
     def successful_on_demand_runs_since(self, business_id, since):
@@ -136,6 +141,7 @@ class _Source:
         return None
 
     def active_profiles(self, owner_user_id):
+        self.configuration_events.append("profiles")
         value = self.profile(owner_user_id, self.strategy)
         return () if value is None else (value,)
 
@@ -467,3 +473,63 @@ def test_selected_company_locks_are_ordered_and_final_recheck_uses_new_clock(
     assert all(
         value == NOW + timedelta(seconds=3) for value in source_query.state_times[2:]
     )
+
+
+@pytest.mark.parametrize("weekly", [False, True])
+@pytest.mark.parametrize("count", [0, 2])
+def test_simple_mode_requires_exactly_one_active_profile(weekly, count, monkeypatch):
+    service, work, source, principal, strategy, business_id = _generation_service()
+    service._simple_discovery_enabled = True
+    monkeypatch.setattr(
+        source, "active_profiles", lambda owner: (source.profile_value,) * count
+    )
+    with pytest.raises(ValidationDomainError, match="exactly one"):
+        if weekly:
+            service.execute_weekly(business_id)
+        else:
+            service.execute(principal, GenerateRecommendationsRequest(strategy))
+    assert not work.committed
+    assert work.receipts == []
+
+
+@pytest.mark.parametrize("weekly", [False, True])
+def test_simple_mode_generates_from_single_active_profile(weekly):
+    service, work, source, principal, strategy, business_id = _generation_service()
+    service._simple_discovery_enabled = True
+    result = (
+        service.execute_weekly(business_id)
+        if weekly
+        else service.execute(principal, GenerateRecommendationsRequest(strategy))
+    )
+    assert result.business_id == business_id
+    assert work.committed
+    assert source.configuration_events == (
+        ["configuration", "profiles"]
+        if weekly
+        else ["configuration", "quota", "profiles"]
+    )
+
+
+def test_simple_mode_rejects_strategy_outside_single_active_profile():
+    service, work, source, principal, strategy, business_id = _generation_service()
+    service._simple_discovery_enabled = True
+    with pytest.raises(ValidationDomainError, match="setup changed"):
+        service.execute(principal, GenerateRecommendationsRequest(uuid4()))
+    assert work.receipts == []
+
+
+@pytest.mark.parametrize("weekly", [False, True])
+def test_full_mode_keeps_multiple_active_profiles(weekly, monkeypatch):
+    service, work, source, principal, strategy, business_id = _generation_service()
+    monkeypatch.setattr(
+        source,
+        "active_profiles",
+        lambda owner: (source.profile_value, source.profile_value),
+    )
+    result = (
+        service.execute_weekly(business_id)
+        if weekly
+        else service.execute(principal, GenerateRecommendationsRequest(strategy))
+    )
+    assert result.business_id == business_id
+    assert work.committed

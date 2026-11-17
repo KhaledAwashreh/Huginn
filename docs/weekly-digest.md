@@ -20,6 +20,21 @@ deployment's secret store. The application does not create provider accounts,
 credentials, subscriptions, or a scheduler. Provider pricing and sending
 quotas vary; check the selected provider's current terms directly.
 
+`HUGINN_SIMPLE_DISCOVERY_ENABLED` defaults to `false`. Set it to `true` in
+both the API and weekly command environments to enable the temporary single
+configuration workflow. Compose shares this setting between both processes.
+Only `true` and `false` are accepted. The session bootstrap exposes the API's
+setting to the browser; no frontend build setting is needed.
+
+In simple mode, choose an offering and ICP in Profile. Saving reuses or creates
+their strategy pairing and deactivates other active strategies atomically.
+Existing offerings, ICPs, strategy IDs and assessment history remain available.
+Missing or multiple active configurations block on-demand generation and skip
+weekly delivery before reserving the week. Publication rechecks this condition
+before authorizing an email. Set the flag back to `false` in both environments
+to restore the full configuration controls. Existing active/inactive choices
+are preserved when the flag changes.
+
 Weekly subscription is an explicit Business-owned preference. For this pilot,
 an operator opts in or out one user at a time with the CLI. Eligibility is
 rechecked before delivery: the account must be active, the Business must have

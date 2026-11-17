@@ -2,7 +2,7 @@ import { computed, reactive, ref, shallowRef, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ApiError } from '../../../api/apiError';
 import { useSession } from '../../session/composables/useSession';
-import { listDiscoveryStrategies } from '../../configuration/discovery-strategies/api/listDiscoveryStrategies';
+import { useActiveDiscoveryStrategies } from '../../configuration/discovery-strategies/composables/useActiveDiscoveryStrategies';
 import { generateRecommendations } from '../api/generateRecommendations';
 import { getBusinessRecommendationPreferences } from '../api/getBusinessRecommendationPreferences';
 import { listRecommendations } from '../api/listRecommendations';
@@ -104,22 +104,15 @@ export function useRecommendationWorkspace() {
         signal,
       ),
   });
-  const strategies = useQuery({
-    queryKey: computed(() => ['prospecting', identity.value, 'strategies']),
-    enabled: computed(() => Boolean(session.context.value)),
-    queryFn: async ({ signal }) => {
-      const items = [];
-      let pageOffset = 0;
-      let more = true;
-      while (more) {
-        const page = await listDiscoveryStrategies(pageOffset, 100, true, signal);
-        items.push(...page.items);
-        more = page.has_more;
-        pageOffset += page.limit;
-      }
-      return items;
+  const { strategies, singleStrategy } = useActiveDiscoveryStrategies();
+  const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
+  watch(
+    [simpleDiscovery, singleStrategy],
+    ([simple, selected]) => {
+      if (simple) strategyId.value = selected?.id ?? '';
     },
-  });
+    { immediate: true, flush: 'sync' },
+  );
 
   watch(
     [strategyId, search, status],
@@ -208,6 +201,7 @@ export function useRecommendationWorkspace() {
 
   async function generate(strategyId: string): Promise<boolean> {
     if (!strategyId || !session.context.value || generating.value) return false;
+    if (simpleDiscovery.value && strategyId !== singleStrategy.value?.id) return false;
     const requestIdentity = identity.value;
     generating.value = true;
     generationError.value = '';
@@ -222,7 +216,9 @@ export function useRecommendationWorkspace() {
       if (requestIdentity === identity.value) {
         generationError.value =
           error instanceof ApiError && error.status === 422
-            ? 'Review the selected strategy, offerings, and ICPs before generating recommendations.'
+            ? simpleDiscovery.value
+              ? 'Review your service offering and ICP in Profile before generating recommendations.'
+              : 'Review the selected strategy, offerings, and ICPs before generating recommendations.'
             : error instanceof ApiError && error.status === 429
               ? 'The generation limit was reached. Wait before trying again.'
               : 'Recommendations could not be generated. Try again.';
@@ -235,6 +231,7 @@ export function useRecommendationWorkspace() {
 
   return {
     identity,
+    simpleDiscovery,
     commandDraftFor,
     commandRecoveries,
     strategyId,

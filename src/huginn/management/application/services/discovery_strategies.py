@@ -64,6 +64,26 @@ class ClientDiscoveryStrategyService:
         if self._profiles_factory(uow).get_owned(business_id, profile_id) is None:
             raise NotFoundError("Strategy reference not found")
 
+    def set_single_configuration(
+        self,
+        principal: Principal,
+        *,
+        service_offering_id: UUID,
+        ideal_client_profile_id: UUID,
+    ) -> ClientDiscoveryStrategy:
+        with self._uow_factory() as uow:
+            business_id = business_id_for_principal(
+                principal, self._businesses_factory(uow)
+            )
+            self._require_references(
+                uow, business_id, service_offering_id, ideal_client_profile_id
+            )
+            value = self._strategies_factory(uow).set_single_configuration(
+                business_id, service_offering_id, ideal_client_profile_id
+            )
+            uow.commit()
+            return value
+
     def create(
         self,
         principal: Principal,

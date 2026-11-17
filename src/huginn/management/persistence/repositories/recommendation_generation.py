@@ -29,6 +29,12 @@ class PostgresRecommendationGenerationSource(RecommendationGenerationSource):
     def __init__(self, connection: DatabaseSession) -> None:
         self.connection = connection
 
+    def lock_configuration(self, business_id: UUID) -> None:
+        self.connection.execute(
+            "SELECT id FROM operational.businesses WHERE id=%s FOR SHARE",
+            (business_id,),
+        ).fetchone()
+
     def lock_successful_run_window(self, business_id: UUID) -> None:
         self.connection.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",

@@ -14,6 +14,10 @@ from huginn.management.domain.value_objects.common import Page, Principal
 
 
 class ClientDiscoveryStrategyRepository(Protocol):
+    def set_single_configuration(
+        self, business_id: UUID, offering_id: UUID, profile_id: UUID
+    ) -> ClientDiscoveryStrategy: ...
+
     def create(
         self, strategy: NewClientDiscoveryStrategy
     ) -> ClientDiscoveryStrategy: ...

@@ -158,3 +158,26 @@ def test_load_config_reads_lifecycle_deployment_settings(monkeypatch):
     assert loaded.lifecycle_proof_key == key
     assert loaded.web_origin == "http://localhost:4173"
     assert loaded.smtp_port == 2525
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(None, False), ("true", True), ("false", False)]
+)
+def test_simple_discovery_is_explicit_opt_in(monkeypatch, value, expected):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "unused")
+    if value is not None:
+        monkeypatch.setenv("HUGINN_SIMPLE_DISCOVERY_ENABLED", value)
+    assert config.load_config().simple_discovery_enabled is expected
+
+
+@pytest.mark.parametrize("value", ["", "yes", "1"])
+def test_simple_discovery_rejects_ambiguous_environment(monkeypatch, value):
+    monkeypatch.setenv("HUGINN_MANAGEMENT_DATABASE_URL", "unused")
+    monkeypatch.setenv("HUGINN_SIMPLE_DISCOVERY_ENABLED", value)
+    with pytest.raises(RuntimeError, match="invalid management configuration"):
+        config.load_config()
+
+
+def test_simple_discovery_config_requires_boolean():
+    with pytest.raises(ValueError):
+        config.ManagementConfig("unused", simple_discovery_enabled="false")

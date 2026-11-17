@@ -128,6 +128,7 @@ def change_current_password(
 )
 def get_current_session(
     authenticated: Authenticated,
+    dependencies: Management,
     service: Annotated[Any, Depends(get_current_session_service)],
     response: Response,
 ) -> CurrentSessionResponse:
@@ -146,4 +147,5 @@ def get_current_session(
         csrf_token=result.csrf_token,
         expires_at=result.expires_at,
         role=result.role.value,
+        simple_discovery_enabled=dependencies.config.simple_discovery_enabled,
     )

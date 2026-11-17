@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useSession } from '../../session/composables/useSession';
 import type { components } from '../../../api/generated/schema';
 import { safeSourceUrl } from '../../../shared/lib/externalCompanyUrl';
 import {
@@ -14,6 +16,9 @@ defineProps<{
   signalsOnly?: boolean;
   heading?: string;
 }>();
+const session = useSession();
+const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
+
 function utc(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 }
@@ -58,17 +63,32 @@ function safeSource(value: unknown): string | null {
         :key="item.strategy_id"
         class="strategy-assessment"
       >
-        <h4 v-if="assessment.strategy_assessments.length > 1">{{ strategyName(item) }}</h4>
+        <h4 v-if="assessment.strategy_assessments.length > 1">
+          {{
+            simpleDiscovery
+              ? text(record(item.offering_snapshot).name) || 'Service offering'
+              : strategyName(item)
+          }}
+        </h4>
         <p v-if="!signalsOnly && relevanceScore(item) !== null" class="relevance-score">
           Relevance: {{ relevanceScore(item) }}/100
         </p>
         <p v-if="!signalsOnly">
           {{
             text(record(item.assessment_snapshot).rationale) ||
-            'No rationale text was retained for this strategy assessment.'
+            (simpleDiscovery
+              ? 'No rationale text was retained for this assessment.'
+              : 'No rationale text was retained for this strategy assessment.')
           }}
         </p>
-        <section class="source-evidence" :aria-label="`Evidence for ${strategyName(item)}`">
+        <section
+          class="source-evidence"
+          :aria-label="
+            simpleDiscovery
+              ? `Evidence for ${text(record(item.offering_snapshot).name) || 'service offering'}`
+              : `Evidence for ${strategyName(item)}`
+          "
+        >
           <h5 v-if="!signalsOnly">Company signals</h5>
           <p v-if="!retainedEvidence(assessment, item).length">No source excerpts were retained.</p>
           <figure v-for="(source, index) in retainedEvidence(assessment, item)" :key="index">

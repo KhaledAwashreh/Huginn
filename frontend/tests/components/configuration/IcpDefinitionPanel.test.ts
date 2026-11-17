@@ -5,6 +5,8 @@ import IcpDefinitionPanel from '@/features/configuration/ideal-client-profiles/c
 import IdealClientProfileForm from '@/features/configuration/ideal-client-profiles/components/IdealClientProfileForm.vue';
 
 const state = vi.hoisted(() => ({
+  detailError: false,
+  detailRefetch: vi.fn(),
   update: vi.fn(),
   create: vi.fn(),
   refetch: vi.fn(),
@@ -50,9 +52,9 @@ vi.mock(
         },
         detail: {
           isPending: { value: false },
-          isError: { value: false },
+          isError: { value: state.detailError },
           data: { value: id?.() === 'second' ? state.second : undefined },
-          refetch: async () => ({ isError: false, data: state.second }),
+          refetch: state.detailRefetch,
         },
         create: { mutateAsync: state.create },
         update: { mutateAsync: state.update },
@@ -75,6 +77,8 @@ vi.mock(
 const global = { stubs: { IdealClientProfileForm: true } };
 
 beforeEach(() => {
+  state.detailError = false;
+  state.detailRefetch.mockReset().mockResolvedValue({ isError: false, data: state.second });
   state.update.mockReset();
   state.create.mockReset();
   state.refetch.mockReset();
@@ -161,4 +165,16 @@ it('shows the client and feedback notes passed by the composing level', () => {
   });
   expect(wrapper.text()).toContain('Example Commerce (Ecommerce)');
   expect(wrapper.text()).toContain('Example Company (Wrong location)');
+});
+
+it('offers a retry when the selected ICP cannot be loaded', async () => {
+  state.detailError = true;
+  const wrapper = mount(IcpDefinitionPanel, {
+    props: { clients: [], reactions: [], selectedIcpId: 'unavailable' },
+    global: { ...global, plugins: [PrimeVue] },
+  });
+  const retry = wrapper.findAll('button').find((item) => item.text() === 'Retry ICP definition');
+  expect(retry).toBeDefined();
+  await retry?.trigger('click');
+  expect(state.detailRefetch).toHaveBeenCalledOnce();
 });

@@ -88,6 +88,7 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
             "patch",
         },
         "/api/v1/discovery-strategies": {"get", "post"},
+        "/api/v1/discovery-strategies/single-configuration": {"put"},
         "/api/v1/discovery-strategies/{strategy_id}": {
             "delete",
             "get",
@@ -121,7 +122,7 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
                         for parameter in operation.get("parameters", [])
                     )
             if (
-                method in {"post", "patch"}
+                method in {"post", "patch", "put"}
                 and path
                 not in {
                     "/api/v1/sessions",
@@ -157,6 +158,17 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
             parameter["in"] == "path" and parameter["schema"].get("format") == "uuid"
             for parameter in document["paths"][path][method]["parameters"]
         )
+
+    single_configuration = schemas["SingleDiscoveryConfigurationRequest"]
+    assert set(single_configuration["required"]) == {
+        "service_offering_id",
+        "ideal_client_profile_id",
+    }
+    assert single_configuration["additionalProperties"] is False
+    assert all(
+        value["format"] == "uuid"
+        for value in single_configuration["properties"].values()
+    )
 
     query_parameters = document["paths"]["/api/v1/offerings"]["get"]["parameters"]
     by_name = {parameter["name"]: parameter for parameter in query_parameters}
@@ -233,6 +245,11 @@ def test_openapi_documents_every_success_response_model():
             "/api/v1/discovery-strategies",
             "post",
             "201",
+        ): "DiscoveryStrategyResponse",
+        (
+            "/api/v1/discovery-strategies/single-configuration",
+            "put",
+            "200",
         ): "DiscoveryStrategyResponse",
         (
             "/api/v1/discovery-strategies/{strategy_id}",

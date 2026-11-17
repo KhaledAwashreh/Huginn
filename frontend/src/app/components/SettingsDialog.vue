@@ -5,6 +5,7 @@ import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
 import { ShieldCheck, Target, UserRound, Wrench, X } from '@lucide/vue';
 import AccountForm from '../../features/configuration/account/components/AccountForm.vue';
+import SingleIcpDefinitionPanel from '../../features/configuration/ideal-client-profiles/components/SingleIcpDefinitionPanel.vue';
 import IcpDefinitionPanel from '../../features/configuration/ideal-client-profiles/components/IcpDefinitionPanel.vue';
 import AccountSecurityPanel from '../../features/configuration/account/components/AccountSecurityPanel.vue';
 import { useAccount } from '../../features/configuration/account/composables/useAccount';
@@ -36,7 +37,9 @@ const icpFeedback = computed(() =>
   })),
 );
 const accountForm = ref<InstanceType<typeof AccountForm> | null>(null);
-const icpPanel = ref<InstanceType<typeof IcpDefinitionPanel> | null>(null);
+const icpPanel = ref<
+  InstanceType<typeof IcpDefinitionPanel> | InstanceType<typeof SingleIcpDefinitionPanel> | null
+>(null);
 const securityPanel = ref<InstanceType<typeof AccountSecurityPanel> | null>(null);
 
 const sections = computed<SectionOption[]>(() => [
@@ -170,6 +173,22 @@ async function openAdminTool(path: string): Promise<void> {
               :account="account.data.value"
             />
           </template>
+          <SingleIcpDefinitionPanel
+            v-else-if="
+              current.value === 'icp' && session.context.value?.simple_discovery_enabled === true
+            "
+            :key="
+              [
+                session.context.value?.account_id,
+                session.context.value?.user_id,
+                session.context.value?.csrf_token,
+              ].join(':')
+            "
+            ref="icpPanel"
+            :clients="[]"
+            :reactions="icpFeedback"
+            @setup="visible = false"
+          />
           <IcpDefinitionPanel
             v-else-if="current.value === 'icp'"
             ref="icpPanel"

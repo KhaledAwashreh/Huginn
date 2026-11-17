@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
+import { useSession } from '../../session/composables/useSession';
 import { companyWebsiteUrl } from '../../../shared/lib/externalCompanyUrl';
 import RecommendationAssessment from './RecommendationAssessment.vue';
-import { relevanceScore, retainedEvidence, strategyName, text } from '../models/assessmentEvidence';
+import {
+  record,
+  relevanceScore,
+  retainedEvidence,
+  strategyName,
+  text,
+} from '../models/assessmentEvidence';
 import type { RecommendationView } from '../models/prospecting';
 
 const props = defineProps<{ recommendation: RecommendationView; strategyId?: string }>();
 const headingId = useId();
+const session = useSession();
+const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
 const assessment = computed(() => {
   const current = props.recommendation.assessment;
   if (!current || !props.strategyId) return current;
@@ -20,7 +29,17 @@ const assessment = computed(() => {
 const scores = computed(() =>
   (assessment.value?.strategy_assessments ?? []).flatMap((item) => {
     const score = relevanceScore(item);
-    return score === null ? [] : [{ id: item.strategy_id, name: strategyName(item), score }];
+    return score === null
+      ? []
+      : [
+          {
+            id: item.strategy_id,
+            name: simpleDiscovery.value
+              ? text(record(item.offering_snapshot).name) || 'Service offering'
+              : strategyName(item),
+            score,
+          },
+        ];
   }),
 );
 const signalCount = computed(() => {

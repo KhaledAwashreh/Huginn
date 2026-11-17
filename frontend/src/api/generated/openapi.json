@@ -1058,6 +1058,10 @@
             "title": "Role",
             "type": "string"
           },
+          "simple_discovery_enabled": {
+            "title": "Simple Discovery Enabled",
+            "type": "boolean"
+          },
           "user_id": {
             "format": "uuid",
             "title": "User Id",
@@ -1069,7 +1073,8 @@
           "user_id",
           "csrf_token",
           "expires_at",
-          "role"
+          "role",
+          "simple_discovery_enabled"
         ],
         "title": "CurrentSessionResponse",
         "type": "object"
@@ -5253,6 +5258,27 @@
           "country_of_residence"
         ],
         "title": "SignupRequest",
+        "type": "object"
+      },
+      "SingleDiscoveryConfigurationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ideal_client_profile_id": {
+            "format": "uuid",
+            "title": "Ideal Client Profile Id",
+            "type": "string"
+          },
+          "service_offering_id": {
+            "format": "uuid",
+            "title": "Service Offering Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_offering_id",
+          "ideal_client_profile_id"
+        ],
+        "title": "SingleDiscoveryConfigurationRequest",
         "type": "object"
       },
       "Skill": {
@@ -10528,6 +10554,341 @@
           }
         ],
         "summary": "Create Discovery Strategy",
+        "tags": [
+          "discovery-strategies"
+        ]
+      }
+    },
+    "/api/v1/discovery-strategies/single-configuration": {
+      "put": {
+        "operationId": "set_single_discovery_configuration_api_v1_discovery_strategies_single_configuration_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SingleDiscoveryConfigurationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryStrategyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "items": {
+                            "properties": {
+                              "loc": {
+                                "items": {},
+                                "type": "array"
+                              },
+                              "msg": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "loc",
+                              "type",
+                              "msg"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": {
+                              "items": {},
+                              "type": "array"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Request or domain validation failed"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unexpected application error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "summary": "Set Single Discovery Configuration",
         "tags": [
           "discovery-strategies"
         ]

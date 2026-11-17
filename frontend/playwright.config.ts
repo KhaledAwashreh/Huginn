@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const simpleMode = process.env.HUGINN_BROWSER_SIMPLE_MODE === '1';
+
 const apiPort = Number(process.env.HUGINN_BROWSER_API_PORT ?? '8000');
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const browserPort = Number(process.env.HUGINN_BROWSER_PORT ?? '4173');
@@ -7,6 +9,9 @@ const browserUrl = `http://127.0.0.1:${browserPort}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  ...(simpleMode
+    ? { testMatch: '**/simpleDiscovery.spec.ts' }
+    : { testIgnore: '**/simpleDiscovery.spec.ts' }),
   fullyParallel: true,
   // Scenarios share one mutable database and authentication fixture.
   workers: 1,

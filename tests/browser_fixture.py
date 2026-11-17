@@ -274,7 +274,12 @@ def _seed_owner_matches(connection, user_id: UUID) -> None:
 def main() -> None:
     name = f"huginn_browser_{uuid4().hex}"
     with provisioned_postgres(name) as database_url:
-        config = ManagementConfig(database_url, environment="test")
+        config = ManagementConfig(
+            database_url,
+            environment="test",
+            simple_discovery_enabled=os.environ.get("HUGINN_BROWSER_SIMPLE_MODE")
+            == "1",
+        )
         provisioning = create_account_administration_services(config).provisioning
         identities = {}
         for username in (
@@ -287,6 +292,10 @@ def main() -> None:
             "browser-admin",
             "browser-matches",
             "browser-icp-conflicts",
+            "browser-simple",
+            "browser-simple-legacy",
+            "browser-simple-retry",
+            "browser-simple-legacy-retry",
         ):
             identities[username] = provisioning.provision(
                 ProvisionIdentity(

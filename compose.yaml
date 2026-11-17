@@ -5,6 +5,7 @@ x-app-environment: &app-environment
   HUGINN_MANAGEMENT_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
   HUGINN_MATCHMAKING_DATABASE_URL: postgresql://huginn:${POSTGRES_PASSWORD:?Run python3 scripts/configure-compose.py first}@db:5432/huginn
   HUGINN_MANAGEMENT_ENVIRONMENT: ${HUGINN_MANAGEMENT_ENVIRONMENT:-local}
+  HUGINN_SIMPLE_DISCOVERY_ENABLED: ${HUGINN_SIMPLE_DISCOVERY_ENABLED:-false}
   HUGINN_DISCOVERY_NEW_WORK_ENABLED: ${HUGINN_DISCOVERY_NEW_WORK_ENABLED:-true}
   HUGINN_LIFECYCLE_PROOF_KEY: ${HUGINN_LIFECYCLE_PROOF_KEY:?Run python3 scripts/configure-compose.py first}
   HUGINN_WEB_ORIGIN: ${HUGINN_WEB_ORIGIN:-http://localhost:8080}

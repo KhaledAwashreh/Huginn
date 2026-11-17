@@ -245,6 +245,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discovery-strategies/single-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Single Discovery Configuration */
+        put: operations["set_single_discovery_configuration_api_v1_discovery_strategies_single_configuration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery-strategies/{strategy_id}": {
         parameters: {
             query?: never;
@@ -1494,6 +1511,8 @@ export interface components {
             expires_at: string;
             /** Role */
             role: string;
+            /** Simple Discovery Enabled */
+            simple_discovery_enabled: boolean;
             /**
              * User Id
              * Format: uuid
@@ -3097,6 +3116,19 @@ export interface components {
             timezone?: string | null;
             /** Username */
             username: string;
+        };
+        /** SingleDiscoveryConfigurationRequest */
+        SingleDiscoveryConfigurationRequest: {
+            /**
+             * Ideal Client Profile Id
+             * Format: uuid
+             */
+            ideal_client_profile_id: string;
+            /**
+             * Service Offering Id
+             * Format: uuid
+             */
+            service_offering_id: string;
         };
         /** Skill */
         Skill: {
@@ -5036,6 +5068,143 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryStrategyResponse"];
+                };
+            };
+            /** @description Request failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request or domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: {
+                            loc: unknown[];
+                            msg: string;
+                            type: string;
+                        }[];
+                    } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Unexpected application error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    set_single_discovery_configuration_api_v1_discovery_strategies_single_configuration_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SingleDiscoveryConfigurationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
