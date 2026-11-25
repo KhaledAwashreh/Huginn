@@ -1,23 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useSession } from '../../session/composables/useSession';
 import type { components } from '../../../api/generated/schema';
 import { safeSourceUrl } from '../../../shared/lib/externalCompanyUrl';
-import {
-  record,
-  relevanceScore,
-  retainedEvidence,
-  strategyName,
-  text,
-} from '../models/assessmentEvidence';
+import { record, retainedEvidence, text } from '../models/assessmentEvidence';
 
 defineProps<{
   assessment: components['schemas']['AssessmentRevisionResponse'] | null;
   signalsOnly?: boolean;
   heading?: string;
 }>();
-const session = useSession();
-const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
 
 function utc(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
@@ -64,30 +54,17 @@ function safeSource(value: unknown): string | null {
         class="strategy-assessment"
       >
         <h4 v-if="assessment.strategy_assessments.length > 1">
-          {{
-            simpleDiscovery
-              ? text(record(item.offering_snapshot).name) || 'Service offering'
-              : strategyName(item)
-          }}
+          {{ text(record(item.offering_snapshot).name) || 'Service offering' }}
         </h4>
-        <p v-if="!signalsOnly && relevanceScore(item) !== null" class="relevance-score">
-          Relevance: {{ relevanceScore(item) }}/100
-        </p>
         <p v-if="!signalsOnly">
           {{
             text(record(item.assessment_snapshot).rationale) ||
-            (simpleDiscovery
-              ? 'No rationale text was retained for this assessment.'
-              : 'No rationale text was retained for this strategy assessment.')
+            'No rationale text was retained for this assessment.'
           }}
         </p>
         <section
           class="source-evidence"
-          :aria-label="
-            simpleDiscovery
-              ? `Evidence for ${text(record(item.offering_snapshot).name) || 'service offering'}`
-              : `Evidence for ${strategyName(item)}`
-          "
+          :aria-label="`Evidence for ${text(record(item.offering_snapshot).name) || 'service offering'}`"
         >
           <h5 v-if="!signalsOnly">Company signals</h5>
           <p v-if="!retainedEvidence(assessment, item).length">No source excerpts were retained.</p>
@@ -143,11 +120,6 @@ h4 {
 }
 h5 {
   margin-bottom: var(--space-1);
-}
-.relevance-score {
-  margin-bottom: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
 }
 .strategy-assessment {
   display: grid;

@@ -222,12 +222,12 @@ it('keeps company signals collapsed before decision actions without metadata boi
   expect(wrapper.find('button[aria-label="Close recommendation"]').exists()).toBe(false);
 });
 
-it('prompts for a strategy without rendering cached list rows when none is selected', async () => {
+it('prompts to complete the profile without rendering cached rows when no internal pairing exists', async () => {
   const wrapper = setup();
   const workspace = mocks.workspace as { strategyId: { value: string } };
   workspace.strategyId.value = '';
   await wrapper.vm.$nextTick();
-  expect(wrapper.text()).toContain('Choose a discovery strategy to view its recommendations.');
+  expect(wrapper.text()).toContain('Complete your profile to view recommendations.');
   expect(wrapper.find('article.recommendation-card').exists()).toBe(false);
 });
 

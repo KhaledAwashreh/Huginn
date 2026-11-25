@@ -2,18 +2,12 @@
 import { computed, inject, ref, toRaw } from 'vue';
 import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import FieldFeedback from '../../../../shared/ui/FieldFeedback.vue';
 import { ApiError } from '../../../../api/apiError';
 import type { components } from '../../../../api/generated/schema';
 import { useDirtyDraft } from '../../../../shared/forms/useDirtyDraft';
 import type { IdealClientProfileDraft } from '../forms/idealClientProfileDraft';
 import { serializeIdealClientProfilePatch } from '../forms/serializeIdealClientProfilePatch';
-import IndustryRows from './IndustryRows.vue';
-import CompanySizeRows from './CompanySizeRows.vue';
-import GeographyRows from './GeographyRows.vue';
-import ExclusionRows from './ExclusionRows.vue';
-import { useConfigurationOptions } from '../composables/useConfigurationOptions';
+import IdealClientProfileFields from './IdealClientProfileFields.vue';
 import { icpSelectionConflicts } from '../forms/icpSelectionConflicts';
 
 const props = defineProps<{
@@ -34,26 +28,7 @@ const formError = ref('');
 const validation = ref<ApiError | null>(null);
 const refreshed = ref(false);
 const uncertain = ref(false);
-const configurationOptions = useConfigurationOptions();
-const optionState = computed(() =>
-  configurationOptions.isPending.value
-    ? 'loading'
-    : configurationOptions.isError.value
-      ? 'error'
-      : 'ready',
-);
-const industries = computed(() => configurationOptions.data.value?.industries ?? []);
-const countries = computed(() => configurationOptions.data.value?.countries ?? []);
-const companySizes = computed(() => configurationOptions.data.value?.company_sizes ?? []);
 const conflicts = computed(() => icpSelectionConflicts(draft.value));
-const excludedIndustries = computed(() =>
-  draft.value.exclusions.flatMap((item) => (item.kind === 'industry' ? [item.name] : [])),
-);
-const excludedCountries = computed(() =>
-  draft.value.exclusions.flatMap((item) =>
-    item.kind === 'geography' && item.geography.kind === 'country' ? [item.geography.value] : [],
-  ),
-);
 const canSubmit = computed(
   () => state.dirty.value && draft.value.name.trim() !== '' && conflicts.value.length === 0,
 );
@@ -66,37 +41,6 @@ if (inject(matchedRouteKey, null)) {
 }
 // Closing the settings modal is not a navigation, so it asks the form directly.
 defineExpose({ canClose });
-function normalizedPath(path: (string | number)[]): string {
-  const result: (string | number)[] = [];
-  for (const part of path) {
-    const previous = result.at(-1);
-    if (previous === part && part === 'geography') continue;
-    if (
-      ['company', 'industry', 'country', 'region'].includes(String(part)) &&
-      typeof previous === 'number'
-    )
-      continue;
-    if (['country', 'region'].includes(String(part)) && previous === 'geography') continue;
-    result.push(part);
-  }
-  return result.join('.');
-}
-function fieldError(path: (string | number)[]): string | undefined {
-  const expected = path.join('.');
-  return validation.value?.fields.find((item) => normalizedPath(item.path) === expected)?.message;
-}
-function rowErrors(
-  section: 'industries' | 'company_sizes' | 'geographies' | 'exclusions',
-): string[] {
-  const rows = draft.value[section];
-  return rows.map((_, index) => {
-    const prefix = `${section}.${index}.`;
-    return (
-      validation.value?.fields.find((item) => normalizedPath(item.path).startsWith(prefix))
-        ?.message ?? ''
-    );
-  });
-}
 function fromResponse(
   response: components['schemas']['IdealClientProfileResponse'],
 ): IdealClientProfileDraft {
@@ -198,53 +142,7 @@ function cancel(): void {
     <p v-if="refreshed" role="status">
       Saved data was refreshed. Your draft is unchanged; review it before saving again.
     </p>
-    <div class="field">
-      <label for="icp-name">Name <span>(required)</span></label
-      ><InputText
-        id="icp-name"
-        v-model="draft.name"
-        :disabled="busy"
-        required
-        autocomplete="off"
-        aria-describedby="icp-name-error"
-        :aria-invalid="fieldError(['name']) ? 'true' : undefined"
-      /><FieldFeedback :message="fieldError(['name']) ?? ''" />
-    </div>
-    <IndustryRows
-      v-model="draft.industries"
-      :blocked-values="excludedIndustries"
-      :disabled="busy"
-      :errors="rowErrors('industries')"
-      :options="industries"
-      :state="optionState"
-    />
-    <CompanySizeRows
-      v-model="draft.company_sizes"
-      :disabled="busy"
-      :errors="rowErrors('company_sizes')"
-      :options="companySizes"
-      :state="optionState"
-    />
-    <GeographyRows
-      v-model="draft.geographies"
-      :blocked-values="excludedCountries"
-      :disabled="busy"
-      :errors="rowErrors('geographies')"
-      :options="countries"
-      :state="optionState"
-    />
-    <ExclusionRows
-      v-model="draft.exclusions"
-      :blocked-industries="draft.industries.map((item) => item.name)"
-      :blocked-countries="
-        draft.geographies.flatMap((item) => (item.kind === 'country' ? [item.value] : []))
-      "
-      :disabled="busy"
-      :errors="rowErrors('exclusions')"
-      :industries="industries"
-      :countries="countries"
-      :state="optionState"
-    />
+    <IdealClientProfileFields v-model="draft" :disabled="busy" :validation="validation" />
     <div class="actions">
       <Button
         type="submit"

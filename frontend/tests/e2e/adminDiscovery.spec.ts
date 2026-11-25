@@ -276,13 +276,11 @@ test('the user menu opens admin tools and the top nav keeps navigation and draft
   await expect(page).toHaveURL(/\/prospects$/);
   await workspace.getByRole('link', { name: 'Profile', exact: true }).click();
   await expect(page).toHaveURL(/\/profile$/);
-  await page.getByRole('button', { name: 'Edit professional summary' }).click();
-  const profileDraft = page.getByRole('dialog', { name: 'Professional summary', exact: true });
-  await profileDraft.getByLabel('Professional summary').fill('Unsaved personal profile draft.');
+  await page.getByLabel('Tell us about your service').fill('Unsaved business service draft.');
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.goBack();
   await expect(page).toHaveURL(/\/profile$/);
-  await expect(profileDraft.getByLabel('Professional summary')).toHaveValue(
-    'Unsaved personal profile draft.',
+  await expect(page.getByLabel('Tell us about your service')).toHaveValue(
+    'Unsaved business service draft.',
   );
 });

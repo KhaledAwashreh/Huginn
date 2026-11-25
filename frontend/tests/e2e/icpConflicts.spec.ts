@@ -21,15 +21,17 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
     void prompt.dismiss();
   });
   await page.goto('/profile');
-  await page.locator('.icp-tile').click();
-  await expect(page.getByRole('dialog', { name: 'ICP definition', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit ICP', exact: true }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Your ICP definition', exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText('Analytics is both selected and excluded.', { exact: false }),
   ).toBeVisible();
   await expect(
     page.getByText('United States is both selected and excluded.', { exact: false }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Apply ICP', exact: true })).toBeDisabled();
   const industries = page.getByRole('combobox', {
     name: 'Collected industry options',
     exact: true,
@@ -73,14 +75,21 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   await countries.press('Escape');
   // The button is also disabled while saving, so wait for the save itself before reading it back.
   const selectedProfileId = '00000000-0000-0000-0000-000000000333';
+  await page.getByRole('button', { name: 'Apply ICP', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Your ICP definition', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByLabel('Business name').fill('Conflict repair business');
+  await page
+    .getByLabel('Tell us about your service')
+    .fill('Software engineering for analytics teams.');
   const saveResponse = page.waitForResponse(
     (response) =>
-      response.request().method() === 'PATCH' &&
-      response.url().endsWith(`/ideal-client-profiles/${selectedProfileId}`),
+      response.request().method() === 'PUT' && response.url().endsWith('/me/business/setup'),
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   expect((await saveResponse).status()).toBe(200);
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save profile', exact: true })).toBeDisabled();
   const saved = await page.request.get(`/api/v1/ideal-client-profiles/${selectedProfileId}`);
   expect(saved.status()).toBe(200);
   const value = await saved.json();
@@ -89,5 +98,8 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   expect(value.exclusions).toHaveLength(2);
   // Closing a dropdown with Escape must not try to close the modal around it.
   expect(browserPrompts).toEqual([]);
-  await expect(page.getByRole('dialog', { name: 'ICP definition', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit ICP', exact: true }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Your ICP definition', exact: true }),
+  ).toBeVisible();
 });

@@ -78,6 +78,7 @@ def test_openapi_covers_registered_paths_methods_models_and_errors():
         "/api/v1/me/password": {"patch"},
         "/api/v1/me/professional-profile": {"get", "patch"},
         "/api/v1/me/business": {"get", "patch"},
+        "/api/v1/me/business/setup": {"get", "put"},
         "/api/v1/me/business/recommendation-preferences": {"get", "patch"},
         "/api/v1/offerings": {"get", "post"},
         "/api/v1/offerings/{offering_id}": {"delete", "get", "patch"},

@@ -137,6 +137,12 @@ it('searches and filters on the server and resets pagination on each query chang
 });
 
 it('posts a generation request then refreshes the canonical list without inserting returned references', async () => {
+  mocks.strategies.mockResolvedValue({
+    items: [{ id: 'strategy-1', service_offering_id: 'offering', ideal_client_profile_id: 'icp' }],
+    has_more: false,
+    offset: 0,
+    limit: 100,
+  });
   const { workspace, client } = setup();
   await flushPromises();
   const generated = {
@@ -258,12 +264,12 @@ it('does not read suppressions until the user opens their manager', async () => 
   );
 });
 
-it('automatically filters by the only active configuration in simple mode', async () => {
+it('automatically filters by the only active configuration without the legacy flag', async () => {
   mocks.session.value = {
     account_id: 'account-1',
     user_id: 'user-1',
     csrf_token: 'csrf-1',
-    simple_discovery_enabled: true,
+    simple_discovery_enabled: false,
   };
   mocks.strategies.mockResolvedValue({
     items: [

@@ -101,12 +101,6 @@ const researchStrategy = {
   updated_at: '2026-11-01T00:00:00Z',
 };
 
-async function chooseStrategy(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByRole('combobox', { name: 'Discovery strategy', exact: true }).click();
-  await page.getByRole('option', { name: 'Research strategy', exact: true }).click();
-  await expect(page.locator('.p-select-overlay')).toHaveCount(0);
-}
-
 test('renders assessment lineage, searches server-side, reports feedback, and saves the exact revision', async ({
   page,
 }) => {
@@ -287,14 +281,13 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
-  await chooseStrategy(page);
   const firstCard = page.locator('article.recommendation-card');
   await expect(
     firstCard
       .locator('summary')
       .getByText('Research software for teams working with complex customer data.'),
   ).toBeVisible();
-  await expect(firstCard.locator('.relevance-score')).toContainText('84/100');
+  await expect(firstCard.getByText(/Relevance:|84\/100/)).toHaveCount(0);
   await expect(
     firstCard.getByRole('heading', { name: 'Company signals', exact: true }),
   ).not.toBeVisible();
@@ -499,7 +492,6 @@ test('confirms first presentation only after the exact assessment revision is re
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
-  await chooseStrategy(page);
   await expect(
     page
       .locator('article.recommendation-card summary')
@@ -636,12 +628,10 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
-  await chooseStrategy(page);
   showUnrelated = true;
   await page.goto(
     `/recommendations?recommendation_id=${linked.id}&assessment_revision_id=${oldRevisionId}`,
   );
-  await chooseStrategy(page);
   await expect(page.getByRole('heading', { name: 'Recommendation from your email' })).toBeVisible();
   const historicalCard = page.getByRole('region', { name: 'Recommendation from your email' });
   await expect(
@@ -667,7 +657,6 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
     ]);
   await expect.poll(() => repeatPresentedAt).toBe(expectedRepeatPresentedAt);
   await page.reload();
-  await chooseStrategy(page);
   await expect(card.getByText('Unrelated Research', { exact: true })).toBeVisible();
   await card.getByRole('button', { name: 'Save as prospect' }).click();
   const email = page.getByRole('region', { name: 'Recommendation from your email' });
@@ -740,7 +729,6 @@ test('searches recommendations beyond page one and resets pagination offset', as
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
-  await chooseStrategy(page);
   await expect(page.getByText('Recommendation 01', { exact: true })).toBeVisible();
   await expect(page.getByText('Showing 1–25')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();

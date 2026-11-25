@@ -105,11 +105,10 @@ export function useRecommendationWorkspace() {
       ),
   });
   const { strategies, singleStrategy } = useActiveDiscoveryStrategies();
-  const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
   watch(
-    [simpleDiscovery, singleStrategy],
-    ([simple, selected]) => {
-      if (simple) strategyId.value = selected?.id ?? '';
+    singleStrategy,
+    (selected) => {
+      strategyId.value = selected?.id ?? '';
     },
     { immediate: true, flush: 'sync' },
   );
@@ -201,7 +200,7 @@ export function useRecommendationWorkspace() {
 
   async function generate(strategyId: string): Promise<boolean> {
     if (!strategyId || !session.context.value || generating.value) return false;
-    if (simpleDiscovery.value && strategyId !== singleStrategy.value?.id) return false;
+    if (strategyId !== singleStrategy.value?.id) return false;
     const requestIdentity = identity.value;
     generating.value = true;
     generationError.value = '';
@@ -216,9 +215,7 @@ export function useRecommendationWorkspace() {
       if (requestIdentity === identity.value) {
         generationError.value =
           error instanceof ApiError && error.status === 422
-            ? simpleDiscovery.value
-              ? 'Review your service offering and ICP in Profile before generating recommendations.'
-              : 'Review the selected strategy, offerings, and ICPs before generating recommendations.'
+            ? 'Review your service and ICP in Profile before generating recommendations.'
             : error instanceof ApiError && error.status === 429
               ? 'The generation limit was reached. Wait before trying again.'
               : 'Recommendations could not be generated. Try again.';
@@ -231,7 +228,6 @@ export function useRecommendationWorkspace() {
 
   return {
     identity,
-    simpleDiscovery,
     commandDraftFor,
     commandRecoveries,
     strategyId,

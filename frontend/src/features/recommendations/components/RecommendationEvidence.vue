@@ -1,21 +1,12 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import { useSession } from '../../session/composables/useSession';
 import { companyWebsiteUrl } from '../../../shared/lib/externalCompanyUrl';
 import RecommendationAssessment from './RecommendationAssessment.vue';
-import {
-  record,
-  relevanceScore,
-  retainedEvidence,
-  strategyName,
-  text,
-} from '../models/assessmentEvidence';
+import { retainedEvidence, text } from '../models/assessmentEvidence';
 import type { RecommendationView } from '../models/prospecting';
 
 const props = defineProps<{ recommendation: RecommendationView; strategyId?: string }>();
 const headingId = useId();
-const session = useSession();
-const simpleDiscovery = computed(() => session.context.value?.simple_discovery_enabled === true);
 const assessment = computed(() => {
   const current = props.recommendation.assessment;
   if (!current || !props.strategyId) return current;
@@ -26,22 +17,6 @@ const assessment = computed(() => {
     ),
   };
 });
-const scores = computed(() =>
-  (assessment.value?.strategy_assessments ?? []).flatMap((item) => {
-    const score = relevanceScore(item);
-    return score === null
-      ? []
-      : [
-          {
-            id: item.strategy_id,
-            name: simpleDiscovery.value
-              ? text(record(item.offering_snapshot).name) || 'Service offering'
-              : strategyName(item),
-            score,
-          },
-        ];
-  }),
-);
 const signalCount = computed(() => {
   const current = assessment.value;
   if (!current) return 0;
@@ -72,13 +47,6 @@ const signalCount = computed(() => {
               <h2 :id="headingId">{{ recommendation.company.name }}</h2>
               <span class="domain">{{ recommendation.company.domain }}</span>
             </div>
-          </div>
-          <div v-if="scores.length" class="scores" aria-label="Relevance">
-            <p v-for="score in scores" :key="score.id" class="relevance-score">
-              <span v-if="scores.length > 1">{{ score.name }}: </span>
-              <span class="score-label">Relevance: </span><strong>{{ score.score }}</strong
-              >/100
-            </p>
           </div>
         </div>
         <p v-if="recommendation.company.description" class="description">
@@ -198,25 +166,6 @@ dt {
 .domain {
   overflow-wrap: anywhere;
 }
-.scores {
-  flex-shrink: 0;
-  color: var(--color-primary);
-  text-align: right;
-  font-size: 0.8rem;
-}
-.score-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.relevance-score strong {
-  font-size: 0.95rem;
-}
 .description,
 .preview-bottom {
   margin-top: var(--space-2);
@@ -306,11 +255,6 @@ a {
   }
   .expanded {
     padding: 0 var(--space-4) var(--space-4);
-  }
-  .scores {
-    max-width: 40%;
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
 }
 </style>

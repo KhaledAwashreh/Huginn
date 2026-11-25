@@ -191,6 +191,8 @@ def test_management_routes_are_registered():
         ("/api/v1/me/professional-profile", "PATCH"),
         ("/api/v1/me/business", "GET"),
         ("/api/v1/me/business", "PATCH"),
+        ("/api/v1/me/business/setup", "GET"),
+        ("/api/v1/me/business/setup", "PUT"),
         ("/api/v1/me/business/recommendation-preferences", "GET"),
         ("/api/v1/me/business/recommendation-preferences", "PATCH"),
         ("/api/v1/offerings", "GET"),

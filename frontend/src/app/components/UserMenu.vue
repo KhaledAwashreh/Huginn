@@ -2,7 +2,7 @@
 import { computed, ref, useId } from 'vue';
 import { useRouter } from 'vue-router';
 import Menu from 'primevue/menu';
-import { LogOut, ShieldCheck, Target, UserRound, Wrench } from '@lucide/vue';
+import { LogOut, ShieldCheck, UserRound, Wrench } from '@lucide/vue';
 import { ApiError } from '../../api/apiError';
 import { useAccount } from '../../features/configuration/account/composables/useAccount';
 import { useSession } from '../../features/session/composables/useSession';
@@ -31,8 +31,7 @@ const initials = computed(() => {
 });
 
 const items = computed(() => [
-  { label: 'Account', lucide: UserRound, command: () => emit('open', 'account') },
-  { label: 'ICP definition', lucide: Target, command: () => emit('open', 'icp') },
+  { label: 'Profile', lucide: UserRound, command: () => void router.push('/profile') },
   { label: 'Security', lucide: ShieldCheck, command: () => emit('open', 'security') },
   ...(session.isAdministrator.value
     ? [{ label: 'Admin', lucide: Wrench, command: () => emit('open', 'admin') }]
