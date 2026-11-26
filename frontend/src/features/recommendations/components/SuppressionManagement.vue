@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import Button from 'primevue/button';
 import type { components } from '../../../api/generated/schema';
 import ActionFeedback from '../../../shared/ui/ActionFeedback.vue';
@@ -27,6 +27,7 @@ const emit = defineEmits<{
 const commands = useRecommendationCommands(computed(() => props.identity));
 const notice = ref('');
 const heading = ref<HTMLHeadingElement | null>(null);
+const restoreFocusFrom = shallowRef<HTMLElement | null>(null);
 const lastBlock = ref<components['schemas']['SuppressionBlockResponse'] | null>(null);
 
 watch(
@@ -34,8 +35,19 @@ watch(
   () => {
     notice.value = '';
     lastBlock.value = null;
+    restoreFocusFrom.value = null;
   },
   { flush: 'sync' },
+);
+
+watch(
+  [() => props.page, restoreFocusFrom],
+  ([, trigger]) => {
+    if (!trigger || trigger.isConnected) return;
+    restoreFocusFrom.value = null;
+    if (document.activeElement === document.body) heading.value?.focus();
+  },
+  { flush: 'post' },
 );
 
 function date(value: string | null): string {
@@ -52,7 +64,9 @@ function showResult(block: components['schemas']['SuppressionBlockResponse']) {
 async function clear(block: components['schemas']['SuppressionBlockResponse'], event: MouseEvent) {
   if (commands.pending.value) return;
   const trigger = event.currentTarget;
-  const hadFocus = document.activeElement === trigger;
+  const focusedTrigger =
+    trigger instanceof HTMLElement && document.activeElement === trigger ? trigger : null;
+  restoreFocusFrom.value = null;
   const identity = props.identity;
   lastBlock.value = block;
   notice.value = '';
@@ -64,15 +78,7 @@ async function clear(block: components['schemas']['SuppressionBlockResponse'], e
   );
   if (!result || props.identity !== identity) return;
   showResult(block);
-  await nextTick();
-  if (
-    props.identity === identity &&
-    hadFocus &&
-    trigger instanceof HTMLElement &&
-    !trigger.isConnected &&
-    document.activeElement === document.body
-  )
-    heading.value?.focus();
+  restoreFocusFrom.value = focusedTrigger;
 }
 async function refreshCurrent(): Promise<void> {
   await commands.refresh();

@@ -59,8 +59,9 @@ const page: SuppressionPage = {
     },
   ],
 };
-function setup() {
+function setup(attachTo?: HTMLElement) {
   return mount(SuppressionManagement, {
+    ...(attachTo ? { attachTo } : {}),
     props: {
       identity: 'account-1:user-1:csrf',
       page,
@@ -122,8 +123,8 @@ it('passes server search and pagination actions to the owning workspace', async 
   expect(wrapper.emitted('next')).toHaveLength(1);
 });
 
-it('shows the mute removal result even after refresh removes the row', async () => {
-  const wrapper = setup();
+it('keeps the receipt and restores focus when a later refresh removes the focused action', async () => {
+  const wrapper = setup(document.body);
   const [item] = page.items;
   const block = item?.active_blocks[0];
   if (!item || !block) throw new Error('Expected a suppression fixture');
@@ -136,7 +137,10 @@ it('shows the mute removal result even after refresh removes the row', async () 
   let resolve!: (result: object) => void;
   mocks.cancel.mockImplementationOnce(() => new Promise<object>((done) => (resolve = done)));
 
-  await buttonWithText(wrapper, 'Remove mute').trigger('click');
+  const remove = buttonWithText(wrapper, 'Remove mute');
+  remove.element.focus();
+  expect(document.activeElement).toBe(remove.element);
+  await remove.trigger('click');
   expect(buttonWithText(wrapper, 'Removing mute…').attributes('disabled')).toBeDefined();
   expect(wrapper.text()).not.toContain('Mute removed.');
 
@@ -144,9 +148,11 @@ it('shows the mute removal result even after refresh removes the row', async () 
   await flushPromises();
   await wrapper.setProps({ page: { ...page, items: [] } });
   expect(wrapper.get('[role="status"]').text()).toBe('Mute removed.');
+  expect(document.activeElement).toBe(wrapper.get('h2').element);
   expect(wrapper.text()).toContain('No matching active suppression decisions.');
   expect(mocks.cancel).toHaveBeenCalledTimes(1);
 
   await wrapper.setProps({ identity: 'another-account' });
   expect(wrapper.text()).not.toContain('Mute removed.');
+  wrapper.unmount();
 });
