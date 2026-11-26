@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 
 test('the simplified profile completes a partial setup and activates discovery without a separate pairing step', async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-simple');
+  await page
+    .getByLabel('Username')
+    .fill(testInfo.retry ? 'browser-simple-retry' : 'browser-simple');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
