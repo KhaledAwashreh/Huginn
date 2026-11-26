@@ -6,6 +6,7 @@ const apiPort = Number(process.env.HUGINN_BROWSER_API_PORT ?? '8000');
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const browserPort = Number(process.env.HUGINN_BROWSER_PORT ?? '4173');
 const browserUrl = `http://127.0.0.1:${browserPort}`;
+const browserBuild = '../.local-runtime/browser-frontend';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -37,7 +38,8 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `npm run dev -- --host 127.0.0.1 --port ${browserPort} --strictPort`,
+      env: { VITE_HUGINN_PROSPECTS_ENABLED: simpleMode ? 'false' : 'true' },
+      command: `npm exec -- vite build --outDir ${browserBuild} --emptyOutDir && npm exec -- vite preview --outDir ${browserBuild} --host 127.0.0.1 --port ${browserPort} --strictPort`,
       url: browserUrl,
       reuseExistingServer: false,
       timeout: 30_000,

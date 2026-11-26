@@ -4,6 +4,7 @@ RUN npm install --global npm@12.2.0
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+ARG VITE_HUGINN_PROSPECTS_ENABLED=false
 RUN npm run build
 
 FROM python:3.14-slim-bookworm AS python-build

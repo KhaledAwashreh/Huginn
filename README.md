@@ -22,6 +22,10 @@ This starts a separate persistent database plus the app and workers. See the
 [Compose guide](docs/docker-compose.md) for configuration, admin access, backups,
 existing-data import and weekly scheduling.
 
+Prospects are hidden by default. To restore the page and the recommendation save
+action, set `VITE_HUGINN_PROSPECTS_ENABLED=true` when building the frontend. For
+a local Compose build, put it in `.env` and rebuild the image.
+
 ## Setup
 
 Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).

@@ -274,3 +274,10 @@ it('saves the exact shown revision and emits the prospect transition result', as
     message: expect.stringContaining('Saved as a prospect'),
   });
 });
+
+it('hides prospect saving while keeping the relevance decision available when prospects are disabled', () => {
+  vi.stubEnv('VITE_HUGINN_PROSPECTS_ENABLED', 'false');
+  const wrapper = setup();
+  expect(wrapper.text()).not.toContain('Save as prospect');
+  expect(buttonWithText(wrapper, 'Not relevant').exists()).toBe(true);
+});

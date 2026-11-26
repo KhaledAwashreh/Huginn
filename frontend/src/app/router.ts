@@ -3,6 +3,7 @@ import { matchmakingRoutes } from '../features/matchmaking/routes';
 import { pipelineRoutes } from '../features/pipeline/routes';
 import { accountLifecycleRoutes } from '../features/account-lifecycle/routes';
 import { recommendationRoutes } from '../features/recommendations/routes';
+import { prospectsEnabled } from '../shared/availability/prospectsEnabled';
 import { prospectRoutes } from '../features/prospects/routes';
 import { profileRoutes } from '../features/profile/routes';
 import { createRouter, createWebHistory } from 'vue-router';
@@ -22,7 +23,9 @@ export const router = createRouter({
     ...accountLifecycleRoutes,
     { path: '/matches', redirect: workspaceLandingPath },
     ...recommendationRoutes,
-    ...prospectRoutes,
+    ...(prospectsEnabled()
+      ? prospectRoutes
+      : [{ path: '/prospects', redirect: { path: workspaceLandingPath, query: {}, hash: '' } }]),
     ...profileRoutes,
     ...configurationRoutes,
     {

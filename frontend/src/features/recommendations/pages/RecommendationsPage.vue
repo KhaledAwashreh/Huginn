@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { prospectsEnabled } from '@/shared/availability/prospectsEnabled';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
@@ -17,6 +18,7 @@ import RecommendationPresentation from '../components/RecommendationPresentation
 import type { components } from '../../../api/generated/schema';
 type RecommendationResponse = components['schemas']['RecommendationResponse'];
 
+const showProspects = prospectsEnabled();
 const workspace = useRecommendationWorkspace();
 const route = useRoute();
 const emailLink = computed(() => {
@@ -60,7 +62,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
 const notice = ref('');
 const statuses = [
   { label: 'Open recommendations', value: 'open' },
-  { label: 'Converted to prospects', value: 'converted' },
+  ...(showProspects ? [{ label: 'Converted to prospects', value: 'converted' }] : []),
   { label: 'Not relevant', value: 'rejected' },
   { label: 'All recommendations', value: 'all' },
 ];
@@ -84,7 +86,9 @@ function statusLabel(item: RecommendationResponse): string {
   return item.status === 'open'
     ? 'Open'
     : item.status === 'converted'
-      ? 'Saved as prospect'
+      ? showProspects
+        ? 'Saved as prospect'
+        : 'Saved'
       : 'Not relevant';
 }
 </script>
@@ -95,10 +99,6 @@ function statusLabel(item: RecommendationResponse): string {
       title="Recommendations"
       description="Find companies worth a closer look. Open a card for company info and signals."
     />
-    <p class="guidance">
-      A fit assessment does not establish buying intent. Confirm the company’s needs and buying role
-      before outreach. Huginn does not contact companies for you.
-    </p>
 
     <LinkedRecommendation
       v-if="emailLink"
@@ -287,7 +287,7 @@ function statusLabel(item: RecommendationResponse): string {
                   :recommendation="item"
                   :strategy-id="workspace.strategyId.value"
                 />
-                <p v-if="item.prospect" class="saved-link">
+                <p v-if="showProspects && item.prospect" class="saved-link">
                   <RouterLink :to="{ path: '/prospects', query: { prospect_id: item.prospect.id } }"
                     >View prospect</RouterLink
                   >
@@ -405,7 +405,6 @@ function statusLabel(item: RecommendationResponse): string {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-4);
 }
-.guidance,
 .search-help,
 .resolved-note {
   margin: 0;

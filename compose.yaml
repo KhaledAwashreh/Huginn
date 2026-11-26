@@ -20,7 +20,10 @@ x-app-environment: &app-environment
 
 x-app: &app
   image: ${HUGINN_IMAGE:-huginn-app:local}
-  build: .
+  build:
+    context: .
+    args:
+      VITE_HUGINN_PROSPECTS_ENABLED: ${VITE_HUGINN_PROSPECTS_ENABLED:-false}
   environment: *app-environment
   init: true
   restart: unless-stopped

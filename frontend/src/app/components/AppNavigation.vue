@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { prospectsEnabled } from '@/shared/availability/prospectsEnabled';
 import { RouterLink, useRoute } from 'vue-router';
 import MegaMenu from 'primevue/megamenu';
 import { Bird } from '@lucide/vue';
@@ -6,12 +7,13 @@ import UserMenu from './UserMenu.vue';
 import type { SettingsSection } from '../../shared/navigation/settingsSections';
 import { workspaceLandingPath } from '../../shared/navigation/workspaceLanding';
 
+const showProspects = prospectsEnabled();
 defineEmits<{ openSettings: [section: SettingsSection] }>();
 const route = useRoute();
 
 const items = [
   { label: 'Recommendations', to: workspaceLandingPath, activePaths: ['/recommendations'] },
-  { label: 'Prospects', to: '/prospects', activePaths: ['/prospects'] },
+  ...(showProspects ? [{ label: 'Prospects', to: '/prospects', activePaths: ['/prospects'] }] : []),
   {
     label: 'Profile',
     to: '/profile',

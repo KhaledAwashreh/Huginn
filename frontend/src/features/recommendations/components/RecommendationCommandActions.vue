@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { prospectsEnabled } from '@/shared/availability/prospectsEnabled';
 import { computed, reactive, watch, useId } from 'vue';
 import Button from 'primevue/button';
 import Textarea from 'primevue/textarea';
@@ -15,6 +16,7 @@ import type { RecommendationView } from '../models/prospecting';
 import type { RecommendationPreferences } from '../models/prospecting';
 
 type Completion = { kind: 'saved' | 'not_relevant' | 'later'; message: string };
+const showProspects = prospectsEnabled();
 const props = defineProps<{
   recommendation: RecommendationView;
   preferences: RecommendationPreferences | null;
@@ -198,6 +200,7 @@ async function refresh(): Promise<void> {
     </p>
     <div class="primary-actions">
       <Button
+        v-if="showProspects"
         label="Save as prospect"
         :disabled="!recommendation.assessment || commands.pending.value || disabledByRecovery"
         @click="save"
