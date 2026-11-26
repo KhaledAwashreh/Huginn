@@ -139,6 +139,30 @@ it('keeps ICP edits local and saves the entire profile in one request', async ()
   expect(wrapper.text()).toContain('Profile saved');
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['prospecting', 'account-1:user-1:csrf'] });
 });
+it('shows a pending button and confirms the profile update beside it after the save settles', async () => {
+  const { wrapper } = setup();
+  await flushPromises();
+  let finish!: (response: typeof saved) => void;
+  state.request.mockImplementationOnce(
+    () => new Promise<typeof saved>((resolve) => (finish = resolve)),
+  );
+  await wrapper.get('#business-name').setValue('Updated studio');
+  await wrapper.get('form.profile-form').trigger('submit');
+  await flushPromises();
+  const footer = wrapper.get('.profile-footer');
+  expect(footer.get('button[type="submit"]').text()).toBe('Saving…');
+  expect(footer.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+  expect(footer.text()).not.toContain('Profile saved');
+
+  finish({ ...saved, business: { ...saved.business, name: 'Updated studio' } });
+  await flushPromises();
+  expect(footer.get('[role="status"]').text()).toBe('Profile saved.');
+  expect(footer.get('button[type="submit"]').text()).toBe('Save profile');
+
+  await wrapper.get('#business-name').setValue('Another draft');
+  expect(footer.text()).not.toContain('Profile saved');
+});
+
 it('discards cancelled ICP dialog edits while retaining the profile draft', async () => {
   const { wrapper } = setup();
   await flushPromises();
