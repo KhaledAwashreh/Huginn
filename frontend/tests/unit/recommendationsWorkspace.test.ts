@@ -137,6 +137,12 @@ it('searches and filters on the server and resets pagination on each query chang
 });
 
 it('posts a generation request then refreshes the canonical list without inserting returned references', async () => {
+  mocks.strategies.mockResolvedValue({
+    items: [{ id: 'strategy-1', service_offering_id: 'offering', ideal_client_profile_id: 'icp' }],
+    has_more: false,
+    offset: 0,
+    limit: 100,
+  });
   const { workspace, client } = setup();
   await flushPromises();
   const generated = {
@@ -258,12 +264,12 @@ it('does not read suppressions until the user opens their manager', async () => 
   );
 });
 
-it('automatically filters by the only active configuration in simple mode', async () => {
+it('automatically filters by the only active configuration without the legacy flag', async () => {
   mocks.session.value = {
     account_id: 'account-1',
     user_id: 'user-1',
     csrf_token: 'csrf-1',
-    simple_discovery_enabled: true,
+    simple_discovery_enabled: false,
   };
   mocks.strategies.mockResolvedValue({
     items: [
@@ -381,7 +387,11 @@ it('drops the previous simple selection when identity changes and ignores its la
   );
 });
 
-it('blocks a previously selected simple configuration after its refresh fails', async () => {
+it('retains the selected pairing and cached list after a failed refresh while blocking generation', async () => {
+  mocks.list.mockImplementation(async ({ offset }: { offset: number }) => ({
+    ...emptyPage(offset),
+    items: [{ id: 'cached-recommendation' }],
+  }));
   mocks.session.value = {
     account_id: 'a',
     user_id: 'u',
@@ -397,10 +407,75 @@ it('blocks a previously selected simple configuration after its refresh fails', 
   const { workspace } = setup();
   await flushPromises();
   expect(workspace.strategyId.value).toBe('only');
+  workspace.setOffset(50);
+  await flushPromises();
+  const savedPage = workspace.recommendations.data.value;
+  const savedKey = workspace.recommendationsKey.value;
   mocks.strategies.mockRejectedValueOnce(new Error('Unavailable'));
   await workspace.strategies.refetch();
   await flushPromises();
+  expect(workspace.strategyId.value).toBe('only');
+  expect(workspace.offset.value).toBe(50);
+  expect(workspace.recommendationsKey.value).toEqual(savedKey);
+  expect(workspace.recommendations.data.value).toEqual(savedPage);
+  expect(await workspace.generate('only')).toBe(false);
+  expect(mocks.generate).not.toHaveBeenCalled();
+  mocks.strategies.mockResolvedValueOnce({
+    items: [{ id: 'only', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+    offset: 0,
+    limit: 100,
+    has_more: false,
+  });
+  await workspace.strategies.refetch();
+  await flushPromises();
+  mocks.generate.mockResolvedValue({ references: [] });
+  expect(await workspace.generate('only')).toBe(true);
+  expect(mocks.generate).toHaveBeenCalledExactlyOnceWith('only', 10);
+});
+
+it.each([{ items: [] }, { items: [{ id: 'first' }, { id: 'second' }] }])(
+  'clears a retained pairing after a successful refresh finds no unique setup: %j',
+  async ({ items }) => {
+    mocks.strategies.mockResolvedValueOnce({
+      items: [{ id: 'only', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+      offset: 0,
+      limit: 100,
+      has_more: false,
+    });
+    const { workspace } = setup();
+    await flushPromises();
+    mocks.strategies.mockRejectedValueOnce(new Error('Unavailable'));
+    await workspace.strategies.refetch();
+    await flushPromises();
+    expect(workspace.strategyId.value).toBe('only');
+    mocks.strategies.mockResolvedValueOnce({ items, offset: 0, limit: 100, has_more: false });
+    await workspace.strategies.refetch();
+    await flushPromises();
+    expect(workspace.strategyId.value).toBe('');
+    expect(workspace.recommendations.data.value).toBeUndefined();
+    expect(workspace.configurationConflict.value).toBe(items.length > 1);
+    expect(await workspace.generate('only')).toBe(false);
+    expect(mocks.generate).not.toHaveBeenCalled();
+  },
+);
+
+it('clears a retained pairing on identity change after a refresh error', async () => {
+  mocks.strategies.mockResolvedValueOnce({
+    items: [{ id: 'private', service_offering_id: 'o', ideal_client_profile_id: 'i' }],
+    offset: 0,
+    limit: 100,
+    has_more: false,
+  });
+  const { workspace } = setup();
+  await flushPromises();
+  mocks.strategies.mockRejectedValueOnce(new Error('Unavailable'));
+  await workspace.strategies.refetch();
+  await flushPromises();
+  expect(workspace.strategyId.value).toBe('private');
+  mocks.strategies.mockRejectedValueOnce(new Error('New identity unavailable'));
+  mocks.session.value = { account_id: 'new', user_id: 'new', csrf_token: 'new' };
+  await flushPromises();
   expect(workspace.strategyId.value).toBe('');
   expect(workspace.recommendations.data.value).toBeUndefined();
-  expect(await workspace.generate('only')).toBe(false);
+  expect(await workspace.generate('private')).toBe(false);
 });

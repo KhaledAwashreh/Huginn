@@ -10,8 +10,7 @@ import { useSession } from '../../features/session/composables/useSession';
 
 provide(pageTitleKey, ref<PageTitle | null>(null));
 const settingsVisible = ref(false);
-const settingsSection = ref<SettingsSection>('account');
-const selectedIcpId = ref<string>();
+const settingsSection = ref<SettingsSection>('security');
 const settingsDialog = ref<InstanceType<typeof SettingsDialog> | null>(null);
 const session = useSession();
 const router = useRouter();
@@ -23,8 +22,7 @@ const removeGuard = router.beforeEach((to) => {
 });
 onScopeDispose(removeGuard);
 
-function openSettings(section: SettingsSection, icpId?: string): void {
-  selectedIcpId.value = icpId;
+function openSettings(section: SettingsSection): void {
   settingsSection.value = section;
   settingsVisible.value = true;
 }
@@ -44,7 +42,6 @@ provide(openSettingsKey, openSettings);
     ref="settingsDialog"
     v-model:visible="settingsVisible"
     v-model:section="settingsSection"
-    :selected-icp-id="selectedIcpId"
   />
 </template>
 

@@ -20,20 +20,28 @@ deployment's secret store. The application does not create provider accounts,
 credentials, subscriptions, or a scheduler. Provider pricing and sending
 quotas vary; check the selected provider's current terms directly.
 
-`HUGINN_SIMPLE_DISCOVERY_ENABLED` defaults to `false`. Set it to `true` in
-both the API and weekly command environments to enable the temporary single
-configuration workflow. Compose shares this setting between both processes.
-Only `true` and `false` are accepted. The session bootstrap exposes the API's
-setting to the browser; no frontend build setting is needed.
+Profile now saves the required business name, personal name, contact email,
+service description and ICP together. The save reuses or creates the internal
+strategy pairing and activates it in the same transaction. Users do not select,
+create or activate strategies separately. Editing the profile preserves the
+same offering, ICP and pairing IDs and previously captured assessment history.
+Recommendations automatically use the one active pairing. Legacy offering,
+strategy, account and professional-profile page links lead to Profile.
 
-In simple mode, choose an offering and ICP in Profile. Saving reuses or creates
-their strategy pairing and deactivates other active strategies atomically.
-Existing offerings, ICPs, strategy IDs and assessment history remain available.
-Missing or multiple active configurations block on-demand generation and skip
-weekly delivery before reserving the week. Publication rechecks this condition
-before authorizing an email. Set the flag back to `false` in both environments
-to restore the full configuration controls. Existing active/inactive choices
-are preserved when the flag changes.
+The Recommendations list intentionally shows only the current active pairing,
+including when its status filter includes resolved recommendations. It is not
+a combined history of previous pairings. Earlier assessments remain available
+through their exact email links and saved prospect origins. Multiple active
+pairings require operator support: Profile rejects ambiguous configuration
+rather than choosing or deleting a legacy record for the owner.
+
+`HUGINN_SIMPLE_DISCOVERY_ENABLED` defaults to `false`. Setting it to `true` in
+both the API and weekly command environments also enforces one active
+configuration at generation and final email authorization. Compose shares this
+setting between both processes; only `true` and `false` are accepted. Missing or
+multiple active configurations then block generation and skip weekly delivery
+before reserving the week. The simplified browser UI applies with either flag
+value; changing this flag does not restore the old configuration controls.
 
 Weekly subscription is an explicit Business-owned preference. For this pilot,
 an operator opts in or out one user at a time with the CLI. Eligibility is

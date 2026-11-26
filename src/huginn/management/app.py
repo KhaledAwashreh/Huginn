@@ -22,6 +22,7 @@ from huginn.management.application.services.business_profile import (
 from huginn.management.application.services.business_recommendation_preferences import (
     BusinessRecommendationPreferencesService,
 )
+from huginn.management.application.services.business_setup import BusinessSetupService
 from huginn.management.application.services.current_session_service import (
     CurrentSessionService,
 )
@@ -274,6 +275,7 @@ class ManagementDependencies:
     prospecting_read_service: Any = None
     digest_subscriptions_service: Any = None
     recover_weekly_digest_service: Any = None
+    business_setup_service: Any = None
     business_recommendation_preferences_service: Any = None
     pipeline_services: Any = None
     matchmaking_services: Any = None
@@ -345,6 +347,7 @@ def create_app(
     recover_weekly_digest_service: Any | None = None,
     business_recommendation_preferences_service: Any | None = None,
     business_profile_service: Any | None = None,
+    business_setup_service: Any | None = None,
     current_session_service: Any | None = None,
     clock: Callable[[], datetime] | None = None,
     pipeline_services: Any | None = None,
@@ -630,6 +633,26 @@ def create_app(
                 make_uow,
                 businesses_factory=lambda uow: PostgresBusinessRepository(
                     uow.connection
+                ),
+            )
+        ),
+        business_setup_service=(
+            business_setup_service
+            if business_setup_service is not None
+            else BusinessSetupService(
+                make_uow,
+                businesses_factory=lambda uow: PostgresBusinessRepository(
+                    uow.connection
+                ),
+                users_factory=lambda uow: PostgresUserRepository(uow.connection),
+                offerings_factory=lambda uow: PostgresServiceOfferingRepository(
+                    uow.connection
+                ),
+                profiles_factory=lambda uow: PostgresIdealClientProfileRepository(
+                    uow.connection
+                ),
+                strategies_factory=lambda uow: (
+                    PostgresClientDiscoveryStrategyRepository(uow.connection)
                 ),
             )
         ),

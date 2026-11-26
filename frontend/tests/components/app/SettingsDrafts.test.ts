@@ -8,7 +8,7 @@ import App from '@/app/App.vue';
 vi.mock('@/features/session/composables/useSession', () => ({
   useSession: () => ({
     context: ref({ account_id: 'account', user_id: 'user' }),
-    isAdministrator: { value: false },
+    isAdministrator: { value: true },
     isAuthenticated: { value: true },
   }),
 }));
@@ -53,8 +53,9 @@ async function openSecurity() {
 it('preserves the password draft when the user declines to switch sections or close Settings', async () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   const { wrapper } = await openSecurity();
-  const account = wrapper.findAll('button').find((button) => button.text() === 'Account');
-  if (!account) throw new Error('Expected an Account settings button');
+  const account = wrapper.findAll('button').find((button) => button.text() === 'Admin');
+  expect(wrapper.text()).not.toContain('ICP definition');
+  if (!account) throw new Error('Expected an Admin settings button');
   await account.trigger('click');
   await flushPromises();
   expect((wrapper.get('#current-password').element as HTMLInputElement).value).toBe(

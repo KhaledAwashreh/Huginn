@@ -1,13 +1,7 @@
 import { mount } from '@vue/test-utils';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import type { components } from '../../../src/api/generated/schema';
 import RecommendationAssessment from '../../../src/features/recommendations/components/RecommendationAssessment.vue';
-
-const mode = vi.hoisted(() => ({ context: { value: { simple_discovery_enabled: false } } }));
-vi.mock('../../../src/features/session/composables/useSession', () => ({ useSession: () => mode }));
-beforeEach(() => {
-  mode.context.value.simple_discovery_enabled = false;
-});
 
 const assessment: components['schemas']['AssessmentRevisionResponse'] = {
   id: 'revision-1',
@@ -73,56 +67,48 @@ it('renders the immutable origin assessment and joins source details by observat
   expect(wrapper.text()).not.toContain('Current source evidence differs');
 });
 
-it.each([0, 78, 100])('shows the retained relevance score %s out of 100', (score) => {
-  const wrapper = mount(RecommendationAssessment, {
-    props: {
-      assessment: {
-        ...assessment,
-        strategy_assessments: [{ ...strategy, assessment_snapshot: { score } }],
-      },
-    },
-  });
-  expect(wrapper.text()).toContain(`Relevance: ${score}/100`);
-});
-
-it.each([undefined, null, '78', -1, 101, NaN, Infinity])(
-  'omits absent or invalid relevance score %s',
-  (score) => {
-    const wrapper = mount(RecommendationAssessment, {
-      props: {
-        assessment: {
-          ...assessment,
-          strategy_assessments: [{ ...strategy, assessment_snapshot: { score } }],
-        },
-      },
-    });
-    expect(wrapper.text()).not.toContain('Relevance:');
-  },
-);
-
-it('keeps each strategy name and relevance score together without combining them', () => {
+it.each([0, 78, 100])('hides retained scoring %s while keeping rationale and evidence', (score) => {
   const wrapper = mount(RecommendationAssessment, {
     props: {
       assessment: {
         ...assessment,
         strategy_assessments: [
-          { ...strategy, assessment_snapshot: { score: 78 } },
           {
             ...strategy,
-            strategy_id: 'strategy-2',
-            strategy_snapshot: { name: 'Engineering strategy' },
-            assessment_snapshot: { score: 91 },
+            assessment_snapshot: { ...strategy.assessment_snapshot, score, confidence: 'low' },
           },
         ],
       },
     },
   });
-  const [research, engineering] = wrapper.findAll('.strategy-assessment');
-  if (!research || !engineering) throw new Error('Both strategy assessments must render.');
-  expect(research.text()).toContain('Research strategy');
-  expect(research.text()).toContain('Relevance: 78/100');
-  expect(engineering.text()).toContain('Engineering strategy');
-  expect(engineering.text()).toContain('Relevance: 91/100');
+  expect(wrapper.text()).not.toMatch(/Relevance|Confidence|\d+\/100/);
+  expect(wrapper.text()).toContain('Current hiring suggests a research workflow review.');
+  expect(wrapper.text()).toContain('We are adding two analysts.');
+});
+
+it('keeps multiple offering assessments readable without exposing strategy names or scores', () => {
+  const wrapper = mount(RecommendationAssessment, {
+    props: {
+      assessment: {
+        ...assessment,
+        strategy_assessments: [
+          { ...strategy, assessment_snapshot: { ...strategy.assessment_snapshot, score: 78 } },
+          {
+            ...strategy,
+            strategy_id: 'strategy-2',
+            strategy_snapshot: { name: 'Engineering strategy' },
+            offering_snapshot: { name: 'Engineering services' },
+            assessment_snapshot: { ...strategy.assessment_snapshot, score: 91 },
+          },
+        ],
+      },
+    },
+  });
+  expect(wrapper.findAll('h4').map((item) => item.text())).toEqual([
+    'Product research',
+    'Engineering services',
+  ]);
+  expect(wrapper.text()).not.toMatch(/Relevance|Confidence|\d+\/100/);
 });
 
 it('shows company signals without rationale boilerplate or raw company metadata in recommendation cards', () => {
@@ -228,8 +214,7 @@ it('shows unavailable evidence and keeps unsafe source URLs unlinked', () => {
   expect(wrapper.text()).toContain('Source link unavailable');
 });
 
-it('keeps legacy assessments readable without exposing strategy names in simple mode', () => {
-  mode.context.value.simple_discovery_enabled = true;
+it('keeps legacy assessments readable without exposing internal strategy names', () => {
   const wrapper = mount(RecommendationAssessment, {
     props: {
       assessment: {

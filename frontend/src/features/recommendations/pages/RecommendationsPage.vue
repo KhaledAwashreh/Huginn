@@ -175,20 +175,6 @@ function statusLabel(item: RecommendationResponse): string {
     <p class="search-help">Search your recommendations by company name or domain.</p>
 
     <section class="generation" aria-label="Generate recommendations">
-      <div v-if="!workspace.simpleDiscovery?.value" class="field">
-        <label for="recommendation-strategy">Discovery strategy</label>
-        <Select
-          input-id="recommendation-strategy"
-          aria-label="Discovery strategy"
-          :model-value="workspace.strategyId.value"
-          :options="workspace.strategies.data.value ?? []"
-          option-label="name"
-          option-value="id"
-          placeholder="Choose a strategy"
-          :disabled="workspace.strategies.isPending.value || workspace.strategies.isError.value"
-          @update:model-value="workspace.strategyId.value = $event ?? ''"
-        />
-      </div>
       <Button
         :label="workspace.generating.value ? 'Generating…' : 'Generate recommendations'"
         :disabled="
@@ -199,31 +185,20 @@ function statusLabel(item: RecommendationResponse): string {
         @click="generate"
       />
       <p v-if="workspace.strategies.isError.value" class="error-inline" role="alert">
-        {{
-          workspace.simpleDiscovery?.value
-            ? 'Discovery setup could not be loaded.'
-            : 'Active strategies could not be loaded.'
-        }}
-        <Button
-          :label="workspace.simpleDiscovery?.value ? 'Retry discovery setup' : 'Retry strategies'"
-          text
-          @click="workspace.strategies.refetch()"
-        />
+        Your recommendation setup could not be loaded.
+        <Button label="Retry profile" text @click="workspace.strategies.refetch()" />
       </p>
       <LoadingState
-        v-else-if="workspace.simpleDiscovery?.value && workspace.strategies.isPending.value"
-        message="Loading discovery setup…"
+        v-else-if="workspace.strategies.isPending.value"
+        message="Loading your profile…"
       />
-      <p
-        v-else-if="workspace.simpleDiscovery?.value && !workspace.strategyId.value"
-        class="search-help"
-      >
-        Choose one service offering and ICP before viewing recommendations.
-        <RouterLink to="/profile">Set up discovery in Profile</RouterLink>.
+      <p v-else-if="workspace.configurationConflict.value" class="error-inline" role="alert">
+        Multiple recommendation setups are active for your business. Contact support to resolve this
+        configuration conflict.
       </p>
-      <p v-else-if="workspace.strategies.data.value?.length === 0" class="search-help">
-        No active strategies are available.
-        <RouterLink to="/strategies">Manage discovery strategies</RouterLink>.
+      <p v-else-if="!workspace.strategyId.value" class="search-help">
+        Add your service and ideal clients to start finding recommendations.
+        <RouterLink to="/profile">Complete your profile</RouterLink>.
       </p>
       <p v-if="workspace.generationError.value" class="error-inline" role="alert">
         {{ workspace.generationError.value }}
@@ -241,14 +216,16 @@ function statusLabel(item: RecommendationResponse): string {
         @click="workspace.preferences.refetch()"
       />
     </ErrorState>
-    <EmptyState
-      v-if="!workspace.strategyId.value"
-      :message="
-        workspace.simpleDiscovery?.value
-          ? 'Complete discovery setup in Profile to view recommendations.'
-          : 'Choose a discovery strategy to view its recommendations.'
-      "
-    />
+    <template v-if="!workspace.strategyId.value">
+      <EmptyState
+        v-if="
+          !workspace.strategies.isPending.value &&
+          !workspace.strategies.isError.value &&
+          !workspace.configurationConflict.value
+        "
+        message="Complete your profile to view recommendations."
+      />
+    </template>
     <LoadingState
       v-else-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"
       message="Loading Business recommendations…"

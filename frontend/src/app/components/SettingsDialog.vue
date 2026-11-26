@@ -3,17 +3,9 @@ import { computed, ref, type Component } from 'vue';
 import { useRouter } from 'vue-router';
 import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
-import { ShieldCheck, Target, UserRound, Wrench, X } from '@lucide/vue';
-import AccountForm from '../../features/configuration/account/components/AccountForm.vue';
-import SingleIcpDefinitionPanel from '../../features/configuration/ideal-client-profiles/components/SingleIcpDefinitionPanel.vue';
-import IcpDefinitionPanel from '../../features/configuration/ideal-client-profiles/components/IcpDefinitionPanel.vue';
+import { ShieldCheck, Wrench, X } from '@lucide/vue';
 import AccountSecurityPanel from '../../features/configuration/account/components/AccountSecurityPanel.vue';
-import { useAccount } from '../../features/configuration/account/composables/useAccount';
-import { useMatchReactions } from '../../features/matches/composables/useMatchReactions';
-import { canonicalFeedbackReason } from '../../features/recommendations/models/canonicalFeedbackReason';
 import { useSession } from '../../features/session/composables/useSession';
-import LoadingState from '../../shared/ui/LoadingState.vue';
-import ErrorState from '../../shared/ui/ErrorState.vue';
 import type { SettingsSection } from '../../shared/navigation/settingsSections';
 
 type SectionOption = {
@@ -25,36 +17,11 @@ type SectionOption = {
 
 const visible = defineModel<boolean>('visible', { required: true });
 const section = defineModel<SettingsSection>('section', { required: true });
-defineProps<{ selectedIcpId?: string | undefined }>();
 const session = useSession();
 const router = useRouter();
-const { account } = useAccount();
-const { allReactions } = useMatchReactions();
-const icpFeedback = computed(() =>
-  allReactions.value.map((reaction) => ({
-    ...reaction,
-    reasonLabel: reaction.reason ? canonicalFeedbackReason(reaction.reason) : null,
-  })),
-);
-const accountForm = ref<InstanceType<typeof AccountForm> | null>(null);
-const icpPanel = ref<
-  InstanceType<typeof IcpDefinitionPanel> | InstanceType<typeof SingleIcpDefinitionPanel> | null
->(null);
 const securityPanel = ref<InstanceType<typeof AccountSecurityPanel> | null>(null);
 
 const sections = computed<SectionOption[]>(() => [
-  {
-    value: 'account',
-    label: 'Account',
-    description: 'Your name and the contact details Huginn uses.',
-    icon: UserRound,
-  },
-  {
-    value: 'icp',
-    label: 'ICP definition',
-    description: 'Who Huginn looks for on your behalf, and what has shaped it.',
-    icon: Target,
-  },
   {
     value: 'security',
     label: 'Security',
@@ -73,7 +40,7 @@ const sections = computed<SectionOption[]>(() => [
     : []),
 ]);
 const current = computed(
-  // Account is always listed; it is the fallback if admin access is removed while open.
+  // Security remains available if admin access is removed while Settings is open.
   () =>
     sections.value.find((option) => option.value === section.value) ??
     (sections.value[0] as SectionOption),
@@ -96,7 +63,7 @@ const adminTools = [
 ];
 
 async function canLeaveSection(): Promise<boolean> {
-  const form = accountForm.value ?? icpPanel.value ?? securityPanel.value;
+  const form = securityPanel.value;
   return form ? await form.canClose() : true;
 }
 
@@ -158,45 +125,7 @@ async function openAdminTool(path: string): Promise<void> {
         </header>
 
         <div class="settings-body">
-          <template v-if="current.value === 'account'">
-            <LoadingState
-              v-if="account.isPending.value && !account.data.value"
-              message="Loading account…"
-            />
-            <ErrorState
-              v-else-if="account.isError.value && !account.data.value"
-              message="Account details could not be loaded. Reload before trying again."
-            />
-            <AccountForm
-              v-else-if="account.data.value"
-              ref="accountForm"
-              :account="account.data.value"
-            />
-          </template>
-          <SingleIcpDefinitionPanel
-            v-else-if="
-              current.value === 'icp' && session.context.value?.simple_discovery_enabled === true
-            "
-            :key="
-              [
-                session.context.value?.account_id,
-                session.context.value?.user_id,
-                session.context.value?.csrf_token,
-              ].join(':')
-            "
-            ref="icpPanel"
-            :clients="[]"
-            :reactions="icpFeedback"
-            @setup="visible = false"
-          />
-          <IcpDefinitionPanel
-            v-else-if="current.value === 'icp'"
-            ref="icpPanel"
-            :selected-icp-id="selectedIcpId"
-            :clients="[]"
-            :reactions="icpFeedback"
-          />
-          <AccountSecurityPanel v-else-if="current.value === 'security'" ref="securityPanel" />
+          <AccountSecurityPanel v-if="current.value === 'security'" ref="securityPanel" />
           <div v-else class="admin-tools">
             <article v-for="tool in adminTools" :key="tool.to" class="admin-tool">
               <h3>{{ tool.title }}</h3>

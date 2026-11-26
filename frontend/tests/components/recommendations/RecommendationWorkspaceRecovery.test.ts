@@ -2,7 +2,6 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { beforeEach, expect, it, vi } from 'vitest';
 import PrimeVue from 'primevue/config';
-import Select from 'primevue/select';
 import { createRouter, createMemoryHistory, RouterView } from 'vue-router';
 import { defineComponent, h } from 'vue';
 import RecommendationsPage from '../../../src/features/recommendations/pages/RecommendationsPage.vue';
@@ -134,7 +133,14 @@ beforeEach(() => {
     updated_at: '2026-11-14T00:00:00Z',
   });
   mocks.strategies.mockResolvedValue({
-    items: [{ id: 'strategy-1', name: 'Research teams' }],
+    items: [
+      {
+        id: 'strategy-1',
+        name: 'Research teams',
+        service_offering_id: 'offering-1',
+        ideal_client_profile_id: 'icp-1',
+      },
+    ],
     has_more: false,
     offset: 0,
     limit: 100,
@@ -181,12 +187,6 @@ it('keeps a pinned exact-target recovery shelf after a committed Save loses its 
       plugins: [PrimeVue, router, [VueQueryPlugin, { queryClient: client }]],
     },
   });
-  await flushPromises();
-  const selectedStrategy = wrapper
-    .findAllComponents({ name: 'Select' })
-    .find((select) => select.props('inputId') === 'recommendation-strategy');
-  if (!selectedStrategy) throw new Error('Discovery strategy selector is unavailable');
-  selectedStrategy.vm.$emit('update:modelValue', 'strategy-1');
   await flushPromises();
   expect(wrapper.text()).toContain('Committed Northstar');
   await wrapper.get('button[aria-label="Save as prospect"]').trigger('click');
@@ -296,7 +296,14 @@ it.each(['fresh', 'newly selected repeat'] as const)(
     mocks.list.mockResolvedValue(page([linkedCurrent, unrelated]));
     mocks.get.mockResolvedValue(linked);
     mocks.strategies.mockResolvedValue({
-      items: [{ id: 'strategy-1', name: 'Research teams' }],
+      items: [
+        {
+          id: 'strategy-1',
+          name: 'Research teams',
+          service_offering_id: 'offering-1',
+          ideal_client_profile_id: 'icp-1',
+        },
+      ],
       has_more: false,
       offset: 0,
       limit: 100,
@@ -362,24 +369,12 @@ it.each(['fresh', 'newly selected repeat'] as const)(
       },
     });
     await flushPromises();
-    const selectedStrategy = wrapper
-      .findAllComponents({ name: 'Select' })
-      .find((select) => select.props('inputId') === 'recommendation-strategy');
-    if (!selectedStrategy) throw new Error('Discovery strategy selector is unavailable');
-    selectedStrategy.vm.$emit('update:modelValue', 'strategy-1');
-    await flushPromises();
     const email = wrapper.get('[aria-label="Recommendation from your email"]');
     expect(
       email.get('[data-assessment-revision-id]').attributes('data-assessment-revision-id'),
     ).toBe('revision-1');
     expect(wrapper.findAll('article.recommendation-card')).toHaveLength(1);
     if (kind === 'newly selected repeat') {
-      const strategy = wrapper
-        .findAllComponents(Select)
-        .find((select) => select.props('inputId') === 'recommendation-strategy');
-      if (!strategy) throw new Error('Generation strategy selector is unavailable');
-      strategy.vm.$emit('update:modelValue', 'strategy-1');
-      await flushPromises();
       const generate = wrapper
         .findAll('button')
         .find((button) => button.text().includes('Generate recommendations'));
