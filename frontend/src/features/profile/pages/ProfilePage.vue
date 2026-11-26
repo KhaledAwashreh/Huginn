@@ -9,6 +9,7 @@ import { Mail } from '@lucide/vue';
 import { ApiError } from '../../../api/apiError';
 import PageHeader from '../../../shared/ui/PageHeader.vue';
 import LoadingState from '../../../shared/ui/LoadingState.vue';
+import ActionFeedback from '../../../shared/ui/ActionFeedback.vue';
 import ErrorState from '../../../shared/ui/ErrorState.vue';
 import { useDirtyDraft } from '../../../shared/forms/useDirtyDraft';
 import IdealClientProfileFields from '../../configuration/ideal-client-profiles/components/IdealClientProfileFields.vue';
@@ -139,7 +140,7 @@ async function submit() {
     });
     if (requestedIdentity !== identity.value) return;
     accept(businessSetupDraft(saved));
-    notice.value = 'Profile saved. Your recommendations will use your service and ICP.';
+    notice.value = 'Profile saved.';
   } catch (failure) {
     if (requestedIdentity !== identity.value) return;
     if (failure instanceof ApiError && failure.status < 500) {
@@ -331,16 +332,19 @@ function fieldError(field: string) {
         </div>
       </section>
       <div class="profile-footer">
-        <p>{{ dirty ? 'You have unsaved changes.' : 'Your saved profile is up to date.' }}</p>
+        <div class="profile-save-state">
+          <p v-if="!notice && !error && !pending">
+            {{ dirty ? 'You have unsaved changes.' : 'Your saved profile is up to date.' }}
+          </p>
+          <ActionFeedback :success="notice" :error="error" />
+        </div>
         <Button
           type="submit"
-          label="Save profile"
+          :label="pending ? 'Saving…' : 'Save profile'"
           :loading="pending"
           :disabled="pending || !dirty"
         />
       </div>
-      <p v-if="error" class="save-message field-error" role="alert">{{ error }}</p>
-      <p v-if="notice" class="save-message" role="status">{{ notice }}</p>
     </form>
     <Dialog
       :visible="icpDraft !== null"
@@ -498,8 +502,11 @@ small {
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
-.save-message {
-  padding: 0 var(--space-6) var(--space-5);
+.profile-save-state {
+  min-width: 0;
+}
+.profile-footer :deep(button[type='submit']) {
+  flex-shrink: 0;
 }
 .field-error {
   color: var(--color-danger-text);
@@ -534,9 +541,6 @@ small {
     padding: var(--space-5);
     align-items: flex-start;
     flex-direction: column;
-  }
-  .save-message {
-    padding-inline: var(--space-5);
   }
 }
 </style>
