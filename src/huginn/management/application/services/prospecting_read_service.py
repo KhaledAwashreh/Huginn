@@ -4,7 +4,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID
 
-from huginn.management.application.protocols.prospecting_query import ProspectingQuery
+from huginn.management.application.protocols.prospecting_query import (
+    ProspectingQuery,
+    RecommendationListStatus,
+)
 from huginn.management.application.read_models.manageable_suppression_view import (
     ManageableSuppressionView,
 )
@@ -49,7 +52,7 @@ class ProspectingReadService:
         principal: Principal,
         request: ListProspectingRequest,
         *,
-        status: RecommendationStatus | None = _OPEN,
+        status: RecommendationListStatus = _OPEN,
         strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]:
         with self._work() as work:

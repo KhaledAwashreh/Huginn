@@ -1,7 +1,7 @@
 """Business-owned prospecting query boundary; ADR-0019."""
 
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from huginn.management.application.read_models.manageable_suppression_view import (
@@ -20,13 +20,15 @@ from huginn.management.domain.value_objects.recommendation_status import (
     RecommendationStatus,
 )
 
+type RecommendationListStatus = RecommendationStatus | Literal["dismissed"] | None
+
 
 class ProspectingQuery(Protocol):
     def list_recommendations(
         self,
         business_id: UUID,
         request: ListProspectingRequest,
-        status: RecommendationStatus | None,
+        status: RecommendationListStatus,
         at: datetime,
         strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]: ...
