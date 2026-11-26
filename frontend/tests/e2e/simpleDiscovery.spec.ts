@@ -8,6 +8,9 @@ test('the simplified profile completes a partial setup and activates discovery w
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Prospects', exact: true })).toHaveCount(0);
+  await page.goto('/prospects?prospect_id=previous');
+  await expect(page).toHaveURL(/\/recommendations$/);
   const session = await (await page.request.get('/api/v1/sessions/current')).json();
   expect(session.simple_discovery_enabled).toBe(true);
   const icpResponse = await page.request.post('/api/v1/ideal-client-profiles', {

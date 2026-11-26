@@ -14,6 +14,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/unit/**/*.test.ts', 'tests/components/**/*.test.ts'],
+    env: { VITE_HUGINN_PROSPECTS_ENABLED: 'true' },
+    unstubEnvs: true,
     restoreMocks: true,
     clearMocks: true,
   },

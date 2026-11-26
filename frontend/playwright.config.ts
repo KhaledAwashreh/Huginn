@@ -37,6 +37,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
+      env: { VITE_HUGINN_PROSPECTS_ENABLED: simpleMode ? 'false' : 'true' },
       command: `npm run dev -- --host 127.0.0.1 --port ${browserPort} --strictPort`,
       url: browserUrl,
       reuseExistingServer: false,
