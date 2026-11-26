@@ -99,10 +99,6 @@ function statusLabel(item: RecommendationResponse): string {
       title="Recommendations"
       description="Find companies worth a closer look. Open a card for company info and signals."
     />
-    <p class="guidance">
-      A fit assessment does not establish buying intent. Confirm the company’s needs and buying role
-      before outreach. Huginn does not contact companies for you.
-    </p>
 
     <LinkedRecommendation
       v-if="emailLink"
@@ -409,7 +405,6 @@ function statusLabel(item: RecommendationResponse): string {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-4);
 }
-.guidance,
 .search-help,
 .resolved-note {
   margin: 0;
