@@ -92,7 +92,7 @@ class BusinessSetupService:
         with self._uow_factory() as uow:
             businesses = self._businesses(uow)
             business_id = business_id_for_principal(principal, businesses)
-            business = businesses.get_by_id(business_id)
+            business = businesses.get_by_id_for_share(business_id)
             if business is None:
                 raise NotFoundError("Business not found")
             return self._read(uow, principal, business)

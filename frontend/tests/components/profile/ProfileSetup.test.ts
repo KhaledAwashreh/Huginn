@@ -1,9 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import PrimeVue from 'primevue/config';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { ApiError } from '@/api/apiError';
+import IndustryRows from '@/features/configuration/ideal-client-profiles/components/IndustryRows.vue';
+import CompanySizeRows from '@/features/configuration/ideal-client-profiles/components/CompanySizeRows.vue';
+import GeographyRows from '@/features/configuration/ideal-client-profiles/components/GeographyRows.vue';
+import ExclusionRows from '@/features/configuration/ideal-client-profiles/components/ExclusionRows.vue';
 import ProfilePage from '@/features/profile/pages/ProfilePage.vue';
 
 const state = vi.hoisted(() => ({
@@ -67,6 +71,17 @@ beforeEach(() => {
       return options?.method === 'PUT'
         ? {
             ...saved,
+            business: { ...saved.business, name: options.body.business_name },
+            user: {
+              ...saved.user,
+              email: options.body.email,
+              first_name: options.body.your_name.split(' ')[0],
+              last_name: options.body.your_name.split(' ').slice(1).join(' '),
+            },
+            ideal_client_profile: {
+              ...saved.ideal_client_profile,
+              ...options.body.ideal_client_profile,
+            },
             service_offering: {
               ...saved.service_offering,
               description: options.body.service_description,
@@ -117,6 +132,10 @@ it('keeps ICP edits local and saves the entire profile in one request', async ()
       },
     },
   });
+  expect(state.request.mock.calls.filter(([, options]) => options?.method === 'PUT')).toHaveLength(
+    1,
+  );
+  expect(wrapper.text()).toContain('Seed-stage engineering teams');
   expect(wrapper.text()).toContain('Profile saved');
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['prospecting', 'account-1:user-1:csrf'] });
 });
@@ -174,4 +193,165 @@ it('opens the ICP draft with nested server validation errors and retains other e
     'value',
     'Retain my business change',
   );
+});
+
+it.each([
+  { section: 'industries', component: IndustryRows, row: { name: 'Software' } },
+  { section: 'company_sizes', component: CompanySizeRows, row: { band: '11-100' } },
+  { section: 'geographies', component: GeographyRows, row: { kind: 'country', value: 'GB' } },
+  {
+    section: 'exclusions',
+    component: ExclusionRows,
+    row: { kind: 'geography', geography: { kind: 'country', value: 'DE' } },
+  },
+])(
+  'applies, saves and reopens reactive $section selections without losing their values',
+  async ({ section, component, row }) => {
+    const { wrapper } = setup();
+    await flushPromises();
+    await wrapper.get('button[aria-label="Edit ICP"]').trigger('click');
+    wrapper.getComponent(component).vm.$emit('update:modelValue', [reactive(row)]);
+    await wrapper.get('form.icp-form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.find('form.icp-form').exists()).toBe(false);
+    await wrapper.get('form.profile-form').trigger('submit');
+    await flushPromises();
+    const puts = state.request.mock.calls.filter(([, options]) => options?.method === 'PUT');
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.[1].body.ideal_client_profile[section]).toEqual([row]);
+    expect(wrapper.text()).toContain('Profile saved');
+    await wrapper.get('button[aria-label="Edit ICP"]').trigger('click');
+    expect(wrapper.getComponent(component).props('modelValue')).toEqual([row]);
+  },
+);
+
+it('warns before refreshing when only the unapplied ICP dialog has changes', async () => {
+  const { wrapper } = setup();
+  await flushPromises();
+  await wrapper.get('button[aria-label="Edit ICP"]').trigger('click');
+  await wrapper.get('#icp-name').setValue('Not applied yet');
+  const refresh = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(refresh);
+  expect(refresh.defaultPrevented).toBe(true);
+  await wrapper.get('button[aria-label="Cancel ICP changes"]').trigger('click');
+  const cleanRefresh = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(cleanRefresh);
+  expect(cleanRefresh.defaultPrevented).toBe(false);
+});
+
+it('retains the editable draft after a background refresh fails and offers retry', async () => {
+  const { wrapper, client } = setup();
+  await flushPromises();
+  await wrapper.get('#business-name').setValue('My retained draft');
+  state.request.mockRejectedValueOnce(new Error('temporary GET failure'));
+  await client.refetchQueries({ queryKey: ['business-setup', 'account-1:user-1:csrf'] });
+  await flushPromises();
+  expect(wrapper.find('#business-name').exists()).toBe(true);
+  expect(wrapper.get('#business-name').element).toHaveProperty('value', 'My retained draft');
+  expect(wrapper.find('button[aria-label="Retry profile"]').exists()).toBe(true);
+});
+
+it('keeps the confirmed PUT result when an older profile GET finishes later', async () => {
+  const { wrapper, client } = setup();
+  await flushPromises();
+  let finishGet!: (value: unknown) => void;
+  state.request.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishGet = resolve;
+      }),
+  );
+  const refresh = client.refetchQueries({ queryKey: ['business-setup', 'account-1:user-1:csrf'] });
+  await flushPromises();
+  await wrapper.get('#business-name').setValue('Confirmed new business name');
+  await wrapper.get('form.profile-form').trigger('submit');
+  await flushPromises();
+  finishGet(structuredClone(saved));
+  await refresh;
+  await flushPromises();
+  expect(wrapper.get('#business-name').element).toHaveProperty(
+    'value',
+    'Confirmed new business name',
+  );
+  expect(client.getQueryData(['business-setup', 'account-1:user-1:csrf'])).toMatchObject({
+    business: { name: 'Confirmed new business name' },
+  });
+});
+
+it.each([
+  ['business_name', '#business-name'],
+  ['your_name', '#your-name'],
+  ['email', '#profile-email'],
+  ['service_description', '#service-description'],
+])('associates the %s validation error with its field', async (field, selector) => {
+  const { wrapper } = setup();
+  await flushPromises();
+  await wrapper.get('#business-name').setValue('Changed business');
+  state.request.mockRejectedValueOnce(
+    new ApiError(422, 'validation_error', 'Review the highlighted fields.', [
+      { path: [field], message: 'Please correct this value.' },
+    ]),
+  );
+  await wrapper.get('form.profile-form').trigger('submit');
+  await flushPromises();
+  const describedBy = wrapper.get(selector).attributes('aria-describedby')?.split(' ') ?? [];
+  expect(
+    describedBy.some((id) => wrapper.find('#' + id).text() === 'Please correct this value.'),
+  ).toBe(true);
+});
+
+it('keeps the confirmed contact email when an older account GET finishes later', async () => {
+  const { wrapper, client } = setup();
+  await flushPromises();
+  let finishGet!: (value: unknown) => void;
+  const accountKey = ['account', 'account-1', 'user-1'];
+  const accountGet = client
+    .fetchQuery({
+      queryKey: accountKey,
+      queryFn: () =>
+        new Promise((resolve) => {
+          finishGet = resolve;
+        }),
+    })
+    .catch(() => undefined);
+  await wrapper.get('#profile-email').setValue('updated@example.com');
+  await wrapper.get('form.profile-form').trigger('submit');
+  await flushPromises();
+  finishGet(structuredClone(saved.user));
+  await accountGet;
+  await flushPromises();
+  expect(client.getQueryData(accountKey)).toMatchObject({ email: 'updated@example.com' });
+});
+
+it('does not write the previous identity result after waiting for query cancellation', async () => {
+  const { wrapper, client } = setup();
+  await flushPromises();
+  let finishCancel!: () => void;
+  const setData = vi.spyOn(client, 'setQueryData');
+  vi.spyOn(client, 'cancelQueries').mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishCancel = resolve;
+      }),
+  );
+  await wrapper.get('#business-name').setValue('Private previous identity edit');
+  await wrapper.get('form.profile-form').trigger('submit');
+  await flushPromises();
+  state.session.value = { account_id: 'account-2', user_id: 'user-2', csrf_token: 'csrf-2' };
+  await flushPromises();
+  finishCancel();
+  await flushPromises();
+  expect(setData).not.toHaveBeenCalled();
+  expect(wrapper.text()).not.toContain('Private previous identity edit');
+});
+
+it('explains an initial configuration conflict without offering a futile retry', async () => {
+  state.request.mockRejectedValueOnce(
+    new ApiError(409, 'conflict', 'Multiple service offerings exist.'),
+  );
+  const { wrapper } = setup();
+  await flushPromises();
+  expect(wrapper.text()).toContain('Multiple service offerings exist.');
+  expect(wrapper.text()).toContain('Contact support');
+  expect(wrapper.find('button[aria-label="Retry profile"]').exists()).toBe(false);
 });

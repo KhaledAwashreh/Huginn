@@ -118,6 +118,7 @@ function setup(items = [recommendation()], realCommands = false) {
   const workspace = {
     identity: ref('account-1:user-1:csrf'),
     strategyId: ref('strategy-1'),
+    configurationConflict: ref(false),
     search: ref(''),
     status: ref('open'),
     offset: ref(0),
@@ -430,3 +431,33 @@ it.each(['pending', 'uncertain'] as const)(
     wrapper.unmount();
   },
 );
+
+it('keeps cached recommendations visible and generation disabled when setup refresh fails', async () => {
+  const wrapper = setup();
+  const workspace = mocks.workspace as { strategies: { isError: { value: boolean } } };
+  workspace.strategies.isError.value = true;
+  await wrapper.vm.$nextTick();
+  expect(wrapper.text()).toContain('Northstar Labs');
+  expect(wrapper.text()).toContain('Your recommendation setup could not be loaded.');
+  expect(
+    wrapper.get('button[aria-label="Generate recommendations"]').attributes('disabled'),
+  ).toBeDefined();
+  expect(wrapper.find('button[aria-label="Retry profile"]').exists()).toBe(true);
+});
+
+it('directs ambiguous legacy setup to support instead of asking users to complete an unsavable profile', async () => {
+  const wrapper = setup();
+  const workspace = mocks.workspace as {
+    strategyId: { value: string };
+    configurationConflict: { value: boolean };
+  };
+  workspace.strategyId.value = '';
+  workspace.configurationConflict.value = true;
+  await wrapper.vm.$nextTick();
+  expect(wrapper.text()).toContain('Contact support');
+  expect(wrapper.text()).not.toContain('Complete your profile');
+  expect(wrapper.text()).not.toContain('Add your service and ideal clients');
+  expect(
+    wrapper.get('button[aria-label="Generate recommendations"]').attributes('disabled'),
+  ).toBeDefined();
+});

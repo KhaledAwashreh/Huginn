@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, inject, ref, toRaw } from 'vue';
+import { computed, inject, ref } from 'vue';
 import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import Button from 'primevue/button';
 import { ApiError } from '../../../../api/apiError';
 import type { components } from '../../../../api/generated/schema';
 import { useDirtyDraft } from '../../../../shared/forms/useDirtyDraft';
-import type { IdealClientProfileDraft } from '../forms/idealClientProfileDraft';
+import {
+  createIdealClientProfileDraft,
+  type IdealClientProfileDraft,
+} from '../forms/idealClientProfileDraft';
 import { serializeIdealClientProfilePatch } from '../forms/serializeIdealClientProfilePatch';
 import IdealClientProfileFields from './IdealClientProfileFields.vue';
 import { icpSelectionConflicts } from '../forms/icpSelectionConflicts';
@@ -20,8 +23,8 @@ const props = defineProps<{
   refreshSaved: () => Promise<components['schemas']['IdealClientProfileResponse'] | null>;
   afterSave: (saved: components['schemas']['IdealClientProfileResponse']) => void | Promise<void>;
 }>();
-const state = useDirtyDraft(props.initial);
-const baseline = ref(structuredClone(toRaw(props.initial)));
+const state = useDirtyDraft(createIdealClientProfileDraft(props.initial));
+const baseline = ref(createIdealClientProfileDraft(props.initial));
 const draft = state.draft;
 const busy = ref(false);
 const formError = ref('');
@@ -41,26 +44,6 @@ if (inject(matchedRouteKey, null)) {
 }
 // Closing the settings modal is not a navigation, so it asks the form directly.
 defineExpose({ canClose });
-function fromResponse(
-  response: components['schemas']['IdealClientProfileResponse'],
-): IdealClientProfileDraft {
-  return {
-    name: response.name,
-    industries: response.industries.map(({ name }) => ({ name })),
-    company_sizes: response.company_sizes.map(({ band }) => ({ band })),
-    geographies: response.geographies.map(({ kind, value }) => ({ kind, value })),
-    exclusions: response.exclusions.map((item) =>
-      item.kind === 'company'
-        ? { kind: item.kind, company_id: item.company_id }
-        : item.kind === 'industry'
-          ? { kind: item.kind, name: item.name }
-          : {
-              kind: item.kind,
-              geography: { kind: item.geography.kind, value: item.geography.value },
-            },
-    ),
-  };
-}
 async function submit(): Promise<void> {
   if (busy.value || uncertain.value || !canSubmit.value) return;
   formError.value = '';
@@ -71,9 +54,9 @@ async function submit(): Promise<void> {
     ? serializeIdealClientProfilePatch(baseline.value, draft.value)
     : null;
   try {
-    const saved = await props.save(draft.value, patch);
-    const next = fromResponse(saved);
-    baseline.value = structuredClone(next);
+    const saved = await props.save(createIdealClientProfileDraft(draft.value), patch);
+    const next = createIdealClientProfileDraft(saved);
+    baseline.value = createIdealClientProfileDraft(next);
     state.accept(next);
     if (!props.existing) {
       busy.value = false;
@@ -106,8 +89,8 @@ async function clickRefreshSaved(): Promise<void> {
         'The saved list was refreshed, but the create result is still uncertain. Review ICP definitions before starting another create; this draft cannot be submitted again.';
       return;
     }
-    const latest = fromResponse(response);
-    baseline.value = structuredClone(latest);
+    const latest = createIdealClientProfileDraft(response);
+    baseline.value = createIdealClientProfileDraft(latest);
     state.updateBaseline(latest);
     uncertain.value = false;
     refreshed.value = true;

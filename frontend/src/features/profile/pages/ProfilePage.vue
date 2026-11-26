@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, ref, toRaw, watch } from 'vue';
+import { computed, inject, onScopeDispose, ref, watch } from 'vue';
 import { matchedRouteKey, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
@@ -12,12 +12,15 @@ import LoadingState from '../../../shared/ui/LoadingState.vue';
 import ErrorState from '../../../shared/ui/ErrorState.vue';
 import { useDirtyDraft } from '../../../shared/forms/useDirtyDraft';
 import IdealClientProfileFields from '../../configuration/ideal-client-profiles/components/IdealClientProfileFields.vue';
-import type { IdealClientProfileDraft } from '../../configuration/ideal-client-profiles/forms/idealClientProfileDraft';
+import {
+  createIdealClientProfileDraft,
+  type IdealClientProfileDraft,
+} from '../../configuration/ideal-client-profiles/forms/idealClientProfileDraft';
 import { icpSelectionConflicts } from '../../configuration/ideal-client-profiles/forms/icpSelectionConflicts';
 import { useAccountSecurity } from '../../account-lifecycle/composables/useAccountSecurity';
 import { openSettingsKey } from '../../../shared/navigation/settingsSections';
 import { useBusinessSetup } from '../composables/useBusinessSetup';
-import { businessSetupDraft, emptyIcp } from '../forms/businessSetupDraft';
+import { businessSetupDraft } from '../forms/businessSetupDraft';
 
 const { profile, save, identity } = useBusinessSetup();
 const security = useAccountSecurity();
@@ -77,21 +80,30 @@ const icpSummary = computed(() => {
 const icpConflicts = computed(() => (icpDraft.value ? icpSelectionConflicts(icpDraft.value) : []));
 function openIcp() {
   notice.value = '';
-  icpDraft.value = structuredClone(toRaw(draft.value.ideal_client_profile ?? emptyIcp()));
+  icpDraft.value = createIdealClientProfileDraft(draft.value.ideal_client_profile);
 }
 function applyIcp() {
   if (!icpDraft.value?.name.trim() || icpConflicts.value.length) return;
-  draft.value.ideal_client_profile = structuredClone(toRaw(icpDraft.value));
+  draft.value.ideal_client_profile = createIdealClientProfileDraft(icpDraft.value);
   icpDraft.value = null;
   icpMissing.value = false;
 }
+const unappliedIcpChanges = computed(
+  () =>
+    icpDraft.value !== null &&
+    JSON.stringify(icpDraft.value) !==
+      JSON.stringify(createIdealClientProfileDraft(draft.value.ideal_client_profile)),
+);
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (!unappliedIcpChanges.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+window.addEventListener('beforeunload', beforeUnload);
+onScopeDispose(() => window.removeEventListener('beforeunload', beforeUnload));
 async function canClose() {
   if (pending.value) return false;
-  if (
-    icpDraft.value &&
-    JSON.stringify(icpDraft.value) !==
-      JSON.stringify(draft.value.ideal_client_profile ?? emptyIcp())
-  )
+  if (unappliedIcpChanges.value)
     return window.confirm('Discard your unsaved ICP and profile changes?');
   return canLeave();
 }
@@ -123,7 +135,7 @@ async function submit() {
       your_name: value.your_name.trim(),
       email: value.email.trim(),
       service_description: value.service_description.trim(),
-      ideal_client_profile: structuredClone(toRaw(value.ideal_client_profile)),
+      ideal_client_profile: createIdealClientProfileDraft(value.ideal_client_profile),
     });
     if (requestedIdentity !== identity.value) return;
     accept(businessSetupDraft(saved));
@@ -147,15 +159,37 @@ function fieldError(field: string) {
 <template>
   <div class="profile-page">
     <PageHeader title="Profile" description="Tell us what you do and who you want to work with." />
-    <LoadingState v-if="profile.isPending.value" message="Loading your profile…" />
-    <ErrorState v-else-if="profile.isError.value" message="Your profile could not be loaded.">
+    <LoadingState
+      v-if="profile.isPending.value && !profile.data.value"
+      message="Loading your profile…"
+    />
+    <ErrorState
+      v-else-if="profile.isError.value && !profile.data.value"
+      :message="
+        profile.error.value instanceof ApiError && profile.error.value.status === 409
+          ? profile.error.value.message +
+            ' Contact support to resolve multiple saved setup records.'
+          : 'Your profile could not be loaded.'
+      "
+    >
       <Button
+        v-if="!(profile.error.value instanceof ApiError && profile.error.value.status === 409)"
         label="Retry profile"
         :disabled="profile.isFetching.value"
         @click="profile.refetch()"
       />
     </ErrorState>
     <form v-else-if="profile.data.value" class="profile-form" @submit.prevent="submit">
+      <ErrorState
+        v-if="profile.isError.value"
+        message="Your profile could not be refreshed. Your draft is still here."
+      >
+        <Button
+          label="Retry profile"
+          :disabled="profile.isFetching.value"
+          @click="profile.refetch()"
+        />
+      </ErrorState>
       <section class="profile-section" aria-labelledby="business-heading">
         <div class="section-heading">
           <span class="step" aria-hidden="true">1</span>
@@ -174,10 +208,14 @@ function fieldError(field: string) {
               required
               :disabled="pending"
               :aria-invalid="Boolean(fieldError('business_name'))"
+              :aria-describedby="fieldError('business_name') ? 'business-name-error' : undefined"
             />
-            <small v-if="fieldError('business_name')" class="field-error">{{
-              fieldError('business_name')
-            }}</small>
+            <small
+              v-if="fieldError('business_name')"
+              id="business-name-error"
+              class="field-error"
+              >{{ fieldError('business_name') }}</small
+            >
           </div>
           <div class="field">
             <label for="your-name">Your name <span>(required)</span></label>
@@ -185,13 +223,15 @@ function fieldError(field: string) {
               id="your-name"
               v-model="draft.your_name"
               autocomplete="name"
-              aria-describedby="your-name-help"
+              :aria-describedby="
+                fieldError('your_name') ? 'your-name-help your-name-error' : 'your-name-help'
+              "
               required
               :disabled="pending"
               :aria-invalid="Boolean(fieldError('your_name'))"
             />
             <small id="your-name-help">First and last name.</small>
-            <small v-if="fieldError('your_name')" class="field-error">{{
+            <small v-if="fieldError('your_name')" id="your-name-error" class="field-error">{{
               fieldError('your_name')
             }}</small>
           </div>
@@ -205,11 +245,18 @@ function fieldError(field: string) {
               required
               :disabled="pending"
               :aria-invalid="Boolean(fieldError('email'))"
+              :aria-describedby="
+                fieldError('email')
+                  ? 'profile-email-help profile-email-error'
+                  : 'profile-email-help'
+              "
             />
-            <small
+            <small id="profile-email-help"
               >Changing your contact email does not change your verified delivery address.</small
             >
-            <small v-if="fieldError('email')" class="field-error">{{ fieldError('email') }}</small>
+            <small v-if="fieldError('email')" id="profile-email-error" class="field-error">{{
+              fieldError('email')
+            }}</small>
           </div>
           <div class="field full">
             <label for="service-description"
@@ -222,14 +269,22 @@ function fieldError(field: string) {
               required
               :disabled="pending"
               :aria-invalid="Boolean(fieldError('service_description'))"
+              :aria-describedby="
+                fieldError('service_description')
+                  ? 'service-description-help service-description-error'
+                  : 'service-description-help'
+              "
             />
-            <small
+            <small id="service-description-help"
               >What do you help clients with? Describe the work you sell and the problems you
               solve.</small
             >
-            <small v-if="fieldError('service_description')" class="field-error">{{
-              fieldError('service_description')
-            }}</small>
+            <small
+              v-if="fieldError('service_description')"
+              id="service-description-error"
+              class="field-error"
+              >{{ fieldError('service_description') }}</small
+            >
           </div>
         </div>
       </section>

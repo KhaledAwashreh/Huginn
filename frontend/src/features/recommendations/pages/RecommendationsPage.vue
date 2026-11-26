@@ -192,6 +192,10 @@ function statusLabel(item: RecommendationResponse): string {
         v-else-if="workspace.strategies.isPending.value"
         message="Loading your profile…"
       />
+      <p v-else-if="workspace.configurationConflict.value" class="error-inline" role="alert">
+        Multiple recommendation setups are active for your business. Contact support to resolve this
+        configuration conflict.
+      </p>
       <p v-else-if="!workspace.strategyId.value" class="search-help">
         Add your service and ideal clients to start finding recommendations.
         <RouterLink to="/profile">Complete your profile</RouterLink>.
@@ -212,10 +216,16 @@ function statusLabel(item: RecommendationResponse): string {
         @click="workspace.preferences.refetch()"
       />
     </ErrorState>
-    <EmptyState
-      v-if="!workspace.strategyId.value"
-      message="Complete your profile to view recommendations."
-    />
+    <template v-if="!workspace.strategyId.value">
+      <EmptyState
+        v-if="
+          !workspace.strategies.isPending.value &&
+          !workspace.strategies.isError.value &&
+          !workspace.configurationConflict.value
+        "
+        message="Complete your profile to view recommendations."
+      />
+    </template>
     <LoadingState
       v-else-if="workspace.recommendations.isPending.value && !workspace.recommendations.data.value"
       message="Loading Business recommendations…"

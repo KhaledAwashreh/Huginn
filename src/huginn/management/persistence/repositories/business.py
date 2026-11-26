@@ -49,6 +49,13 @@ class PostgresBusinessRepository(PostgresIdentityRepository, BusinessRepository)
         )
         return self._map(row) if row else None
 
+    def get_by_id_for_share(self, business_id: UUID) -> Business | None:
+        row = self._one(
+            f"SELECT {self._columns} FROM operational.businesses WHERE id=%s FOR SHARE",
+            (business_id,),
+        )
+        return self._map(row) if row else None
+
     def get_by_id_for_update(self, business_id: UUID) -> Business | None:
         row = self._one(
             f"SELECT {self._columns} FROM operational.businesses WHERE id=%s FOR UPDATE",

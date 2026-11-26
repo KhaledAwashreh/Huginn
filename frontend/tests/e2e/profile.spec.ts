@@ -29,6 +29,10 @@ test('the minimal profile saves business, service and ICP together and reuses th
   await page.getByRole('button', { name: 'Define your ICP', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Your ICP definition', exact: true });
   await dialog.getByLabel('Name (required)', { exact: true }).fill('Growing product teams');
+  await dialog.getByRole('combobox', { name: 'Collected industry options' }).press('ArrowDown');
+  await page.getByRole('option', { name: /^Healthcare ·/ }).click();
+  await dialog.getByRole('combobox', { name: 'Collected industry options' }).press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
   await dialog.getByRole('button', { name: '11-100', exact: true }).click();
   await dialog.getByRole('button', { name: 'Apply ICP', exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -71,6 +75,10 @@ test('the minimal profile saves business, service and ICP together and reuses th
     'Growing product teams',
   );
   await dialog.getByLabel('Name (required)', { exact: true }).fill('Focused product teams');
+  await dialog.getByRole('combobox', { name: 'Collected industry options' }).press('ArrowDown');
+  await page.getByRole('option', { name: /^Fintech ·/ }).click();
+  await dialog.getByRole('combobox', { name: 'Collected industry options' }).press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Apply ICP', exact: true }).click();
   await page
     .getByLabel('Tell us about your service')
@@ -90,6 +98,10 @@ test('the minimal profile saves business, service and ICP together and reuses th
   expect(after.service_offering.id).toBe(first.service_offering.id);
   expect(after.ideal_client_profile.id).toBe(first.ideal_client_profile.id);
   expect(after.ideal_client_profile.name).toBe('Focused product teams');
+  expect(after.ideal_client_profile.industries).toEqual([
+    { name: 'Healthcare' },
+    { name: 'Fintech' },
+  ]);
   const afterStrategies = (
     await (await page.request.get('/api/v1/discovery-strategies?limit=100')).json()
   ).items;

@@ -28,6 +28,13 @@ same offering, ICP and pairing IDs and previously captured assessment history.
 Recommendations automatically use the one active pairing. Legacy offering,
 strategy, account and professional-profile page links lead to Profile.
 
+The Recommendations list intentionally shows only the current active pairing,
+including when its status filter includes resolved recommendations. It is not
+a combined history of previous pairings. Earlier assessments remain available
+through their exact email links and saved prospect origins. Multiple active
+pairings require operator support: Profile rejects ambiguous configuration
+rather than choosing or deleting a legacy record for the owner.
+
 `HUGINN_SIMPLE_DISCOVERY_ENABLED` defaults to `false`. Setting it to `true` in
 both the API and weekly command environments also enforces one active
 configuration at generation and final email authorization. Compose shares this

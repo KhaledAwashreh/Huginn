@@ -38,12 +38,23 @@ export function useBusinessSetup() {
       return owned(saved);
     },
     retry: false,
-    onSuccess: async (saved) => {
-      const requestedIdentity = identity.value;
-      const accountId = session.context.value?.account_id;
-      const userId = session.context.value?.user_id;
-      client.setQueryData(queryKey.value, saved);
-      client.setQueryData(['account', accountId, userId], saved.user);
+    onMutate: () => ({
+      identity: identity.value,
+      accountId: session.context.value?.account_id,
+      userId: session.context.value?.user_id,
+    }),
+    onSuccess: async (saved, _body, scope) => {
+      if (scope.identity !== identity.value) return;
+      const { identity: requestedIdentity, accountId, userId } = scope;
+      const setupKey = ['business-setup', requestedIdentity];
+      const accountKey = ['account', accountId, userId];
+      await Promise.all([
+        client.cancelQueries({ queryKey: setupKey, exact: true }),
+        client.cancelQueries({ queryKey: accountKey, exact: true }),
+      ]);
+      if (requestedIdentity !== identity.value) return;
+      client.setQueryData(setupKey, saved);
+      client.setQueryData(accountKey, saved.user);
       await Promise.all([
         client.invalidateQueries({ queryKey: ['prospecting', requestedIdentity] }),
         client.invalidateQueries({ queryKey: ['configuration', accountId, userId] }),

@@ -105,9 +105,16 @@ export function useRecommendationWorkspace() {
       ),
   });
   const { strategies, singleStrategy } = useActiveDiscoveryStrategies();
+  const configurationConflict = computed(
+    () =>
+      !strategies.isError.value &&
+      !strategies.isPending.value &&
+      (strategies.data.value?.length ?? 0) > 1,
+  );
   watch(
-    singleStrategy,
-    (selected) => {
+    [singleStrategy, strategies.isError],
+    ([selected, failed]) => {
+      if (failed) return;
       strategyId.value = selected?.id ?? '';
     },
     { immediate: true, flush: 'sync' },
@@ -199,7 +206,8 @@ export function useRecommendationWorkspace() {
   }
 
   async function generate(strategyId: string): Promise<boolean> {
-    if (!strategyId || !session.context.value || generating.value) return false;
+    if (!strategyId || !session.context.value || generating.value || strategies.isError.value)
+      return false;
     if (strategyId !== singleStrategy.value?.id) return false;
     const requestIdentity = identity.value;
     generating.value = true;
@@ -231,6 +239,7 @@ export function useRecommendationWorkspace() {
     commandDraftFor,
     commandRecoveries,
     strategyId,
+    configurationConflict,
     search,
     status,
     offset,

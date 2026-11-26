@@ -1,9 +1,10 @@
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import UTC, datetime
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID, uuid4
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 
 from huginn.management.app import create_app
@@ -378,3 +379,101 @@ def test_setup_edits_existing_service_topics_without_rewriting_captured_history(
             ).fetchone()[0]
             == other_offering_before
         )
+
+
+def test_setup_get_holds_shared_configuration_lock_until_all_fields_are_read(
+    management_database_url, monkeypatch
+):
+    from huginn.management.persistence.repositories.business import (
+        PostgresBusinessRepository,
+    )
+    from huginn.management.persistence.repositories.user import PostgresUserRepository
+
+    url = management_database_url
+    principal, _ = _owner(url)
+    before_payload = {**PAYLOAD, "email": f"{principal.user_id}@example.test"}
+    with _client(url, principal) as client:
+        before_response = _save(client, before_payload)
+        assert before_response.status_code == 200
+        before = before_response.json()
+    reader_paused, release_reader, writer_started = Event(), Event(), Event()
+    original_get_user = PostgresUserRepository.get_by_id
+    original_lock = PostgresBusinessRepository.get_by_id_for_update
+
+    def pause_after_business_read(repository, user_id):
+        if user_id == principal.user_id and not reader_paused.is_set():
+            reader_paused.set()
+            assert release_reader.wait(timeout=10)
+        return original_get_user(repository, user_id)
+
+    def observe_writer_lock(repository, business_id):
+        writer_started.set()
+        return original_lock(repository, business_id)
+
+    monkeypatch.setattr(PostgresUserRepository, "get_by_id", pause_after_business_read)
+    monkeypatch.setattr(
+        PostgresBusinessRepository, "get_by_id_for_update", observe_writer_lock
+    )
+    after_payload = {
+        **before_payload,
+        "business_name": "Updated business",
+        "your_name": "Updated Owner",
+        "service_description": "Software and cloud engineering",
+        "ideal_client_profile": {
+            **PAYLOAD["ideal_client_profile"],
+            "name": "Updated ICP",
+        },
+    }
+
+    def read():
+        with _client(url, principal) as client:
+            response = client.get("/api/v1/me/business/setup")
+            assert response.status_code == 200
+            return response.json()
+
+    def write():
+        with _client(url, principal) as client:
+            response = _save(client, after_payload)
+            assert response.status_code == 200, response.text
+            return response.json()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reading = pool.submit(read)
+        try:
+            assert reader_paused.wait(timeout=5)
+            writing = pool.submit(write)
+            assert writer_started.wait(timeout=5)
+            with pytest.raises(TimeoutError):
+                writing.result(timeout=0.2)
+        finally:
+            release_reader.set()
+        assert reading.result(timeout=5) == before
+        updated = writing.result(timeout=5)
+    assert updated["business"]["name"] == "Updated business"
+    assert updated["user"]["first_name"] == "Updated"
+    assert (
+        updated["service_offering"]["description"] == "Software and cloud engineering"
+    )
+    assert updated["ideal_client_profile"]["name"] == "Updated ICP"
+    with _client(url, principal) as client:
+        assert client.get("/api/v1/me/business/setup").json() == updated
+
+
+def test_setup_ambiguous_saved_settings_rejects_without_selecting_or_mutating(
+    management_database_url,
+):
+    principal, business_id = _owner(management_database_url)
+    with psycopg.connect(management_database_url) as conn:
+        for name in ("First", "Second"):
+            conn.execute(
+                "INSERT INTO operational.service_offerings(business_id,name,description) VALUES (%s,%s,'Consulting')",
+                (business_id, name),
+            )
+    with _client(management_database_url, principal) as client:
+        response = client.get("/api/v1/me/business/setup")
+        assert response.status_code == 409
+    with psycopg.connect(management_database_url) as conn:
+        assert conn.execute(
+            "SELECT name FROM operational.service_offerings WHERE business_id=%s ORDER BY name",
+            (business_id,),
+        ).fetchall() == [("First",), ("Second",)]
