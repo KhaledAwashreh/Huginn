@@ -121,3 +121,32 @@ it('passes server search and pagination actions to the owning workspace', async 
   await buttonWithText(wrapper, 'Next').trigger('click');
   expect(wrapper.emitted('next')).toHaveLength(1);
 });
+
+it('shows the mute removal result even after refresh removes the row', async () => {
+  const wrapper = setup();
+  const [item] = page.items;
+  const block = item?.active_blocks[0];
+  if (!item || !block) throw new Error('Expected a suppression fixture');
+  await wrapper.setProps({
+    page: {
+      ...page,
+      items: [{ ...item, active_blocks: [{ ...block, kind: 'pause' }] }],
+    },
+  });
+  let resolve!: (result: object) => void;
+  mocks.cancel.mockImplementationOnce(() => new Promise<object>((done) => (resolve = done)));
+
+  await buttonWithText(wrapper, 'Remove mute').trigger('click');
+  expect(buttonWithText(wrapper, 'Removing mute…').attributes('disabled')).toBeDefined();
+  expect(wrapper.text()).not.toContain('Mute removed.');
+
+  resolve({ suppression_block_id: 'block-1', block_version: 5 });
+  await flushPromises();
+  await wrapper.setProps({ page: { ...page, items: [] } });
+  expect(wrapper.get('[role="status"]').text()).toBe('Mute removed.');
+  expect(wrapper.text()).toContain('No matching active suppression decisions.');
+  expect(mocks.cancel).toHaveBeenCalledTimes(1);
+
+  await wrapper.setProps({ identity: 'another-account' });
+  expect(wrapper.text()).not.toContain('Mute removed.');
+});
