@@ -9942,7 +9942,7 @@ export interface operations {
     list_recommendations_api_v1_recommendations_get: {
         parameters: {
             query?: {
-                status?: "open" | "converted" | "rejected" | "all";
+                status?: "open" | "converted" | "rejected" | "dismissed" | "all";
                 strategy_id?: string | null;
                 search?: string;
                 offset?: number;

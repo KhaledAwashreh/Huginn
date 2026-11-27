@@ -1,9 +1,10 @@
 import { apiRequest } from '../../../api/client';
 import type { components } from '../../../api/generated/schema';
+import type { RecommendationStatusFilter } from '../models/prospecting';
 
 export interface ListRecommendationsOptions {
   strategyId?: string;
-  status: 'open' | 'converted' | 'rejected' | 'all' | undefined;
+  status: RecommendationStatusFilter | undefined;
   search: string;
   offset: number;
   limit: number;

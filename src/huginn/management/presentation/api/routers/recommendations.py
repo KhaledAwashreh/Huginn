@@ -156,13 +156,19 @@ def list_recommendations(
     authenticated: Authenticated,
     dependencies: Management,
     page: Annotated[ListProspectingRequest, Depends(prospecting_page)],
-    status: Literal["open", "converted", "rejected", "all"] = "open",
+    status: Literal["open", "converted", "rejected", "dismissed", "all"] = "open",
     strategy_id: UUID | None = None,
 ):
+    if status == "all":
+        filter_status = None
+    elif status == "dismissed":
+        filter_status = status
+    else:
+        filter_status = RecommendationStatus(status)
     result = dependencies.prospecting_read_service.list_recommendations(
         authenticated.principal,
         page,
-        status=None if status == "all" else RecommendationStatus(status),
+        status=filter_status,
         strategy_id=strategy_id,
     )
     return PageResponse[RecommendationResponse](

@@ -191,7 +191,7 @@ function setup(items = [recommendation()], realCommands = false) {
         EmptyState: { template: '<p>{{ message }}</p>', props: ['message'] },
         LoadingState: { template: '<p>{{ message }}</p>', props: ['message'] },
         SuppressionManagement: true,
-        Select: { template: '<select />', props: ['options', 'modelValue'] },
+        Select: { name: 'Select', template: '<select />', props: ['options', 'modelValue'] },
         RouterLink: { template: '<a><slot /></a>', props: ['to'] },
       },
     },
@@ -221,6 +221,19 @@ it('keeps company signals collapsed before decision actions without metadata boi
     cardHtml.indexOf('data-test="decision-actions"'),
   );
   expect(wrapper.find('button[aria-label="Close recommendation"]').exists()).toBe(false);
+});
+
+it('filters Not relevant by dismissed and shows muted cards as history', () => {
+  const muted = { ...recommendation(), selection_blockers: ['paused'] };
+  const wrapper = setup([muted]);
+  const filter = wrapper.getComponent({ name: 'Select' });
+  expect(filter.props('options')).toContainEqual({ label: 'Not relevant', value: 'dismissed' });
+  filter.vm.$emit('update:model-value', 'dismissed');
+  expect(mocks.workspace).toMatchObject({ status: { value: 'dismissed' } });
+  const card = wrapper.get('article.recommendation-card');
+  expect(card.text()).toContain('Northstar Labs');
+  expect(card.text()).toContain('Muted');
+  expect(card.find('[data-test="decision-actions"]').exists()).toBe(false);
 });
 
 it('prompts to complete the profile without rendering cached rows when no internal pairing exists', async () => {
