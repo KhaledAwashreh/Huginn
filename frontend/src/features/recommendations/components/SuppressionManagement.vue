@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import Button from 'primevue/button';
 import type { components } from '../../../api/generated/schema';
+import ActionFeedback from '../../../shared/ui/ActionFeedback.vue';
 import { cancelRecommendationPause } from '../api/cancelRecommendationPause';
 import { reverseRecommendationRejection } from '../api/reverseRecommendationRejection';
 import { useRecommendationCommands } from '../composables/useRecommendationCommands';
@@ -25,35 +26,69 @@ const emit = defineEmits<{
 }>();
 const commands = useRecommendationCommands(computed(() => props.identity));
 const notice = ref('');
-let lastBlock: components['schemas']['SuppressionBlockResponse'] | null = null;
-function key(): string {
-  return crypto.randomUUID();
-}
+const heading = ref<HTMLHeadingElement | null>(null);
+const restoreFocusFrom = shallowRef<HTMLElement | null>(null);
+const lastBlock = ref<components['schemas']['SuppressionBlockResponse'] | null>(null);
+
+watch(
+  () => props.identity,
+  () => {
+    notice.value = '';
+    lastBlock.value = null;
+    restoreFocusFrom.value = null;
+  },
+  { flush: 'sync' },
+);
+
+watch(
+  [() => props.page, restoreFocusFrom],
+  ([, trigger]) => {
+    if (!trigger || trigger.isConnected) return;
+    restoreFocusFrom.value = null;
+    if (document.activeElement === document.body) heading.value?.focus();
+  },
+  { flush: 'post' },
+);
+
 function date(value: string | null): string {
   return value
     ? new Date(value).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' })
     : 'Indefinite';
 }
-async function clear(block: components['schemas']['SuppressionBlockResponse']) {
-  lastBlock = block;
+function showResult(block: components['schemas']['SuppressionBlockResponse']) {
+  notice.value =
+    block.kind === 'pause'
+      ? 'Mute removed.'
+      : 'Rejection reversed. Independent blocks remain unchanged.';
+}
+async function clear(block: components['schemas']['SuppressionBlockResponse'], event: MouseEvent) {
+  if (commands.pending.value) return;
+  const trigger = event.currentTarget;
+  const focusedTrigger =
+    trigger instanceof HTMLElement && document.activeElement === trigger ? trigger : null;
+  restoreFocusFrom.value = null;
+  const identity = props.identity;
+  lastBlock.value = block;
   notice.value = '';
-  const request = { expected_version: block.version, request_key: key() };
-  const action = () =>
+  const request = { expected_version: block.version, request_key: crypto.randomUUID() };
+  const result = await commands.execute(() =>
     block.kind === 'pause'
       ? cancelRecommendationPause(block.id, request)
-      : reverseRecommendationRejection(block.id, request);
-  const result = await commands.execute(action);
-  if (result)
-    notice.value = `${block.kind === 'pause' ? 'Pause cancelled' : 'Rejection reversed'}. Independent blocks remain unchanged.`;
+      : reverseRecommendationRejection(block.id, request),
+  );
+  if (!result || props.identity !== identity) return;
+  showResult(block);
+  restoreFocusFrom.value = focusedTrigger;
 }
 async function refreshCurrent(): Promise<void> {
   await commands.refresh();
   emit('refresh');
 }
 async function retry(): Promise<void> {
+  const identity = props.identity;
+  const block = lastBlock.value;
   const result = await commands.retry();
-  if (result && lastBlock)
-    notice.value = `${lastBlock.kind === 'pause' ? 'Pause cancelled' : 'Rejection reversed'}. Independent blocks remain unchanged.`;
+  if (result && block && props.identity === identity) showResult(block);
 }
 </script>
 
@@ -61,7 +96,7 @@ async function retry(): Promise<void> {
   <section class="suppression-manager" aria-labelledby="suppression-heading">
     <div class="manager-heading">
       <div>
-        <h2 id="suppression-heading">Manage suppressions</h2>
+        <h2 id="suppression-heading" ref="heading" tabindex="-1">Manage suppressions</h2>
         <p>
           These decisions apply to this Business and Company. Clearing one does not clear others.
         </p>
@@ -76,8 +111,7 @@ async function retry(): Promise<void> {
         />
       </label>
     </div>
-    <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <p v-if="commands.error.value" role="alert" class="error">{{ commands.error.value }}</p>
+    <ActionFeedback :success="notice" :error="commands.error.value" />
     <div v-if="commands.canRetry.value" class="recovery">
       <Button
         label="Retry the same request"
@@ -117,12 +151,19 @@ async function retry(): Promise<void> {
             </div>
             <Button
               v-if="block.kind === 'pause' || block.kind === 'rejection'"
-              :label="block.kind === 'pause' ? 'Cancel pause' : 'Reverse rejection'"
+              :label="
+                block.kind === 'pause'
+                  ? commands.pending.value && lastBlock?.id === block.id
+                    ? 'Removing mute…'
+                    : 'Remove mute'
+                  : 'Reverse rejection'
+              "
+              :loading="commands.pending.value && lastBlock?.id === block.id"
               severity="secondary"
               :disabled="
                 commands.pending.value || commands.canRetry.value || commands.needsRefresh.value
               "
-              @click="clear(block)"
+              @click="clear(block, $event)"
             />
             <span v-else class="automatic">Automatic cooldown</span>
           </li>
@@ -223,11 +264,5 @@ p {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
-}
-.notice {
-  color: var(--color-text);
-}
-.error {
-  color: var(--color-danger, #a12b32);
 }
 </style>

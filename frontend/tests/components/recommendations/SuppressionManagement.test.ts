@@ -59,8 +59,9 @@ const page: SuppressionPage = {
     },
   ],
 };
-function setup() {
+function setup(attachTo?: HTMLElement) {
   return mount(SuppressionManagement, {
+    ...(attachTo ? { attachTo } : {}),
     props: {
       identity: 'account-1:user-1:csrf',
       page,
@@ -120,4 +121,38 @@ it('passes server search and pagination actions to the owning workspace', async 
   expect(wrapper.emitted('search')?.[0]).toEqual(['northstar.example']);
   await buttonWithText(wrapper, 'Next').trigger('click');
   expect(wrapper.emitted('next')).toHaveLength(1);
+});
+
+it('keeps the receipt and restores focus when a later refresh removes the focused action', async () => {
+  const wrapper = setup(document.body);
+  const [item] = page.items;
+  const block = item?.active_blocks[0];
+  if (!item || !block) throw new Error('Expected a suppression fixture');
+  await wrapper.setProps({
+    page: {
+      ...page,
+      items: [{ ...item, active_blocks: [{ ...block, kind: 'pause' }] }],
+    },
+  });
+  let resolve!: (result: object) => void;
+  mocks.cancel.mockImplementationOnce(() => new Promise<object>((done) => (resolve = done)));
+
+  const remove = buttonWithText(wrapper, 'Remove mute');
+  remove.element.focus();
+  expect(document.activeElement).toBe(remove.element);
+  await remove.trigger('click');
+  expect(buttonWithText(wrapper, 'Removing mute…').attributes('disabled')).toBeDefined();
+  expect(wrapper.text()).not.toContain('Mute removed.');
+
+  resolve({ suppression_block_id: 'block-1', block_version: 5 });
+  await flushPromises();
+  await wrapper.setProps({ page: { ...page, items: [] } });
+  expect(wrapper.get('[role="status"]').text()).toBe('Mute removed.');
+  expect(document.activeElement).toBe(wrapper.get('h2').element);
+  expect(wrapper.text()).toContain('No matching active suppression decisions.');
+  expect(mocks.cancel).toHaveBeenCalledTimes(1);
+
+  await wrapper.setProps({ identity: 'another-account' });
+  expect(wrapper.text()).not.toContain('Mute removed.');
+  wrapper.unmount();
 });
