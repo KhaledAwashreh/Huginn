@@ -35,7 +35,7 @@ const linkedAvailable = ref(false);
 const queryRecommendationIds = computed(() => {
   const ids = new Set(
     workspace.recommendations.data.value?.items
-      .filter((item) => item.id !== emailLink.value?.recommendationId)
+      .filter((item) => item.id !== emailLink.value?.recommendationId && !isMuted(item))
       .map((item) => item.id) ?? [],
   );
   if (emailLink.value && linkedAvailable.value) ids.add(emailLink.value.recommendationId);
@@ -63,7 +63,7 @@ const notice = ref('');
 const statuses = [
   { label: 'Open recommendations', value: 'open' },
   ...(showProspects ? [{ label: 'Converted to prospects', value: 'converted' }] : []),
-  { label: 'Not relevant', value: 'rejected' },
+  { label: 'Not relevant', value: 'dismissed' },
   { label: 'All recommendations', value: 'all' },
 ];
 function completed(event: { kind: string; message: string }): void {
@@ -82,7 +82,11 @@ function pageNext(): void {
   if (workspace.recommendations.data.value?.has_more)
     workspace.setOffset(workspace.offset.value + 25);
 }
+function isMuted(item: RecommendationResponse): boolean {
+  return item.status === 'open' && item.selection_blockers.includes('paused');
+}
 function statusLabel(item: RecommendationResponse): string {
+  if (isMuted(item)) return 'Muted';
   return item.status === 'open'
     ? 'Open'
     : item.status === 'converted'
@@ -278,9 +282,10 @@ function statusLabel(item: RecommendationResponse): string {
                 v-slot="{ recommendation: item }"
                 :recommendation="row"
                 :identity="workspace.identity.value"
+                :historical="isMuted(row)"
                 @confirmed="workspace.refresh()"
               >
-                <div v-if="item.status !== 'open'" class="card-heading">
+                <div v-if="item.status !== 'open' || isMuted(item)" class="card-heading">
                   <span class="status">{{ statusLabel(item) }}</span>
                 </div>
                 <RecommendationEvidence
@@ -299,7 +304,7 @@ function statusLabel(item: RecommendationResponse): string {
                   further decision can be applied here.
                 </p>
                 <RecommendationCommandActions
-                  v-if="item.status === 'open'"
+                  v-if="item.status === 'open' && !isMuted(item)"
                   :recommendation="item"
                   :draft-state="workspace.commandDraftFor(item.id)"
                   :preferences="workspace.preferences.data.value ?? null"
@@ -311,6 +316,7 @@ function statusLabel(item: RecommendationResponse): string {
                 />
                 <RecommendationQualityFeedback
                   v-if="
+                    !isMuted(item) &&
                     item.assessment &&
                     (workspace.commandDraftFor(item.id).laterConfirmationOpen ||
                       workspace.commandDraftFor(item.id).feedback.intent ||

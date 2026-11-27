@@ -399,6 +399,34 @@ def test_http_pause_replacement_reversal_and_feedback_preserve_history(
             days=2 * preference["repeat_interval_days"]
         )
         assert post(f"recommendations/{rec.id}/later", later_body) == first
+        dismissed = client.get(
+            "/api/v1/recommendations",
+            params={
+                "status": "dismissed",
+                "strategy_id": str(revision.strategy_assessments[0].strategy_id),
+            },
+        )
+        assert dismissed.status_code == 200, dismissed.text
+        [muted] = dismissed.json()["items"]
+        assert muted["id"] == str(rec.id)
+        assert muted["status"] == "open"
+        assert "paused" in muted["selection_blockers"]
+        for status in ("open", "all", "rejected"):
+            assert (
+                client.get("/api/v1/recommendations", params={"status": status}).json()[
+                    "items"
+                ]
+                == []
+            )
+        paused_at = now
+        now = datetime.fromisoformat(first["expires_at"])
+        assert (
+            client.get(
+                "/api/v1/recommendations", params={"status": "dismissed"}
+            ).json()["items"]
+            == []
+        )
+        now = paused_at
         blocked = client.get("/api/v1/suppressions").json()["items"][0]
         active = next(
             block
@@ -421,6 +449,12 @@ def test_http_pause_replacement_reversal_and_feedback_preserve_history(
             f"suppressions/{replacement['suppression_block_id']}/cancel-pause",
             {"expected_version": 1, "request_key": str(uuid4())},
         )
+        assert (
+            client.get(
+                "/api/v1/recommendations", params={"status": "dismissed"}
+            ).json()["items"]
+            == []
+        )
         rejected = post(
             f"recommendations/{rec.id}/not-relevant",
             {
@@ -436,6 +470,12 @@ def test_http_pause_replacement_reversal_and_feedback_preserve_history(
             f"suppressions/{rejected['suppression_block_id']}/reverse-rejection",
             {"expected_version": 1, "request_key": str(uuid4())},
         )
+        assert [
+            item["id"]
+            for item in client.get(
+                "/api/v1/recommendations", params={"status": "dismissed"}
+            ).json()["items"]
+        ] == [str(rec.id)]
         feedback_body = {
             "assessment_revision_id": str(revision.id),
             "request_key": str(uuid4()),

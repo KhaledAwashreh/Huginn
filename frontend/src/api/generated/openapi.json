@@ -22084,6 +22084,7 @@
                 "open",
                 "converted",
                 "rejected",
+                "dismissed",
                 "all"
               ],
               "title": "Status",

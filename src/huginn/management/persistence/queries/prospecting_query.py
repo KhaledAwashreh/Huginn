@@ -6,7 +6,10 @@ from uuid import UUID
 from huginn.management.application.protocols.business_company_state_query import (
     BusinessCompanyStateQuery,
 )
-from huginn.management.application.protocols.prospecting_query import ProspectingQuery
+from huginn.management.application.protocols.prospecting_query import (
+    ProspectingQuery,
+    RecommendationListStatus,
+)
 from huginn.management.application.read_models.current_company import CurrentCompany
 from huginn.management.application.read_models.current_company_signal import (
     CurrentCompanySignal,
@@ -31,9 +34,6 @@ from huginn.management.domain.entities.recommendation import Recommendation
 from huginn.management.domain.errors.errors import NotFoundError
 from huginn.management.domain.value_objects.common import Page
 from huginn.management.domain.value_objects.prospect_stage import ProspectStage
-from huginn.management.domain.value_objects.recommendation_status import (
-    RecommendationStatus,
-)
 from huginn.management.persistence.contracts.prospecting_unit_of_work import (
     ProspectingUnitOfWork,
 )
@@ -56,6 +56,12 @@ _COMPANY_COLUMNS = """c.id,c.name,c.domain,c.business_sector,c.country,c.company
                     nullif(btrim(s.source_fields->>'long_description'),'')) IS NOT NULL
      ORDER BY e.observed_at DESC,e.observation_id DESC LIMIT 1)"""
 _SEARCH = "(strpos(lower(c.name),lower(%s))>0 OR strpos(lower(c.domain),lower(%s))>0)"
+_ACTIVE_PAUSE = """EXISTS (
+    SELECT 1 FROM operational.suppression_blocks b
+    WHERE b.business_id=r.business_id AND b.company_id=r.company_id
+      AND b.kind='pause' AND b.cleared_at IS NULL AND b.effective_at<=%s
+      AND (b.expires_at IS NULL OR b.expires_at>%s)
+)"""
 
 
 class PostgresProspectingQuery(ProspectingQuery):
@@ -157,18 +163,27 @@ class PostgresProspectingQuery(ProspectingQuery):
         self,
         business_id: UUID,
         request: ListProspectingRequest,
-        status: RecommendationStatus | None,
+        status: RecommendationListStatus,
         at: datetime,
         strategy_id: UUID | None = None,
     ) -> Page[RecommendationView]:
-        where = [
-            "r.business_id=%s",
-            "(r.status<>'open' OR (NOT EXISTS(SELECT 1 FROM operational.prospects p WHERE p.business_id=r.business_id AND p.company_id=r.company_id) AND NOT EXISTS(SELECT 1 FROM operational.suppression_blocks b WHERE b.business_id=r.business_id AND b.company_id=r.company_id AND b.kind='pause' AND b.cleared_at IS NULL AND b.effective_at<=%s AND (b.expires_at IS NULL OR b.expires_at>%s))))",
-        ]
+        where = ["r.business_id=%s"]
         parameters: list[object] = [business_id, at, at]
-        if status is not None:
-            where.append("r.status=%s")
-            parameters.append(status.value)
+        if status == "dismissed":
+            where.append(
+                f"(r.status='rejected' OR (r.status='open' AND {_ACTIVE_PAUSE}))"
+            )
+        else:
+            where.append(
+                f"""(r.status<>'open' OR (
+                    NOT EXISTS(SELECT 1 FROM operational.prospects p
+                        WHERE p.business_id=r.business_id AND p.company_id=r.company_id)
+                    AND NOT {_ACTIVE_PAUSE}
+                ))"""
+            )
+            if status is not None:
+                where.append("r.status=%s")
+                parameters.append(status.value)
         if strategy_id is not None:
             where.append(
                 "EXISTS (SELECT 1 FROM jsonb_array_elements(v.strategy_assessments) strategy WHERE strategy->>'strategy_id'=%s)"
