@@ -12,7 +12,7 @@ from huginn.management.presentation.api.requests.ideal_client_profile import (
 class BusinessSetupUpdateRequest(RequestModel):
     business_name: NonBlankText
     your_name: NonBlankText
-    email: Email
+    email: Email | None = None
     service_description: NonBlankText
     ideal_client_profile: IdealClientProfileCreateRequest
 

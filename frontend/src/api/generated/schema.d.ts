@@ -1116,14 +1116,14 @@ export interface components {
     schemas: {
         /** AccountSecurityResponse */
         AccountSecurityResponse: {
+            /** Account Email */
+            account_email: string;
             /** Email Verification Required */
             email_verification_required: boolean;
             /** Email Verified */
             email_verified: boolean;
-            /** Recovery Email */
-            recovery_email: string | null;
-            /** Username */
-            username: string;
+            /** Pending Email */
+            pending_email: string | null;
         };
         /** ActiveInvocationErrorResponse */
         ActiveInvocationErrorResponse: {
@@ -1262,7 +1262,7 @@ export interface components {
             /** Business Name */
             business_name: string;
             /** Email */
-            email: string;
+            email?: string | null;
             ideal_client_profile: components["schemas"]["IdealClientProfileCreateRequest"];
             /** Service Description */
             service_description: string;
@@ -1637,7 +1637,12 @@ export interface components {
             service_offering_id?: string | null;
         };
         /** EnrollRecoveryEmailRequest */
-        EnrollRecoveryEmailRequest: Record<string, never>;
+        EnrollRecoveryEmailRequest: {
+            /** Current Password */
+            current_password?: string | null;
+            /** Email */
+            email?: string | null;
+        };
         /** EvaluationSummaryResponse */
         EvaluationSummaryResponse: {
             /**
@@ -2116,10 +2121,12 @@ export interface components {
         };
         /** LoginRequest */
         LoginRequest: {
+            /** Email */
+            email?: string | null;
             /** Password */
             password: string;
             /** Username */
-            username: string;
+            username?: string | null;
         };
         /** LoginResponse */
         LoginResponse: {
@@ -3152,7 +3159,7 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
             /** Username */
-            username: string;
+            username?: string | null;
         };
         /** SingleDiscoveryConfigurationRequest */
         SingleDiscoveryConfigurationRequest: {
@@ -3359,8 +3366,6 @@ export interface components {
             id: string;
             /** Last Name */
             last_name: string;
-            /** Username */
-            username: string;
         };
         /** TriggerInvocationRequest */
         TriggerInvocationRequest: {
@@ -3472,6 +3477,8 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+            /** User Name */
+            user_name?: string | null;
         };
         /** UserUpdateRequest */
         UserUpdateRequest: {
@@ -7994,6 +8001,21 @@ export interface operations {
                             type: string;
                         }[];
                     } | {
+                        error: {
+                            code: string;
+                            details: unknown[];
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request failed */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
                         error: {
                             code: string;
                             details: unknown[];

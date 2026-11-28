@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 from uuid import UUID, uuid4
 
 import psycopg
@@ -8,6 +10,7 @@ from pydantic import ValidationError
 from huginn.management.domain.entities.account_lifecycle_proof import (
     AccountLifecycleProof,
 )
+from huginn.management.domain.errors.errors import ConflictError
 from huginn.management.domain.errors.lifecycle import LifecycleProofError
 from huginn.management.domain.value_objects.account import NewAccount
 from huginn.management.domain.value_objects.proof_purpose import ProofPurpose
@@ -19,6 +22,7 @@ from huginn.management.persistence.repositories.account_lifecycle_proof import (
 from huginn.management.persistence.repositories.account_recovery_identity import (
     PostgresAccountRecoveryIdentityRepository,
 )
+from tests.postgres_harness import provisioned_postgres
 
 
 def _create_account(connection: psycopg.Connection) -> UUID:
@@ -28,10 +32,11 @@ def _create_account(connection: psycopg.Connection) -> UUID:
     return account.id
 
 
-def test_live_recovery_identity_repository_enrolls_and_verifies(
-    management_database_url,
-):
-    with psycopg.connect(management_database_url) as connection:
+def test_live_recovery_identity_repository_enrolls_and_verifies():
+    with (
+        provisioned_postgres("huginn_recovery_identity") as url,
+        psycopg.connect(url) as connection,
+    ):
         connection.execute("SAVEPOINT lifecycle_identity_repository")
         try:
             account_id = _create_account(connection)
@@ -47,6 +52,7 @@ def test_live_recovery_identity_repository_enrolls_and_verifies(
             assert repository.get_by_account_id(account_id) == pending
             assert pending.pending_email == "ada@example.test"
             assert pending.verified_email is None
+            assert not repository.cancel_pending_replacement(account_id)
 
             now = datetime.now(UTC)
             assert (
@@ -59,11 +65,27 @@ def test_live_recovery_identity_repository_enrolls_and_verifies(
             assert verified.verified_email == "ada@example.test"
             assert verified.verified_at is not None
             assert repository.verify_email(account_id, "ada@example.test", now) is None
-            assert repository.set_pending_email(account_id, "new@example.test") is None
+            assert repository.set_pending_email(account_id, "ADA@EXAMPLE.TEST") is None
+            replacement = repository.set_pending_email(account_id, "New@example.test")
+            assert replacement is not None
+            assert replacement.pending_email == "new@example.test"
+            assert replacement.verified_email == "ada@example.test"
+            assert repository.get_by_verified_email("ADA@example.test") == replacement
+            assert repository.get_by_pending_email("NEW@example.test") == replacement
+            assert repository.get_by_verified_email("new@example.test") is None
+            assert repository.get_by_pending_email("ada@example.test") is None
+            assert repository.get_by_email("ada@example.test") == replacement
+            assert repository.get_by_email("new@example.test") == replacement
 
             trusted_account_id = _create_account(connection)
             trusted = repository.create(trusted_account_id, verification_required=False)
             assert trusted.pending_email is None
+            for occupied in (
+                "ADA@example.test",
+                "NEW@example.test",
+            ):
+                with pytest.raises(ConflictError), connection.transaction():
+                    repository.set_pending_email(trusted_account_id, occupied)
             enrolled = repository.set_pending_email(
                 trusted_account_id, "legacy@example.test"
             )
@@ -78,6 +100,53 @@ def test_live_recovery_identity_repository_enrolls_and_verifies(
         finally:
             connection.execute("ROLLBACK TO SAVEPOINT lifecycle_identity_repository")
             connection.execute("RELEASE SAVEPOINT lifecycle_identity_repository")
+
+
+def test_pending_and_verified_addresses_cannot_be_claimed_by_two_accounts():
+    with provisioned_postgres("huginn_email_claim_collision") as url:
+        with psycopg.connect(url) as connection:
+            pending_owner = _create_account(connection)
+            verified_owner = _create_account(connection)
+            repository = PostgresAccountRecoveryIdentityRepository(
+                PsycopgDatabaseSession(connection)
+            )
+            repository.create(pending_owner, verification_required=False)
+            repository.create(verified_owner, verification_required=False)
+
+        ready = Barrier(2)
+        email = "Concurrent@example.test"
+
+        def claim(account_id, column):
+            try:
+                with psycopg.connect(url) as connection:
+                    ready.wait(timeout=10)
+                    if column == "pending_email":
+                        connection.execute(
+                            "UPDATE operational.account_recovery_identity "
+                            "SET pending_email=%s WHERE account_id=%s",
+                            (email, account_id),
+                        )
+                    else:
+                        connection.execute(
+                            "UPDATE operational.account_recovery_identity "
+                            "SET verified_email=%s, verified_at=now() WHERE account_id=%s",
+                            (email.lower(), account_id),
+                        )
+            except psycopg.errors.UniqueViolation:
+                return False
+            return True
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = pool.submit(claim, pending_owner, "pending_email")
+            verified = pool.submit(claim, verified_owner, "verified_email")
+            assert sorted((pending.result(), verified.result())) == [False, True]
+
+        with psycopg.connect(url) as connection:
+            assert connection.execute(
+                "SELECT count(*) FROM operational.account_recovery_identity "
+                "WHERE %s IN (lower(pending_email), lower(verified_email))",
+                (email.lower(),),
+            ).fetchone() == (1,)
 
 
 def test_live_proof_repository_replaces_by_purpose_and_consumes_once(

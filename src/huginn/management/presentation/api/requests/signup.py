@@ -20,7 +20,7 @@ from huginn.management.security.passwords import validate_new_password
 
 
 class SignupRequest(RequestModel):
-    username: NonBlankText = Field(repr=False)
+    username: NonBlankText | None = Field(default=None, repr=False)
     password: str = Field(
         min_length=NEW_PASSWORD_MIN_LENGTH,
         max_length=NEW_PASSWORD_MAX_LENGTH,

@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 const PASSWORD = 'browser-only-correct-horse-battery';
 async function login(page: Page, username: string): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(`${username}@example.test`);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

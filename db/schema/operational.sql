@@ -25,12 +25,17 @@ CREATE TABLE operational.account_recovery_identity (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK ((verified_email IS NULL) = (verified_at IS NULL)),
-    CHECK (pending_email IS NULL OR verified_email IS NULL),
-    CHECK (NOT verification_required OR pending_email IS NOT NULL OR verified_email IS NOT NULL)
+    CONSTRAINT account_recovery_identity_distinct_emails_check
+        CHECK (lower(btrim(pending_email)) <> lower(btrim(verified_email))),
+    CONSTRAINT account_recovery_identity_required_address_check
+        CHECK (NOT verification_required OR pending_email IS NOT NULL OR verified_email IS NOT NULL)
 );
 
 CREATE UNIQUE INDEX account_recovery_identity_email_lower_key
-    ON operational.account_recovery_identity (lower(btrim(COALESCE(pending_email, verified_email))));
+    ON operational.account_recovery_identity (lower(btrim(pending_email)));
+
+CREATE UNIQUE INDEX account_recovery_identity_verified_email_lower_key
+    ON operational.account_recovery_identity (lower(btrim(verified_email)));
 
 CREATE TABLE operational.account_lifecycle_proofs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -118,6 +123,46 @@ CREATE TABLE operational.users (
 );
 
 CREATE UNIQUE INDEX users_email_lower_key ON operational.users (lower(btrim(email)));
+
+CREATE OR REPLACE FUNCTION operational.reserve_account_recovery_addresses()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    claimed_email TEXT;
+BEGIN
+    FOR claimed_email IN
+        SELECT DISTINCT lower(btrim(address))
+        FROM unnest(ARRAY[NEW.pending_email, NEW.verified_email]) AS addresses(address)
+        WHERE address IS NOT NULL
+        ORDER BY 1
+    LOOP
+        -- Promoting an existing pending address retains its reservation.
+        IF TG_OP = 'UPDATE' AND (
+            claimed_email = lower(btrim(OLD.pending_email))
+            OR claimed_email = lower(btrim(OLD.verified_email))
+        ) THEN
+            CONTINUE;
+        END IF;
+        PERFORM pg_advisory_xact_lock(hashtextextended(claimed_email, 14931));
+        IF EXISTS (
+            SELECT 1 FROM operational.account_recovery_identity r
+            WHERE r.account_id <> NEW.account_id
+              AND (lower(btrim(r.pending_email)) = claimed_email
+                   OR lower(btrim(r.verified_email)) = claimed_email)
+        ) OR EXISTS (
+            SELECT 1 FROM operational.users u
+            WHERE u.account_id <> NEW.account_id AND lower(btrim(u.email)) = claimed_email
+        ) THEN
+            RAISE unique_violation USING
+                MESSAGE = 'Account email is already in use',
+                CONSTRAINT = 'account_recovery_identity_email_lower_key';
+        END IF;
+    END LOOP;
+    RETURN NEW;
+END $$;
+
+CREATE OR REPLACE TRIGGER account_recovery_identity_reserve_addresses
+    BEFORE INSERT OR UPDATE OF pending_email, verified_email ON operational.account_recovery_identity
+    FOR EACH ROW EXECUTE FUNCTION operational.reserve_account_recovery_addresses();
 
 CREATE TABLE operational.businesses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

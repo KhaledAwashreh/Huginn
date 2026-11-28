@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import psycopg
@@ -46,6 +47,7 @@ def test_public_signup_verification_login_contact_change_and_reset(
 ):
     config = _settings(management_database_url)
     username = f"Public-{uuid4()}"
+    email = _signup(username)["email"]
     with TestClient(create_app(config)) as client:
         assert (
             client.post("/api/v1/accounts", json=_signup(username)).status_code == 202
@@ -54,6 +56,12 @@ def test_public_signup_verification_login_contact_change_and_reset(
             client.post(
                 "/api/v1/sessions",
                 json={"username": username, "password": "SignUp!12345"},
+            ).status_code
+            == 401
+        )
+        assert (
+            client.post(
+                "/api/v1/sessions", json={"email": email, "password": "SignUp!12345"}
             ).status_code
             == 401
         )
@@ -72,13 +80,13 @@ def test_public_signup_verification_login_contact_change_and_reset(
         )
         login = client.post(
             "/api/v1/sessions",
-            json={"username": username, "password": "SignUp!12345"},
+            json={"email": f"  {email.upper()}  ", "password": "SignUp!12345"},
         )
         assert login.status_code == 200
         csrf = login.json()["csrf_token"]
         security = client.get("/api/v1/me/account-security")
         assert security.status_code == 200
-        assert security.json()["recovery_email"] == _signup(username)["email"]
+        assert security.json()["account_email"] == _signup(username)["email"]
         assert security.headers["cache-control"] == "no-store"
         assert (
             client.patch(
@@ -86,12 +94,17 @@ def test_public_signup_verification_login_contact_change_and_reset(
                 json={"email": "changed@example.test"},
                 headers={"X-CSRF-Token": csrf},
             ).status_code
-            == 200
+            == 409
         )
         assert (
             client.post(
-                "/api/v1/password-resets", json={"email": _signup(username)["email"]}
+                "/api/v1/sessions",
+                json={"email": "changed@example.test", "password": "SignUp!12345"},
             ).status_code
+            == 401
+        )
+        assert (
+            client.post("/api/v1/password-resets", json={"email": email}).status_code
             == 202
         )
         reset = _message(config, username, "reset_password")
@@ -117,10 +130,153 @@ def test_public_signup_verification_login_contact_change_and_reset(
         assert (
             client.post(
                 "/api/v1/sessions",
-                json={"username": username, "password": "ResetNow!12345"},
+                json={"email": email, "password": "ResetNow!12345"},
             ).status_code
             == 200
         )
+
+
+def test_signup_accepts_email_without_a_username(management_database_url):
+    config = _settings(management_database_url)
+    payload = _signup(f"Email-{uuid4()}")
+    del payload["username"]
+    with TestClient(create_app(config), client=("192.0.2.24", 54321)) as client:
+        response = client.post("/api/v1/accounts", json=payload)
+        assert response.status_code == 202
+    with psycopg.connect(management_database_url) as connection:
+        username, pending, verified = connection.execute(
+            "SELECT a.username, r.pending_email, r.verified_email "
+            "FROM operational.users u JOIN operational.accounts a ON a.id=u.account_id "
+            "JOIN operational.account_recovery_identity r ON r.account_id=a.id "
+            "WHERE u.email=%s",
+            (payload["email"],),
+        ).fetchone()
+    assert username.startswith("account-")
+    assert pending == payload["email"]
+    assert verified is None
+
+
+def test_account_email_changes_only_after_verification(management_database_url):
+    config = _settings(management_database_url)
+    now = datetime.now(UTC)
+    username = f"Change-{uuid4()}"
+    signup = _signup(username)
+    current_email = signup["email"]
+    replacement = f"{uuid4()}@example.test"
+    endpoint = "/api/v1/me/recovery-email-verifications"
+    with TestClient(
+        create_app(config, clock=lambda: now), client=("192.0.2.25", 54321)
+    ) as client:
+        assert client.post("/api/v1/accounts", json=signup).status_code == 202
+        initial = _message(config, username, "verify_email")
+        assert (
+            client.post(
+                "/api/v1/email-verifications", json={"token": initial.token}
+            ).status_code
+            == 204
+        )
+        credentials = {"email": current_email, "password": signup["password"]}
+        login = client.post("/api/v1/sessions", json=credentials)
+        assert login.status_code == 200
+        csrf = {"X-CSRF-Token": login.json()["csrf_token"]}
+        change = {"email": replacement, "current_password": signup["password"]}
+        response = client.post(endpoint, headers=csrf, json=change)
+        assert response.status_code == 429
+        security = client.get("/api/v1/me/account-security").json()
+        assert security["account_email"] == current_email
+        assert security["pending_email"] is None
+        assert "username" not in security
+        now += timedelta(minutes=5)
+
+        assert (
+            client.post(
+                endpoint,
+                headers=csrf,
+                json={**change, "current_password": "Wrong!123456"},
+            ).status_code
+            == 422
+        )
+        response = client.post(endpoint, headers=csrf, json=change)
+        assert response.status_code == 202, response.text
+        security = client.get("/api/v1/me/account-security").json()
+        assert security["account_email"] == current_email
+        assert security["pending_email"] == replacement
+        assert (
+            client.post(
+                "/api/v1/sessions", json={**credentials, "email": replacement}
+            ).status_code
+            == 401
+        )
+        assert client.post("/api/v1/sessions", json=credentials).status_code == 200
+        assert (
+            client.post(
+                "/api/v1/password-resets", json={"email": current_email}
+            ).status_code
+            == 202
+        )
+        recovery = _message(config, username, "reset_password")
+        assert recovery.recipient == current_email
+        verification = _message(config, username, "verify_email")
+        assert verification.recipient == replacement
+        assert (
+            client.post(
+                "/api/v1/email-verifications", json={"token": verification.token}
+            ).status_code
+            == 204
+        )
+
+        security = client.get("/api/v1/me/account-security").json()
+        assert security["account_email"] == replacement
+        assert security["pending_email"] is None
+        assert client.get("/api/v1/me").json()["email"] == replacement
+        assert client.post("/api/v1/sessions", json=credentials).status_code == 401
+        login = client.post(
+            "/api/v1/sessions", json={**credentials, "email": replacement}
+        )
+        assert login.status_code == 200
+        assert (
+            client.post(
+                "/api/v1/password-resets/complete",
+                json={"token": recovery.token, "new_password": "OtherNow!12345"},
+            ).status_code
+            == 422
+        )
+
+        now += timedelta(minutes=5)
+        csrf = {"X-CSRF-Token": login.json()["csrf_token"]}
+        later_email = f"{uuid4()}@example.test"
+        assert (
+            client.post(
+                endpoint, headers=csrf, json={**change, "email": later_email}
+            ).status_code
+            == 202
+        )
+        obsolete = _message(config, username, "verify_email")
+        assert (
+            client.patch(
+                "/api/v1/me/password",
+                headers=csrf,
+                json={
+                    "current_password": signup["password"],
+                    "new_password": "Stronger!12345",
+                },
+            ).status_code
+            == 204
+        )
+        assert (
+            client.post(
+                "/api/v1/email-verifications", json={"token": obsolete.token}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/api/v1/sessions",
+                json={"email": replacement, "password": "Stronger!12345"},
+            ).status_code
+            == 200
+        )
+        assert client.get("/api/v1/me/account-security").json()["pending_email"] is None
 
 
 def test_lifecycle_receipts_validation_origin_and_proof_errors_are_safe(
@@ -253,7 +409,7 @@ def test_authenticated_initial_enrollment_is_csrf_protected_and_snapshot_bound(
         assert client.get("/api/v1/me/account-security").status_code == 401
         login = client.post(
             "/api/v1/sessions",
-            json={"username": username, "password": "SignUp!12345"},
+            json={"email": "trusted-original@example.test", "password": "SignUp!12345"},
         )
         assert login.status_code == 200
         headers = {"X-CSRF-Token": login.json()["csrf_token"]}
@@ -282,7 +438,7 @@ def test_authenticated_initial_enrollment_is_csrf_protected_and_snapshot_bound(
                 json={"email": "trusted-changed@example.test"},
                 headers=headers,
             ).status_code
-            == 200
+            == 409
         )
         assert (
             client.post(
@@ -291,7 +447,7 @@ def test_authenticated_initial_enrollment_is_csrf_protected_and_snapshot_bound(
             == 204
         )
         assert (
-            client.get("/api/v1/me/account-security").json()["recovery_email"]
+            client.get("/api/v1/me/account-security").json()["account_email"]
             == "trusted-original@example.test"
         )
         assert (

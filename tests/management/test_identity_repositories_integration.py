@@ -95,7 +95,11 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
         )
         PostgresAccountRecoveryIdentityRepository(
             PsycopgDatabaseSession(connection)
-        ).create(account.id, verification_required=False)
+        ).create(
+            account.id,
+            verification_required=False,
+            pending_email=f"{uuid4()}@example.test",
+        )
 
     factory = ManagementConnectionFactory(management_database_url)
     entered_session_create, allow_login_commit = Event(), Event()
@@ -141,6 +145,9 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
     admin = AccountAdminService(
         lambda: UnitOfWork(factory),
         accounts_factory=lambda uow: PostgresAccountRepository(uow.connection),
+        recovery_identities_factory=lambda uow: (
+            PostgresAccountRecoveryIdentityRepository(uow.connection)
+        ),
         sessions_factory=lambda uow: PostgresSessionRepository(uow.connection),
     )
 
@@ -157,7 +164,7 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
     def run_reset():
         reset_started.set()
         try:
-            admin.reset_password(username, "replacement password")
+            admin.reset_password(account.id, "replacement password")
         except Exception as exc:  # surfaced in the owning test thread
             errors.append(exc)
         finally:
@@ -181,6 +188,11 @@ def test_live_login_row_lock_serializes_password_reset_and_session_revocation(
                 "SELECT revoked_at FROM operational.sessions WHERE account_id = %s",
                 (account.id,),
             ).fetchone()
+            (pending_email,) = connection.execute(
+                "SELECT pending_email FROM operational.account_recovery_identity WHERE account_id = %s",
+                (account.id,),
+            ).fetchone()
+        assert pending_email is None
         assert revoked is not None
     finally:
         allow_login_commit.set()
@@ -368,7 +380,6 @@ def test_live_provisioning_success_and_database_rollback_at_each_insert(
         identity = service().provision(
             ProvisionIdentity(**provision_values(successful))
         )
-        assert identity.username == successful
         assert counts(successful) == (1, 1, 1, 1, 1)
         with psycopg.connect(management_database_url) as connection:
             defaults = connection.execute(
@@ -404,7 +415,7 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
         "huginn.management.app.load_config",
         lambda: ManagementConfig(management_database_url),
     )
-    username = f"Owner-{uuid4()}"
+    email = f"{uuid4()}@example.test"
     monkeypatch.setattr(
         "sys.stdin", StringIO("initial password value\ninitial password value\n")
     )
@@ -413,14 +424,12 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
             [
                 "account",
                 "provision",
-                "--username",
-                username,
                 "--first-name",
                 "Ada",
                 "--last-name",
                 "Lovelace",
                 "--email",
-                "ada@example.test",
+                email.upper(),
                 "--phone-number",
                 "+12025550123",
                 "--country-of-residence",
@@ -433,27 +442,31 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
         == 0
     )
     output = capsys.readouterr().out
-    assert username in output and "User " in output and "ProfessionalProfile " in output
+    assert "User " in output and "ProfessionalProfile " in output
     assert "initial password value" not in output and "scrypt" not in output
+    assert email not in output.lower()
 
     with psycopg.connect(management_database_url) as connection:
-        account_id, user_id, profile_id, previous_hash = connection.execute(
-            "SELECT a.id, u.id, p.id, a.password_hash FROM operational.accounts a "
-            "JOIN operational.users u ON u.account_id = a.id "
-            "JOIN operational.professional_profiles p ON p.user_id = u.id "
-            "WHERE a.username = %s",
-            (username,),
-        ).fetchone()
+        account_id, user_id, profile_id, previous_hash, internal_username = (
+            connection.execute(
+                "SELECT a.id, u.id, p.id, a.password_hash, a.username FROM operational.accounts a "
+                "JOIN operational.users u ON u.account_id = a.id "
+                "JOIN operational.professional_profiles p ON p.user_id = u.id "
+                "WHERE u.email = %s",
+                (email,),
+            ).fetchone()
+        )
         recovery_state = connection.execute(
             "SELECT verification_required, pending_email, verified_email, verified_at "
             "FROM operational.account_recovery_identity WHERE account_id = %s",
             (account_id,),
         ).fetchone()
     assert recovery_state == (False, None, None, None)
+    assert internal_username.startswith("account-") and internal_username not in output
     assert all(
         str(identifier) in output for identifier in (account_id, user_id, profile_id)
     )
-    assert admin_main(["account", "enable", "--username", username]) == 0
+    assert admin_main(["account", "enable", "--account-id", str(account_id)]) == 0
     capsys.readouterr()
 
     def create_session():
@@ -470,14 +483,14 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
             ).fetchone()[0]
 
     disable_session = create_session()
-    assert admin_main(["account", "disable", "--username", username]) == 0
+    assert admin_main(["account", "disable", "--account-id", str(account_id)]) == 0
     assert "disabled" in capsys.readouterr().out
     with psycopg.connect(management_database_url) as connection:
         assert connection.execute(
             "SELECT revoked_at IS NOT NULL FROM operational.sessions WHERE id = %s",
             (disable_session,),
         ).fetchone()[0]
-    assert admin_main(["account", "enable", "--username", username]) == 0
+    assert admin_main(["account", "enable", "--account-id", str(account_id)]) == 0
     capsys.readouterr()
 
     reset_session = create_session()
@@ -487,7 +500,13 @@ def test_live_admin_cli_lifecycle_safe_output_and_session_revocation(
     )
     assert (
         admin_main(
-            ["account", "reset-password", "--username", username, "--password-stdin"]
+            [
+                "account",
+                "reset-password",
+                "--account-id",
+                str(account_id),
+                "--password-stdin",
+            ]
         )
         == 0
     )
@@ -564,7 +583,10 @@ def test_live_cli_disable_and_reset_roll_back_when_session_revocation_fails(
         lambda: ManagementConfig(management_database_url),
     )
     try:
-        assert admin_main(["account", "disable", "--username", username]) == 2
+        assert (
+            admin_main(["account", "disable", "--account-id", str(result.account_id)])
+            == 2
+        )
         monkeypatch.setattr(
             "sys.stdin", StringIO("replacement password\nreplacement password\n")
         )
@@ -573,8 +595,8 @@ def test_live_cli_disable_and_reset_roll_back_when_session_revocation_fails(
                 [
                     "account",
                     "reset-password",
-                    "--username",
-                    username,
+                    "--account-id",
+                    str(result.account_id),
                     "--password-stdin",
                 ]
             )

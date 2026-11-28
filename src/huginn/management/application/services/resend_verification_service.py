@@ -16,7 +16,7 @@ class ResendVerificationService(_LifecycleOperations):
         email = normalized_email(request.email)
         self._admit(request.client_ip, email=email)
         with self._uow_factory() as uow:
-            located = self._recovery_factory(uow).get_by_email(email)
+            located = self._recovery_factory(uow).get_by_pending_email(email)
             if located is not None:
                 account = self._accounts_factory(uow).get_by_id_for_update(
                     located.account_id

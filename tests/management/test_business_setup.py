@@ -21,7 +21,6 @@ CSRF = "setup-csrf-token"
 PAYLOAD = {
     "business_name": "Fluke Design B.V.",
     "your_name": "Craig Phillips",
-    "email": "craig@example.test",
     "service_description": "Product design for engineering led startups.",
     "ideal_client_profile": {
         "name": "Engineering led startups in Europe",
@@ -112,7 +111,7 @@ def test_setup_save_creates_pair_and_edits_same_records_with_persisted_readback(
         ).fetchone() == (
             "Craig",
             "Phillips",
-            "craig@example.test",
+            initial.json()["user"]["email"],
             "+12025550123",
             "US",
             "UTC",
@@ -168,9 +167,7 @@ def test_concurrent_first_setup_saves_create_one_pair(management_database_url):
     def save(_):
         with _client(url, principal) as client:
             barrier.wait(timeout=5)
-            response = _save(
-                client, {**PAYLOAD, "email": f"{principal.user_id}@example.test"}
-            )
+            response = _save(client)
             assert response.status_code == 200, response.text
             return response.json()
 
@@ -208,9 +205,7 @@ def test_setup_rolls_back_all_writes_when_pairing_fails(
     )
     with _client(url, principal) as client:
         before = client.get("/api/v1/me/business/setup").json()
-        failed = _save(
-            client, {**PAYLOAD, "email": f"{principal.user_id}@example.test"}
-        )
+        failed = _save(client)
         assert failed.status_code == 500
         assert client.get("/api/v1/me/business/setup").json() == before
     with psycopg.connect(url) as conn:
@@ -225,7 +220,7 @@ def test_setup_rolls_back_all_writes_when_pairing_fails(
             ).fetchone() == (0,)
 
 
-def test_setup_contact_email_does_not_change_verified_digest_destination(
+def test_setup_rejects_unverified_email_changes_and_preserves_delivery(
     management_database_url,
 ):
     from huginn.management.persistence.database.client import PsycopgDatabaseSession
@@ -245,12 +240,13 @@ def test_setup_contact_email_does_not_change_verified_digest_destination(
             (business,),
         )
     with _client(url, principal) as client:
-        assert (
-            _save(
-                client, {**PAYLOAD, "email": "unverified-edit@example.test"}
-            ).status_code
-            == 200
-        )
+        before = client.get("/api/v1/me/business/setup").json()
+        rejected = _save(client, {**PAYLOAD, "email": "unverified-edit@example.test"})
+        assert rejected.status_code == 409, rejected.text
+        assert client.get("/api/v1/me/business/setup").json() == before
+        saved = _save(client, {**PAYLOAD, "email": before["user"]["email"]})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["user"]["email"] == before["user"]["email"]
     with psycopg.connect(url) as conn:
         access = PostgresDigestSubscriptionAccess(PsycopgDatabaseSession(conn))
         assert (
@@ -391,7 +387,7 @@ def test_setup_get_holds_shared_configuration_lock_until_all_fields_are_read(
 
     url = management_database_url
     principal, _ = _owner(url)
-    before_payload = {**PAYLOAD, "email": f"{principal.user_id}@example.test"}
+    before_payload = PAYLOAD
     with _client(url, principal) as client:
         before_response = _save(client, before_payload)
         assert before_response.status_code == 200

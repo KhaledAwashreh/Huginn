@@ -72,10 +72,13 @@ def create_session(
     dependencies: Management,
     service: Annotated[Any, Depends(get_login_service)],
 ) -> LoginResponse:
+    identifier = (
+        {"email": body.email} if body.email is not None else {"username": body.username}
+    )
     issued = service.login(
-        username=body.username,
         password=body.password,
         client_ip=request.client.host if request.client else "",
+        **identifier,
     )
     _set_session_cookie(response, dependencies, issued.session_token)
     return LoginResponse(csrf_token=issued.csrf_token, expires_at=issued.expires_at)

@@ -7,7 +7,7 @@ test('protected deep link, login, reload, mutation and logout use real cookie se
 }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Username').fill('browser-ada');
+  await page.getByLabel('Email', { exact: true }).fill('browser-ada@example.test');
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -68,7 +68,7 @@ test('simultaneous tabs transition a legacy proof without invalidating each othe
 
 test('unsafe forbidden requests are not replayed or interpreted as logout', async ({ page }) => {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-bob');
+  await page.getByLabel('Email', { exact: true }).fill('browser-bob@example.test');
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

@@ -42,6 +42,17 @@ def test_failed_login_throttle_limit_error_does_not_disclose_key():
     assert "private-user" not in str(caught.value)
 
 
+def test_email_entry_does_not_reset_a_different_accounts_username_budget():
+    throttle = FailedLoginThrottle(max_failures=1)
+    address = "owner@example.test"
+    throttle.record_failure("192.0.2.1", address)
+
+    email_attempt = throttle.reserve("192.0.2.1", address, namespace="email")
+    throttle.record_success("192.0.2.1", address, email_attempt)
+
+    assert throttle.is_limited("192.0.2.1", address)
+
+
 def test_failed_login_throttle_reserves_only_five_concurrent_attempts():
     now = datetime(2026, 1, 1, tzinfo=UTC)
     throttle = FailedLoginThrottle(

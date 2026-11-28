@@ -21,6 +21,13 @@ from huginn.matchmaking_control.domain.value_objects.run_state import RunState
 from huginn.matchmaking_control.domain.value_objects.run_target import RunTarget
 from huginn.matchmaking_control.domain.value_objects.target_state import TargetState
 
+_USER_RESULT_QUERY = (
+    "SELECT t.run_id,t.user_id,t.ordinal,t.state,t.started_at,t.finished_at,t.strategies_evaluated,"
+    "t.strategies_skipped,t.unique_candidates_count,t.created_matches_count,t.existing_matches_skipped_count,t.safe_reason,"
+    "NULLIF(concat_ws(' ',NULLIF(btrim(u.first_name),''),NULLIF(btrim(u.last_name),'')),'') "
+    "FROM ops.matchmaking_run_users t LEFT JOIN operational.users u ON u.id=t.user_id"
+)
+
 
 class PostgresRunRepository:
     def __init__(self, connection: DatabaseSession) -> None:
@@ -107,8 +114,7 @@ class PostgresRunRepository:
 
     def get_target(self, run_id: UUID, user_id: UUID) -> UserResult | None:
         row = self._one(
-            "SELECT run_id,user_id,ordinal,state,started_at,finished_at,strategies_evaluated,strategies_skipped,unique_candidates_count,created_matches_count,existing_matches_skipped_count,safe_reason "
-            "FROM ops.matchmaking_run_users WHERE run_id=%s AND user_id=%s",
+            _USER_RESULT_QUERY + " WHERE t.run_id=%s AND t.user_id=%s",
             (run_id, user_id),
         )
         return None if row is None else _user_result(row)
@@ -146,17 +152,17 @@ class PostgresRunRepository:
             is None
         ):
             return None
-        where = " AND state=%s" if state is not None else ""
+        where = " AND t.state=%s" if state is not None else ""
         params: tuple[Any, ...] = (
             (run_id, state.value, limit + 1, offset)
             if state is not None
             else (run_id, limit + 1, offset)
         )
         rows = self._connection.execute(
-            "SELECT run_id,user_id,ordinal,state,started_at,finished_at,strategies_evaluated,strategies_skipped,unique_candidates_count,created_matches_count,existing_matches_skipped_count,safe_reason "
-            "FROM ops.matchmaking_run_users WHERE run_id=%s"
+            _USER_RESULT_QUERY
+            + " WHERE t.run_id=%s"
             + where
-            + " ORDER BY ordinal LIMIT %s OFFSET %s",
+            + " ORDER BY t.ordinal LIMIT %s OFFSET %s",
             params,
         ).fetchall()
         return _page(tuple(_user_result(row) for row in rows), limit, offset)
@@ -272,6 +278,7 @@ def _user_result(row: tuple[Any, ...]) -> UserResult:
         created_matches_count=row[9],
         existing_matches_skipped_count=row[10],
         safe_reason=row[11],
+        user_name=row[12],
     )
 
 

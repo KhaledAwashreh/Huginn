@@ -18,7 +18,7 @@ test('collection console renders saved results, pages, keyboard tabs and private
     Object.defineProperty(window.crypto, 'randomUUID', { configurable: true, value: undefined });
   });
   await page.goto('/admin/pipeline');
-  await page.getByLabel('Username').fill('browser-admin');
+  await page.getByLabel('Email', { exact: true }).fill('browser-admin@example.test');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Data collection', exact: true })).toBeVisible();
@@ -90,7 +90,7 @@ test('collection console renders saved results, pages, keyboard tabs and private
 
 test('ordinary users cannot load admin projections or see admin navigation', async ({ page }) => {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-bob');
+  await page.getByLabel('Email', { exact: true }).fill('browser-bob@example.test');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -115,13 +115,20 @@ test('matchmaking history is read-only and keeps mixed saved outcomes', async ({
       writerRequests.push(`${request.method()} ${new URL(request.url()).pathname}`);
   });
   await page.goto('/admin/matchmaking');
-  await page.getByLabel('Username').fill('browser-admin');
+  await page.getByLabel('Email', { exact: true }).fill('browser-admin@example.test');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Matchmaking', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Run history', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start run', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Search active users')).toHaveCount(0);
+  const users = await page.request.get('/api/v1/admin/matchmaking/users', {
+    params: { search: 'Saved Target', limit: 1 },
+  });
+  expect(users.status()).toBe(200);
+  const { items } = await users.json();
+  expect(items[0]).toMatchObject({ first_name: 'Saved', last_name: 'Target' });
+  expect(items[0]).not.toHaveProperty('username');
   const mixedRun = page.getByRole('row').filter({ hasText: 'completed_with_errors' });
   await expect(mixedRun).toContainText('105 / 105 processed');
   await expect(mixedRun.getByRole('link', { name: 'View run', exact: true })).toBeVisible();
@@ -151,10 +158,8 @@ test('matchmaking history is read-only and keeps mixed saved outcomes', async ({
   await expect(page.getByText('105 / 105 users processed', { exact: true })).toBeVisible();
   await expect(page.getByText('completed with errors', { exact: true })).toBeVisible();
   await expect(page.getByText('Some totals are unknown', { exact: false })).toBeVisible();
-  await page
-    .getByRole('button', { name: /^Show details for user / })
-    .first()
-    .click();
+  const namedResult = page.getByRole('row').filter({ hasText: 'Saved Target' }).first();
+  await namedResult.getByRole('button', { name: 'Show details for user Saved Target' }).click();
   await expect(page.locator('.skipped-list li')).toHaveCount(20);
   await page.locator('.skipped-list').getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.locator('.skipped-list').getByText('Page 2', { exact: true })).toBeVisible();
@@ -205,7 +210,7 @@ test('the user menu opens admin tools and the top nav keeps navigation and draft
   page,
 }) => {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-admin');
+  await page.getByLabel('Email', { exact: true }).fill('browser-admin@example.test');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

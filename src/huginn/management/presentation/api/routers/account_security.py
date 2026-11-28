@@ -1,6 +1,6 @@
 """Authenticated account security read and initial recovery enrollment."""
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 
 from huginn.management.application.requests.enroll_recovery_email_request import (
     EnrollRecoveryEmailRequest as EnrollApplicationRequest,
@@ -47,10 +47,10 @@ def get_account_security(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Cookie"
     return AccountSecurityResponse(
-        username=security.username,
+        account_email=security.account_email,
+        pending_email=security.pending_email,
         email_verification_required=security.email_verification_required,
         email_verified=security.email_verified,
-        recovery_email=security.recovery_email,
     )
 
 
@@ -58,7 +58,7 @@ def get_account_security(
     "/recovery-email-verifications",
     status_code=202,
     response_model=LifecycleReceiptResponse,
-    responses=error_responses(401, 403, 409, 422, 503),
+    responses=error_responses(401, 403, 409, 422, 429, 503),
     dependencies=[
         Depends(require_same_origin_browser_mutation),
         Depends(require_delivery_configuration),
@@ -66,13 +66,18 @@ def get_account_security(
 )
 def enroll_recovery_email(
     body: EnrollRecoveryEmailRequest,
+    request: Request,
     authenticated: CsrfProtected,
     response: Response,
     dependencies: Management,
 ) -> LifecycleReceiptResponse:
-    del body
     result = dependencies.enroll_recovery_email_service.execute(
-        EnrollApplicationRequest(authenticated.principal)
+        EnrollApplicationRequest(
+            authenticated.principal,
+            body.email,
+            body.current_password,
+            request.client.host if request.client else "",
+        )
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Cookie"

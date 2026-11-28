@@ -128,6 +128,27 @@ these additive tables. Keep the verification login gate for public accounts
 or disable their login operationally; an older server without the gate would
 allow unverified public accounts to log in.
 
+## Account email cutover preflight
+
+Run the read-only audit against the target management database before enabling
+email sign-in. It reads `HUGINN_MANAGEMENT_DATABASE_URL`.
+
+```bash
+rtk uv run python -m huginn.management.account_email_preflight
+```
+
+The audit uses the verified address where present, the pending address for a
+signup still awaiting required verification, and the owner contact address for
+other legacy accounts. It reports address mismatches for review. Missing
+identity data, invalid addresses, founder placeholders in proposed sign-in
+addresses, and conflicting owners block the cutover. A legacy contact address
+retains its existing verification status.
+
+Output includes account IDs and issue codes. Use `--include-addresses` in a
+private terminal if you need to inspect addresses for the accounts with
+findings. Exit status 0 means there are no blocking findings. Status 1 means
+the audit was unavailable, and status 2 means there are blockers to resolve.
+
 ## Existing Pre-KAN-83 Databases
 
 The KAN-83 rollout has three idempotent additive upgrades for a database with

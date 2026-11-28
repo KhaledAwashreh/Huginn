@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True, slots=True)
 class SignupRequest:
-    username: str = field(repr=False)
+    username: str | None = field(repr=False)
     password: str = field(repr=False)
     first_name: str
     last_name: str

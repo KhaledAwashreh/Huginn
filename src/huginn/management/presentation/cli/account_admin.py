@@ -4,6 +4,7 @@ import argparse
 import getpass
 import sys
 from collections.abc import Callable
+from uuid import UUID
 
 from huginn.management.application.commands.provisioning import ProvisionIdentity
 from huginn.management.application.requests.assign_account_role_request import (
@@ -52,7 +53,6 @@ def _parser() -> argparse.ArgumentParser:
     actions = account.add_subparsers(dest="action", required=True)
     provision = actions.add_parser("provision")
     for name in (
-        "username",
         "first-name",
         "last-name",
         "email",
@@ -64,11 +64,11 @@ def _parser() -> argparse.ArgumentParser:
     provision.add_argument("--password-stdin", action="store_true")
     for action in ("enable", "disable", "reset-password"):
         command = actions.add_parser(action)
-        command.add_argument("--username", required=True)
+        command.add_argument("--account-id", type=UUID, required=True)
         if action == "reset-password":
             command.add_argument("--password-stdin", action="store_true")
     assign_role = actions.add_parser("assign-role")
-    assign_role.add_argument("--username", required=True)
+    assign_role.add_argument("--account-id", type=UUID, required=True)
     assign_role.add_argument("--role", choices=("user", "admin"), required=True)
     assign_role.add_argument(
         "--confirm", action="store_true", help="confirm this trusted role change"
@@ -105,7 +105,7 @@ def main(
             password = _password(stdin=args.password_stdin)
             result = services.provisioning.provision(
                 ProvisionIdentity(
-                    args.username,
+                    None,
                     args.first_name,
                     args.last_name,
                     args.email,
@@ -116,19 +116,19 @@ def main(
                 )
             )
             print(
-                f"Provisioned account {result.username} ({result.account_id}); "
+                f"Provisioned account {result.account_id}; "
                 f"User {result.user_id}; ProfessionalProfile {result.profile_id}"
             )
         elif args.action in {"enable", "disable"}:
             status = "active" if args.action == "enable" else "disabled"
-            services.lifecycle.set_status(args.username, status)
+            services.lifecycle.set_status(args.account_id, status)
             print(
-                f"Account {args.username} {'enabled' if status == 'active' else 'disabled'}"
+                f"Account {args.account_id} {'enabled' if status == 'active' else 'disabled'}"
             )
         elif args.action == "reset-password":
             password = _password(stdin=args.password_stdin)
-            services.lifecycle.reset_password(args.username, password)
-            print(f"Password reset for account {args.username}")
+            services.lifecycle.reset_password(args.account_id, password)
+            print(f"Password reset for account {args.account_id}")
         else:
             if not args.confirm:
                 print(
@@ -139,12 +139,15 @@ def main(
             if services.role_assignment is None:
                 raise RuntimeError("account role assignment service is required")
             result = services.role_assignment.execute(
-                AssignAccountRoleRequest(args.username, AccountRole(args.role))
+                AssignAccountRoleRequest(args.account_id, AccountRole(args.role))
             )
-            print(f"Assigned {result.role.value} role to account {result.username}")
+            print(f"Assigned {result.role.value} role to account {result.account_id}")
         return 0
     except ConflictError:
-        print("Account command failed: username already in use", file=sys.stderr)
+        print(
+            "Account command failed: account identity is already in use",
+            file=sys.stderr,
+        )
         return 2
     except ValidationDomainError as exc:
         print(f"Account command failed: {exc}", file=sys.stderr)

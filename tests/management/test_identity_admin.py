@@ -156,9 +156,13 @@ class FakeRepository:
 
 
 class FakeRecoveryIdentityRepository:
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, claimed_email=None):
         self.fail = fail
+        self.claimed_email = claimed_email
         self.created = []
+
+    def get_by_email(self, email):
+        return object() if email == self.claimed_email else None
 
     def create(self, account_id, *, verification_required, pending_email=None):
         self.created.append((account_id, verification_required, pending_email))
@@ -247,7 +251,8 @@ def test_provisioning_returns_all_ids_and_preserves_username_spelling():
         hash_password_fn=lambda _: "scrypt$hash",
     )
     result = _provision(service, username="Alice")
-    assert result.username == "Alice"
+    assert repos[0].created[0].username == "Alice"
+    assert not hasattr(result, "username")
     assert all(
         isinstance(value, UUID)
         for value in (result.account_id, result.user_id, result.profile_id)
@@ -255,6 +260,27 @@ def test_provisioning_returns_all_ids_and_preserves_username_spelling():
     assert not hasattr(result, "password_hash")
     assert (uow.commits, uow.rollbacks) == (1, 0)
     assert recovery.created == [(result.account_id, False, None)]
+
+
+def test_provisioning_rejects_a_claimed_address_before_writing():
+    from huginn.management.domain.errors.errors import ConflictError
+
+    uow = FakeUow()
+    repos = [FakeRepository(kind) for kind in ("account", "user", "profile")]
+    recovery = FakeRecoveryIdentityRepository(claimed_email="ada@example.test")
+    service = IdentityProvisioningService(
+        lambda: uow,
+        accounts_factory=lambda _: repos[0],
+        users_factory=lambda _: repos[1],
+        profiles_factory=lambda _: repos[2],
+        recovery_identities_factory=lambda _: recovery,
+        hash_password_fn=lambda _: "scrypt$hash",
+    )
+
+    with pytest.raises(ConflictError, match="email"):
+        _provision(service, username=None)
+    assert all(not repo.created for repo in repos)
+    assert not recovery.created
 
 
 def test_domain_provisioning_service_accepts_command_value():
@@ -281,7 +307,8 @@ def test_domain_provisioning_service_accepts_command_value():
         )
     )
 
-    assert result.username == "Alice"
+    assert repos[0].created[0].username == "Alice"
+    assert isinstance(result.account_id, UUID)
     assert (uow.commits, uow.rollbacks) == (1, 0)
 
 
@@ -404,23 +431,32 @@ def test_cli_requires_explicit_confirmation_for_role_assignment(capsys):
 
         def execute(self, request):
             self.requests.append(request)
-            return SimpleNamespace(username=request.username, role=request.role)
+            return SimpleNamespace(account_id=request.account_id, role=request.role)
 
     service = RoleService()
 
     def factory():
         return SimpleNamespace(role_assignment=service)
 
-    args = ["account", "assign-role", "--username", "Alice", "--role", "admin"]
+    account_id = uuid4()
+    args = [
+        "account",
+        "assign-role",
+        "--account-id",
+        str(account_id),
+        "--role",
+        "admin",
+    ]
     assert main(args, services_factory=factory) == 2
     assert service.requests == []
     assert "--confirm" in capsys.readouterr().err
     assert main([*args, "--confirm"], services_factory=factory) == 0
+    assert service.requests[0].account_id == account_id
     assert service.requests[0].role.value == "admin"
-    assert "Assigned admin role to account Alice" in capsys.readouterr().out
+    assert f"Assigned admin role to account {account_id}" in capsys.readouterr().out
 
 
-def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
+def test_cli_prompt_and_identity_conflict_are_safe(monkeypatch, capsys):
     from types import SimpleNamespace
 
     from huginn.management.domain.errors.errors import ConflictError
@@ -441,17 +477,18 @@ def test_cli_prompt_and_username_conflict_are_safe(monkeypatch, capsys):
             pass
 
         def set_status(self, *_):
-            raise ConflictError("username is already in use")
+            raise ConflictError("private constraint detail")
 
     assert (
         admin.main(
-            ["account", "disable", "--username", "Alice"],
+            ["account", "disable", "--account-id", str(uuid4())],
             services_factory=lambda: SimpleNamespace(lifecycle=ConflictService()),
         )
         == 2
     )
     output = capsys.readouterr().err
-    assert "username already in use" in output
+    assert "account identity is already in use" in output
+    assert "private constraint detail" not in output
     assert "hash" not in output and "some password" not in output
 
 
@@ -474,8 +511,6 @@ def test_cli_field_validation_output_is_specific_and_redacted(monkeypatch, capsy
             [
                 "account",
                 "provision",
-                "--username",
-                "Alice",
                 "--first-name",
                 "Ada",
                 "--last-name",
@@ -515,11 +550,12 @@ def test_cli_preserves_safe_database_failure_class_name(capsys):
     service = AccountAdminService(
         lambda: UnitOfWork(factory),
         accounts_factory=lambda _: None,
+        recovery_identities_factory=lambda _: None,
         sessions_factory=lambda _: None,
     )
     assert (
         main(
-            ["account", "disable", "--username", "owner"],
+            ["account", "disable", "--account-id", str(uuid4())],
             services_factory=lambda: SimpleNamespace(lifecycle=service),
         )
         == 2

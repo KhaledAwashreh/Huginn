@@ -1,11 +1,12 @@
 """EnrollRecoveryEmail use case; public-account-lifecycle design sections 1–4."""
 
-from datetime import timedelta
-
 from huginn.management.application.constants.lifecycle_policy import (
     MAIL_COOLDOWN_SECONDS,
 )
-from huginn.management.application.errors.lifecycle import LifecycleConflictError
+from huginn.management.application.errors.lifecycle import (
+    LifecycleConflictError,
+    LifecycleRateLimitError,
+)
 from huginn.management.application.requests.enroll_recovery_email_request import (
     EnrollRecoveryEmailRequest,
 )
@@ -13,34 +14,53 @@ from huginn.management.application.responses.enroll_recovery_email_response impo
     EnrollRecoveryEmailResponse,
 )
 from huginn.management.application.services.signup_service import _LifecycleOperations
+from huginn.management.domain.errors.errors import ConflictError, ValidationDomainError
+from huginn.management.domain.services.identity_validation import normalized_email
 from huginn.management.domain.value_objects.proof_purpose import ProofPurpose
+from huginn.management.security.passwords import Password, verify_password
 
 
 class EnrollRecoveryEmailService(_LifecycleOperations):
     def execute(
         self, request: EnrollRecoveryEmailRequest
     ) -> EnrollRecoveryEmailResponse:
+        replacement = (
+            normalized_email(request.email) if request.email is not None else None
+        )
+        if replacement is not None:
+            self._admit(request.client_ip, email=replacement)
         with self._uow_factory() as uow:
             account, user = self._owner(uow, request.principal)
             identity = self._identity(uow, account.id)
-            if identity.verified_email is not None or identity.verification_required:
+            if replacement is not None:
+                try:
+                    current = Password(request.current_password)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationDomainError(
+                        "Current password is incorrect"
+                    ) from exc
+                if not verify_password(current, account.password_hash):
+                    raise ValidationDomainError("Current password is incorrect")
+                if replacement == identity.verified_email:
+                    raise LifecycleConflictError("Enter a different email address")
+            elif identity.verified_email is not None or identity.verification_required:
                 raise LifecycleConflictError("Recovery email enrollment is unavailable")
-            outbox = self._outbox_factory(uow)
-            latest = outbox.last_enqueued_at(account.id, ProofPurpose.VERIFY_EMAIL)
-            if latest is None or self._now() >= latest + timedelta(
-                seconds=MAIL_COOLDOWN_SECONDS
-            ):
-                if (
-                    self._recovery_factory(uow).set_pending_email(
-                        account.id, user.email
+            destination = replacement or normalized_email(user.email)
+            if self._queue(uow, account, ProofPurpose.VERIFY_EMAIL, destination):
+                try:
+                    pending = self._recovery_factory(uow).set_pending_email(
+                        account.id, destination
                     )
-                    is None
-                ):
+                except ConflictError as exc:
                     raise LifecycleConflictError(
-                        "Recovery email enrollment is unavailable"
-                    )
-                self._queue(
-                    uow, account, ProofPurpose.VERIFY_EMAIL, user.email, cooldown=False
+                        "That email address cannot be used"
+                    ) from exc
+                if pending is None:
+                    raise LifecycleConflictError("That email address cannot be used")
+            elif replacement is not None:
+                raise LifecycleRateLimitError(
+                    "Wait before requesting another verification link",
+                    MAIL_COOLDOWN_SECONDS,
                 )
             uow.commit()
         return EnrollRecoveryEmailResponse()

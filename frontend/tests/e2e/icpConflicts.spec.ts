@@ -11,7 +11,7 @@ test('legacy ICP overlaps are visible and removable and new overlaps are disable
   page,
 }) => {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-icp-conflicts');
+  await page.getByLabel('Email', { exact: true }).fill('browser-icp-conflicts@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

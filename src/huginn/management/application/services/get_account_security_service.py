@@ -13,13 +13,13 @@ from huginn.management.application.services.signup_service import _LifecycleOper
 class GetAccountSecurityService(_LifecycleOperations):
     def execute(self, request: GetAccountSecurityRequest) -> GetAccountSecurityResponse:
         with self._uow_factory() as uow:
-            account, _ = self._owner(uow, request.principal)
+            account, user = self._owner(uow, request.principal)
             identity = self._identity(uow, account.id)
             return GetAccountSecurityResponse(
                 AccountSecurity(
-                    account.username,
+                    identity.verified_email or user.email,
+                    identity.pending_email,
                     identity.verification_required,
                     identity.verified_email is not None,
-                    identity.verified_email,
                 )
             )

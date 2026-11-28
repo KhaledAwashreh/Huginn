@@ -225,7 +225,7 @@ test('searches, updates and reviews a prospect without inferring communication o
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -358,7 +358,7 @@ test('search reaches prospects beyond the first page and resets the server offse
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

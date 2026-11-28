@@ -275,7 +275,6 @@ export function normalizeE164Phone(country: string, nationalNumber: string): str
 }
 
 export interface SignupDraft {
-  username: string;
   password: string;
   first_name: string;
   last_name: string;

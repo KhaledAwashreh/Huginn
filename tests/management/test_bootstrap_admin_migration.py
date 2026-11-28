@@ -15,6 +15,7 @@ from huginn.management.security.passwords import (
     hash_password,
     verify_password,
 )
+from tests.postgres_harness import provisioned_postgres
 
 MIGRATION = Path("db/schema/operational-bootstrap-admin.sql")
 
@@ -142,6 +143,12 @@ def test_parallel_seed_runs_create_only_one_identity(management_database_url):
 RUNNER = Path("docker/seed-admin.py").resolve()
 
 
+@pytest.fixture
+def founder_database_url():
+    with provisioned_postgres("huginn_founder_bootstrap") as url:
+        yield url
+
+
 def founder_environment(first, second):
     return {
         "HUGINN_BOOTSTRAP_ADMIN_USERNAME": first,
@@ -164,19 +171,23 @@ def run_founders(monkeypatch, environment, database_url):
 
 
 def test_runner_seeds_both_founders_and_preserves_existing_records(
-    management_database_url,
+    founder_database_url,
     monkeypatch,
     caplog,
     capsys,
 ):
     caplog.set_level(logging.INFO)
     suffix = uuid4().hex
-    names = (f"Khaled-{suffix}", f"Craig-{suffix}")
-    environment = founder_environment(*names)
-    result = run_founders(monkeypatch, environment, management_database_url)
+    names = ("huginn-founder-primary", "huginn-founder-secondary")
+    first_email_stem, second_email_stem = f"Khaled-{suffix}", f"Craig-{suffix}"
+    environment = founder_environment(first_email_stem, second_email_stem)
+    for prefix in ("HUGINN_BOOTSTRAP_ADMIN", "HUGINN_BOOTSTRAP_SECOND_ADMIN"):
+        environment.pop(f"{prefix}_USERNAME")
+        monkeypatch.delenv(f"{prefix}_USERNAME", raising=False)
+    result = run_founders(monkeypatch, environment, founder_database_url)
     assert result == 0, caplog.text
     captured = capsys.readouterr()
-    with psycopg.connect(management_database_url) as conn:
+    with psycopg.connect(founder_database_url) as conn:
         rows = conn.execute(
             """SELECT a.id,a.username,a.role,a.password_hash,u.id,u.first_name,u.last_name,
             p.headline,r.verification_required,r.verified_email
@@ -189,23 +200,34 @@ def test_runner_seeds_both_founders_and_preserves_existing_records(
         assert len(rows) == 2
         for row in rows:
             assert row[2] == "admin"
-            assert row[5:8] == (row[1], "Founder", "Huginn co-founder")
+            assert row[5:8] == (
+                "Khaled" if row[1] == names[0] else "Craig",
+                "Founder",
+                "Huginn co-founder",
+            )
             assert row[8:] == (False, None)
             password = "KhaledSeed!123" if row[1] == names[0] else "CraigSeed!123"
             assert verify_password(Password(password), row[3])
             assert password not in caplog.text + captured.out + captured.err
-    app = create_app(ManagementConfig(database_url=management_database_url))
-    for name, password in zip(names, ("KhaledSeed!123", "CraigSeed!123"), strict=True):
+    app = create_app(ManagementConfig(database_url=founder_database_url))
+    for name, password in zip(
+        (first_email_stem, second_email_stem),
+        ("KhaledSeed!123", "CraigSeed!123"),
+        strict=True,
+    ):
         with TestClient(app) as client:
             assert (
                 client.post(
                     "/api/v1/sessions",
-                    json={"username": name.swapcase(), "password": password},
+                    json={
+                        "email": f"{name.swapcase()}@example.test",
+                        "password": password,
+                    },
                 ).status_code
                 == 200
             )
             assert client.get("/api/v1/sessions/current").json()["role"] == "admin"
-    with psycopg.connect(management_database_url) as conn:
+    with psycopg.connect(founder_database_url) as conn:
         changed = hash_password(Password("ChangedFounder!123"))
         conn.execute(
             "UPDATE operational.accounts SET password_hash=%s,status='disabled' WHERE username=%s",
@@ -216,36 +238,60 @@ def test_runner_seeds_both_founders_and_preserves_existing_records(
             (next(row[4] for row in rows if row[1] == names[0]),),
         )
         before = conn.execute(
-            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
+            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline,u.email FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
             (list(names),),
         ).fetchall()
-    environment["HUGINN_BOOTSTRAP_ADMIN_USERNAME"] = names[0].lower()
-    assert run_founders(monkeypatch, environment, management_database_url) == 0
-    with psycopg.connect(management_database_url) as conn:
+    environment["HUGINN_BOOTSTRAP_ADMIN_EMAIL"] = "different@example.test"
+    assert run_founders(monkeypatch, environment, founder_database_url) == 0
+    with psycopg.connect(founder_database_url) as conn:
         after = conn.execute(
-            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
+            "SELECT a.id,a.username,a.password_hash,a.status,u.id,p.headline,u.email FROM operational.accounts a JOIN operational.users u ON u.account_id=a.id JOIN operational.professional_profiles p ON p.user_id=u.id WHERE a.username=ANY(%s) ORDER BY a.username",
             (list(names),),
         ).fetchall()
         assert after == before
 
 
+def test_runner_adopts_existing_admins_from_legacy_configuration(
+    founder_database_url, monkeypatch
+):
+    names = ("previous-primary", "previous-secondary")
+    with psycopg.connect(founder_database_url) as conn:
+        for name in names:
+            seed(conn, name)
+        before = conn.execute(
+            "SELECT id,username,password_hash FROM operational.accounts ORDER BY username"
+        ).fetchall()
+    assert (
+        run_founders(monkeypatch, founder_environment(*names), founder_database_url)
+        == 0
+    )
+    with psycopg.connect(founder_database_url) as conn:
+        assert (
+            conn.execute(
+                "SELECT id,username,password_hash FROM operational.accounts ORDER BY username"
+            ).fetchall()
+            == before
+        )
+
+
 def test_second_founder_conflict_rolls_back_first_founder(
-    management_database_url, monkeypatch
+    founder_database_url, monkeypatch
 ):
     first, second = f"first-{uuid4().hex}", f"second-{uuid4().hex}"
-    with psycopg.connect(management_database_url) as conn:
+    with psycopg.connect(founder_database_url) as conn:
         conn.execute(
             "INSERT INTO operational.accounts(username,password_hash) VALUES (%s,'keep-hash')",
             (second,),
         )
     result = run_founders(
-        monkeypatch, founder_environment(first, second), management_database_url
+        monkeypatch, founder_environment(first, second), founder_database_url
     )
     assert result == 1
-    with psycopg.connect(management_database_url) as conn:
+    with psycopg.connect(founder_database_url) as conn:
         assert (
             conn.execute(
-                "SELECT count(*) FROM operational.accounts WHERE username=%s", (first,)
+                "SELECT count(*) FROM operational.accounts WHERE username=%s",
+                ("huginn-founder-primary",),
             ).fetchone()[0]
             == 0
         )

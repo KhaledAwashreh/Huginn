@@ -16,23 +16,30 @@ logger = logging.getLogger(__name__)
 def main(*, database_url: str | None = None) -> int:
     try:
         configurations = []
-        for prefix in ("HUGINN_BOOTSTRAP_ADMIN", "HUGINN_BOOTSTRAP_SECOND_ADMIN"):
-            username = os.environ[f"{prefix}_USERNAME"].strip()
-            if not username:
-                raise ValueError("admin username is required")
+        founders = (
+            ("HUGINN_BOOTSTRAP_ADMIN", "Khaled", "huginn-founder-primary"),
+            ("HUGINN_BOOTSTRAP_SECOND_ADMIN", "Craig", "huginn-founder-secondary"),
+        )
+        for prefix, first_name, identifier in founders:
+            legacy = os.environ.get(f"{prefix}_USERNAME", "").strip()
             password = validate_new_password(os.environ[f"{prefix}_PASSWORD"])
             configurations.append(
                 {
-                    "username": username,
+                    "username": identifier,
+                    "legacy_username": legacy or first_name,
                     "email": normalized_email(os.environ[f"{prefix}_EMAIL"]),
                     "password_hash": hash_password(password),
-                    "first_name": username,
+                    "first_name": legacy or first_name,
                     "last_name": "Founder",
                     "headline": "Huginn co-founder",
                 }
             )
-        if len({value["username"].casefold() for value in configurations}) != 2:
-            raise ValueError("founder usernames must be distinct")
+        first, second = (
+            {value["username"].casefold(), value["legacy_username"].casefold()}
+            for value in configurations
+        )
+        if not first.isdisjoint(second):
+            raise ValueError("founder account selectors must be distinct")
         if len({value["email"] for value in configurations}) != 2:
             raise ValueError("founder emails must be distinct")
         migration = (

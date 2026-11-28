@@ -64,7 +64,7 @@ def test_public_password_reset_enforces_same_composition_as_signup():
             ResetPasswordRequest(token="proof", new_password=value)
 
 
-def test_lifecycle_tokens_are_hidden_and_enrollment_accepts_only_empty_json():
+def test_lifecycle_tokens_and_email_change_credentials_are_hidden():
     assert (ROOT / "verify_email.py").exists(), "proof HTTP contract is missing"
     VerifyEmailRequest = importlib.import_module(
         "huginn.management.presentation.api.requests.verify_email"
@@ -73,6 +73,13 @@ def test_lifecycle_tokens_are_hidden_and_enrollment_accepts_only_empty_json():
     EnrollRecoveryEmailRequest = importlib.import_module(
         "huginn.management.presentation.api.requests.enroll_recovery_email"
     ).EnrollRecoveryEmailRequest
-    assert EnrollRecoveryEmailRequest().model_dump() == {}
+    assert EnrollRecoveryEmailRequest().model_dump(exclude_unset=True) == {}
+    change = EnrollRecoveryEmailRequest(
+        email="other@example.test", current_password="private-password"
+    )
+    assert "other@example.test" not in repr(change)
+    assert "private-password" not in repr(change)
     with pytest.raises(ValidationError):
         EnrollRecoveryEmailRequest(email="other@example.test")
+    with pytest.raises(ValidationError):
+        EnrollRecoveryEmailRequest(current_password="private-password")

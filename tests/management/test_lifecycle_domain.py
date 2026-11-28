@@ -31,6 +31,8 @@ def test_recovery_identity_derives_pending_verified_and_trusted_states():
     assert trusted.verification_state is VerificationState.TRUSTED
     assert pending.verification_state is VerificationState.PENDING
     assert verified.verification_state is VerificationState.VERIFIED
+    replacement = replace(verified, pending_email="new@example.test")
+    assert replacement.verification_state is VerificationState.VERIFIED
 
 
 def test_recovery_identity_rejects_conflicting_verification_addresses():
@@ -41,7 +43,7 @@ def test_recovery_identity_rejects_conflicting_verification_addresses():
             uuid4(),
             True,
             "ada@example.test",
-            "old@example.test",
+            "ADA@example.test",
             now,
             now,
             now,

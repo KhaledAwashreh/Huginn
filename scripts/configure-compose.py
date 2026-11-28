@@ -195,11 +195,9 @@ def main() -> int:
             }
             missing = []
             for prefix in prefixes:
-                required = {
-                    f"{prefix}_{field}" for field in ("USERNAME", "EMAIL", "PASSWORD")
-                }
+                required = {f"{prefix}_EMAIL", f"{prefix}_PASSWORD"}
                 present = required & values.keys()
-                if present and (
+                if (present or f"{prefix}_USERNAME" in values) and (
                     present != required or any(not values[key] for key in required)
                 ):
                     parser.exit(

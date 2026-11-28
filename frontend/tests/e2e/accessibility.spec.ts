@@ -6,12 +6,12 @@ test('login reflows at 320 CSS px with accessible labels, focus and error feedba
 }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('/login');
-  await expect(page.getByLabel('Username')).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute(
     'autocomplete',
     'current-password',
   );
-  await page.getByLabel('Username').focus();
+  await page.getByLabel('Email', { exact: true }).focus();
   await page.keyboard.press('Tab');
   await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
@@ -31,7 +31,7 @@ test('login reflows at 320 CSS px with accessible labels, focus and error feedba
         .analyze()
     ).violations,
   ).toEqual([]);
-  await page.getByLabel('Username').fill('unknown-browser');
+  await page.getByLabel('Email', { exact: true }).fill('unknown-browser@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-wrong-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
@@ -48,7 +48,7 @@ test('login reflows at 320 CSS px with accessible labels, focus and error feedba
 test('authenticated shell supports keyboard navigation and reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-ada');
+  await page.getByLabel('Email', { exact: true }).fill('browser-ada@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

@@ -281,7 +281,9 @@ class _LifecycleOperations:
 class SignupService(_LifecycleOperations):
     def execute(self, request: SignupRequest) -> SignupResponse:
         fields = validated_identity_fields(
-            username=request.username,
+            username=request.username
+            if request.username is not None
+            else f"account-{uuid4()}",
             first_name=request.first_name,
             last_name=request.last_name,
             email=request.email,
@@ -300,13 +302,20 @@ class SignupService(_LifecycleOperations):
             password = validate_new_password(request.password)
         except (TypeError, ValueError) as exc:
             raise ValidationDomainError("invalid identity field: password") from exc
-        self._admit(request.client_ip, fields[0], fields[3])
+        self._admit(
+            request.client_ip,
+            fields[0] if request.username is not None else None,
+            fields[3],
+        )
         encoded = self._hash_password(password)
         try:
             with self._uow_factory() as uow:
                 accounts = self._accounts_factory(uow)
                 if (
-                    accounts.get_by_normalized_username(fields[0]) is not None
+                    (
+                        request.username is not None
+                        and accounts.get_by_normalized_username(fields[0]) is not None
+                    )
                     or self._users_factory(uow).get_by_email(fields[3]) is not None
                     or self._recovery_factory(uow).get_by_email(fields[3]) is not None
                 ):

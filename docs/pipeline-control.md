@@ -21,10 +21,11 @@ A dedicated synchronous worker runs committed work independently of HTTP.
    required YC API configuration for the child executor. No DSN is accepted in
    the trigger body, and application construction applies no migrations.
 
-3. Assign an existing account explicitly through trusted operator tooling:
+3. Assign an existing account through trusted operator tooling. Use the
+   Account UUID from provisioning or the account's current session response.
 
    ```bash
-   rtk proxy env PYTHONPATH=src .venv/bin/python -m huginn.management.admin account assign-role --username operator --role admin --confirm
+   rtk proxy env PYTHONPATH=src .venv/bin/python -m huginn.management.admin account assign-role --account-id ACCOUNT_UUID --role admin --confirm
    ```
 
    Existing accounts, public signup and trusted provisioning default to `user`.

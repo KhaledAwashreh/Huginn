@@ -37,15 +37,16 @@ from huginn.management.persistence.row_models.lifecycle_throttle import (
 )
 
 
-def test_account_security_projection_hides_recovery_email_and_is_frozen():
+def test_account_security_projection_hides_addresses_and_is_frozen():
     security = AccountSecurity(
-        username="ada",
+        account_email="private@example.test",
+        pending_email="pending@example.test",
         email_verification_required=True,
         email_verified=False,
-        recovery_email="private@example.test",
     )
 
     assert "private@example.test" not in repr(security)
+    assert "pending@example.test" not in repr(security)
     with pytest.raises(FrozenInstanceError):
         security.email_verified = True
 

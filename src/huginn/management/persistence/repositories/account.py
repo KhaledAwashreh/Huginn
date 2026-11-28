@@ -42,6 +42,17 @@ class PostgresAccountRepository(PostgresIdentityRepository, AccountRepository):
         )
         return self._map(row) if row else None
 
+    def get_by_trusted_owner_email(self, email: str) -> Account | None:
+        row = self._one(
+            f"SELECT {self._columns} FROM operational.accounts WHERE id = ("
+            "SELECT u.account_id FROM operational.users u "
+            "JOIN operational.account_recovery_identity r ON r.account_id = u.account_id "
+            "WHERE lower(btrim(u.email)) = %s AND NOT r.verification_required "
+            "AND r.verified_email IS NULL)",
+            (email.strip().lower(),),
+        )
+        return self._map(row) if row else None
+
     def get_by_normalized_username_for_update(self, username: str) -> Account | None:
         row = self._one(
             f"SELECT {self._columns} FROM operational.accounts "

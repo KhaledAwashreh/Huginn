@@ -9,5 +9,4 @@ from huginn.management.domain.value_objects.account_role import AccountRole
 @dataclass(frozen=True, slots=True)
 class AssignAccountRoleResponse:
     account_id: UUID
-    username: str
     role: AccountRole

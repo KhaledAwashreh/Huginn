@@ -306,12 +306,17 @@ Provision the owner. The command prompts twice with terminal echo disabled, so
 the raw password is neither a command-line argument nor shell history:
 
 ```bash
-rtk uv run --python 3.14 python -m huginn.management.admin account provision --username owner --first-name Local --last-name Owner --email owner@example.test --phone-number +970599000000 --country-of-residence Palestine --timezone Asia/Hebron
+rtk uv run --python 3.14 python -m huginn.management.admin account provision --first-name Local --last-name Owner --email owner@example.test --phone-number +970599000000 --country-of-residence Palestine --timezone Asia/Hebron
 ```
 
 For non-interactive automation, add `--password-stdin` and redirect a protected
 file containing the password twice on separate lines. Do not place the password
 in an argument, environment variable, example file, or log.
+
+Keep the Account UUID printed by provisioning. Use it with `--account-id`
+for `account enable`, `account disable`, `account reset-password`, and
+`account assign-role`. Find an existing account's UUID in the
+`account_id` in its current session response or from the trusted database.
 
 Start the development server. Startup opens no database connection and applies
 no DDL:
@@ -326,7 +331,7 @@ files for the response and cookie jar. The producer reads the password through
 
 ```bash
 umask 077
-rtk uv run --python 3.14 python -c 'import getpass,json,sys; print("Username: ", end="", file=sys.stderr, flush=True); username=input(); print(json.dumps({"username": username, "password": getpass.getpass()}))' | rtk proxy curl --fail-with-body --silent --show-error --request POST --header 'Content-Type: application/json' --data-binary @- --cookie-jar /tmp/huginn-kan78-cookies.txt --output /tmp/huginn-kan78-login.json http://127.0.0.1:8000/api/v1/sessions
+rtk uv run --python 3.14 python -c 'import getpass,json,sys; print("Email: ", end="", file=sys.stderr, flush=True); email=input(); print(json.dumps({"email": email, "password": getpass.getpass()}))' | rtk proxy curl --fail-with-body --silent --show-error --request POST --header 'Content-Type: application/json' --data-binary @- --cookie-jar /tmp/huginn-kan78-cookies.txt --output /tmp/huginn-kan78-login.json http://127.0.0.1:8000/api/v1/sessions
 export HUGINN_CSRF_TOKEN="$(rtk uv run --python 3.14 python -c 'import json; print(json.load(open("/tmp/huginn-kan78-login.json"))["csrf_token"])')"
 rtk proxy curl --fail-with-body --cookie /tmp/huginn-kan78-cookies.txt http://127.0.0.1:8000/api/v1/me
 ```

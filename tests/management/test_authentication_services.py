@@ -62,6 +62,9 @@ class Accounts:
         self.id_locked_lookups.append(account_id)
         return self.get_by_id(account_id)
 
+    def get_by_trusted_owner_email(self, _):
+        return None
+
     def set_password_hash(self, account_id, value):
         if self.fail_set:
             raise RuntimeError("password write failure")
@@ -96,11 +99,11 @@ class Throttle:
         if self.limited:
             raise RateLimitError("login attempts are temporarily limited")
 
-    def reserve(self, ip, username):
+    def reserve(self, ip, username, *, namespace="username"):
         self.checks.append((ip, username))
         if self.limited:
             raise RateLimitError("login attempts are temporarily limited")
-        return (ip, username, len(self.checks))
+        return (ip, username, len(self.checks), namespace)
 
     def record_failure(self, ip, username, reservation=None):
         self.failures.append((ip, username))
@@ -130,6 +133,7 @@ def make_login(
     dummy_hash="dummy-hash",
     use_werkzeug_rehash=False,
     recovery_identity=...,
+    email_identity=None,
 ):
     uow, repos = uow or Uow(), Accounts(account)
     sessions, throttle = sessions or Sessions(), throttle or Throttle()
@@ -149,7 +153,8 @@ def make_login(
         throttle,
         accounts_factory=lambda _: repos,
         recovery_identities_factory=lambda _: SimpleNamespace(
-            get_by_account_id=lambda _: recovery_identity
+            get_by_account_id=lambda _: recovery_identity,
+            get_by_verified_email=lambda _: email_identity,
         ),
         sessions_factory=lambda _: sessions,
         clock=lambda: NOW,
@@ -161,6 +166,34 @@ def make_login(
         dummy_password_hash=(None if use_werkzeug_rehash else dummy_hash),
     )
     return service, uow, repos, sessions, throttle, verified
+
+
+def test_verified_email_shares_attempt_budget_and_rechecks_destination_under_lock():
+    account = owner()
+    before = SimpleNamespace(account_id=account.id, verified_email="old@example.test")
+    after = SimpleNamespace(
+        verification_required=True, verified_email="new@example.test"
+    )
+    service, work, repos, sessions, throttle, _ = make_login(
+        account=account, email_identity=before, recovery_identity=after
+    )
+
+    with pytest.raises(AuthenticationError):
+        service.login(
+            email=" OLD@example.test ", password=PASSWORD, client_ip="192.0.2.1"
+        )
+
+    assert (
+        throttle.checks
+        == throttle.failures
+        == [
+            ("192.0.2.1", "old@example.test"),
+            ("192.0.2.1", account.username),
+        ]
+    )
+    assert repos.id_locked_lookups == [account.id]
+    assert sessions.created == []
+    assert work.commits == 0
 
 
 @pytest.mark.parametrize(

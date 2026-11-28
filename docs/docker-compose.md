@@ -251,23 +251,22 @@ back when Docker restarts. Run `up` again after `down`.
 
 Two founder administrators are seeded automatically on a fresh deployment:
 
-| Username | Private password setting | Placeholder email |
+| Name | Private password setting | Email setting |
 | --- | --- | --- |
-| `Khaled` | `HUGINN_BOOTSTRAP_ADMIN_PASSWORD` | `khaled@huginn.local` |
-| `Craig` | `HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD` | `craig@huginn.local` |
+| Khaled | `HUGINN_BOOTSTRAP_ADMIN_PASSWORD` | `HUGINN_BOOTSTRAP_ADMIN_EMAIL` |
+| Craig | `HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD` | `HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL` |
 
-Usernames are case-insensitive: `khaled` and `KHALED` identify the same account.
 Each password is generated independently in your private `.env`, never baked into
 the image or printed in startup logs. Both use the existing `admin` role, with all
 administrator permissions for collection and retained matchmaking history. New matchmaking admission is retired. Founder labels
 are profile information, not a new authorization role. Ordinary ownership rules
 for personal workspace data still apply.
 
-Log in directly with the configured credentials; signup/email verification is not
-required for these owner-provisioned identities. Replace placeholder emails and
-personal details before using account recovery. Initial profiles use the username
-as first name, `Founder` as a placeholder last name and `Huginn co-founder` as the
-headline. The seed does not claim the configured email has been verified.
+Replace the generated placeholder addresses before a fresh seed, then use the
+configured email and password to sign in. Owner-provisioned accounts can sign in
+before verifying email. Verify the address in Security to enable recovery and
+weekly email. The seed gives each founder a stable account identifier, so later
+verified email changes do not affect repeated seed runs.
 
 For an older `.env` with no admins or only a primary admin, run once:
 
@@ -276,10 +275,10 @@ python3 scripts/configure-compose.py --add-admin
 ```
 
 This adds missing complete admin settings while preserving the database password,
-lifecycle key and any existing primary administrator settings. An old
-`huginn-admin` or custom primary username is preserved, not renamed or deleted;
-only fresh configuration defaults to `Khaled`. Set the primary username explicitly
-before its first seed if deploying an older configuration to a new database.
+lifecycle key and any existing primary administrator settings. Previously
+configured bootstrap selectors are read for compatibility with the existing
+founder records. New configurations require only an email and password for each
+founder.
 Partial or empty primary/secondary configuration fails without modifying the file.
 Rerunning after both sets exist leaves their settings unchanged.
 
@@ -287,10 +286,10 @@ The SQL data migration is `db/schema/operational-bootstrap-admin.sql`. The trust
 runner validates both configured identities before connecting and hashes both
 passwords with scrypt. It applies the migration for both in one transaction, so a
 collision on the second founder rolls back the first new identity. Existing admins
-retain passwords, disabled state, recovery settings and profile edits. An ordinary
-account with the same case-insensitive username blocks the seed; it is never
-silently promoted. Choose a different bootstrap username or explicitly promote an
-owned account. No account is enrolled in weekly mail.
+retain passwords, disabled state, recovery settings and profile edits. If a
+bootstrap selector matches an ordinary account or matches multiple records, the
+seed stops. Resolve the ownership explicitly before rerunning. Weekly mail
+enrollment is separate.
 
 On an existing compatible database, running the migration requires no direct SQL:
 
@@ -303,12 +302,13 @@ remain explicit; this command is a data seed, not a schema bootstrap. Changing t
 environment password later does not reset the stored admin password. Use the normal
 account password change flow or the documented owner reset CLI.
 
-You can still create accounts through signup or provisioning and promote one with:
+To promote an account created through signup or provisioning, use its Account
+UUID from provisioning or the current session response.
 
 ```sh
 docker compose exec app \
   python -m huginn.management.admin account assign-role \
-  --username YOUR_USERNAME --role admin --confirm
+  --account-id ACCOUNT_UUID --role admin --confirm
 ```
 
 Use the admin collection screen to populate the initially empty corpus. Configure

@@ -27,7 +27,8 @@ class ResetPasswordService(_LifecycleOperations):
                 uow, request.token, ProofPurpose.RESET_PASSWORD
             )
             now = self._now()
-            if not self._proofs_factory(uow).consume(proof.id, now):
+            proofs = self._proofs_factory(uow)
+            if not proofs.consume(proof.id, now):
                 raise LifecycleProofError("This link is invalid or expired")
             if (
                 self._accounts_factory(uow).set_password_hash(account.id, encoded)
@@ -37,8 +38,8 @@ class ResetPasswordService(_LifecycleOperations):
             if self._sessions_factory is None:
                 raise LifecycleIntegrityError("Account security data is unavailable")
             self._sessions_factory(uow).revoke_for_account(account.id, now)
-            self._proofs_factory(uow).supersede_for_account(
-                account.id, ProofPurpose.RESET_PASSWORD
-            )
+            proofs.supersede_for_account(account.id, ProofPurpose.RESET_PASSWORD)
+            if self._recovery_factory(uow).cancel_pending_replacement(account.id):
+                proofs.supersede_for_account(account.id, ProofPurpose.VERIFY_EMAIL)
             uow.commit()
         return ResetPasswordResponse()
