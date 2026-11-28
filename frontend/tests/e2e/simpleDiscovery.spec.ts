@@ -4,9 +4,10 @@ test('the simplified profile completes a partial setup and activates discovery w
   page,
 }, testInfo) => {
   await page.goto('/login');
-  await page
-    .getByLabel('Username')
-    .fill(testInfo.retry ? 'browser-simple-retry' : 'browser-simple');
+  const email = testInfo.retry
+    ? 'browser-simple-retry@example.test'
+    : 'browser-simple@example.test';
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

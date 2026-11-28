@@ -19,3 +19,4 @@ class UserResult:
     created_matches_count: int | None = None
     existing_matches_skipped_count: int | None = None
     safe_reason: str | None = None
+    user_name: str | None = None

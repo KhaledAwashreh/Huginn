@@ -57,9 +57,9 @@ test('real signup mail, explicit verification and recovery keep the verified des
   browser,
 }) => {
   test.setTimeout(90_000);
-  const username = `lifecycle-${Date.now()}`;
-  const email = `${username}@example.test`;
-  const contactEmail = `${username}-contact@example.test`;
+  const key = `lifecycle-${Date.now()}`;
+  const email = `${key}@example.test`;
+  const contactEmail = `${key}-contact@example.test`;
   const proofPosts: string[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().endsWith('/email-verifications'))
@@ -67,7 +67,6 @@ test('real signup mail, explicit verification and recovery keep the verified des
   });
   await page.goto('/create-account');
   for (const [label, value] of Object.entries({
-    Username: username,
     Password: PASSWORD,
     'First name': 'Ada',
     'Last name': 'Lifecycle',
@@ -84,7 +83,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
   await accessibleNarrowPage(page, 'lifecycle-check-email');
   const verificationLink = await mailLink(page.request, email, '/verify-email');
   const preverification = await page.request.post('/api/v1/sessions', {
-    data: { username, password: PASSWORD },
+    data: { email, password: PASSWORD },
   });
   expect(preverification.status()).toBe(401);
   await page.goto(verificationLink);
@@ -112,7 +111,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
   await expect(page.getByText('Open the link from your email', { exact: false })).toBeVisible();
   await cleanProofHistory(page, verificationLink);
   await page.goto('/login');
-  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -123,10 +122,10 @@ test('real signup mail, explicit verification and recovery keep the verified des
     data: { email: contactEmail },
     headers: { 'X-CSRF-Token': session.csrf_token },
   });
-  expect(contactChange.status()).toBe(200);
+  expect(contactChange.status()).toBe(409);
   const security = await page.request.get('/api/v1/me/account-security');
   expect(security.status()).toBe(200);
-  expect((await security.json()).recovery_email).toBe(email);
+  expect((await security.json()).account_email).toBe(email);
 
   const recoveryContext = await browser.newContext({ baseURL: BROWSER_ORIGIN });
   try {
@@ -182,7 +181,7 @@ test('real signup mail, explicit verification and recovery keep the verified des
     expect(resetPosts).toHaveLength(2);
     expect((await page.request.get('/api/v1/sessions/current')).status()).toBe(401);
     await recovery.goto('/login');
-    await recovery.getByLabel('Username').fill(username);
+    await recovery.getByLabel('Email', { exact: true }).fill(email);
     await recovery.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await recovery.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(recovery.getByRole('alert')).toBeVisible();
@@ -225,7 +224,7 @@ test('lifecycle forms support keyboard order and WCAG 2.2 AA checks at 320 CSS p
   page,
 }) => {
   await page.goto('/create-account');
-  await page.getByLabel('Username').focus();
+  await page.getByLabel('Email', { exact: true }).focus();
   await page.keyboard.press('Tab');
   await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
   await page.keyboard.press('Tab');

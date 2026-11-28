@@ -27,6 +27,7 @@ def outbox_database_url():
 def _enqueue(conn, now, *, expires_at=None, account_id=None):
     account_id = account_id or uuid4()
     proof_id = uuid4()
+    destination = f"{account_id}@example.com"
     conn.execute(
         "INSERT INTO operational.accounts (id,username,password_hash) "
         "VALUES (%s,%s,'hash') ON CONFLICT DO NOTHING",
@@ -35,17 +36,18 @@ def _enqueue(conn, now, *, expires_at=None, account_id=None):
     conn.execute(
         "INSERT INTO operational.account_recovery_identity "
         "(account_id,verification_required,pending_email) "
-        "VALUES (%s,true,'recipient@example.com') ON CONFLICT DO NOTHING",
-        (account_id,),
+        "VALUES (%s,true,%s) ON CONFLICT DO NOTHING",
+        (account_id, destination),
     )
     conn.execute(
         "INSERT INTO operational.account_lifecycle_proofs "
         "(id,account_id,token_digest,purpose,destination,expires_at,created_at) "
-        "VALUES (%s,%s,%s,'verify_email','recipient@example.com',%s,%s)",
+        "VALUES (%s,%s,%s,'verify_email',%s,%s,%s)",
         (
             proof_id,
             account_id,
             uuid4().hex * 2,
+            destination,
             expires_at or now + timedelta(days=1),
             now,
         ),

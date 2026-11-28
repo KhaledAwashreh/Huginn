@@ -16,7 +16,6 @@ import {
 import { validateLifecyclePassword } from '../forms/resetPasswordDraft';
 const router = useRouter();
 const draft = reactive<SignupDraft>({
-  username: '',
   password: '',
   first_name: '',
   last_name: '',
@@ -29,7 +28,7 @@ const pending = ref(false);
 const message = ref('');
 const errors = ref<Record<string, string>>({});
 const fields = [
-  { name: 'username', label: 'Username', autocomplete: 'username', type: 'text', required: true },
+  { name: 'email', label: 'Email', autocomplete: 'username', type: 'email', required: true },
   {
     name: 'password',
     label: 'Password',
@@ -51,7 +50,6 @@ const fields = [
     type: 'text',
     required: true,
   },
-  { name: 'email', label: 'Email', autocomplete: 'email', type: 'email', required: true },
   {
     name: 'country_of_residence',
     label: 'Country of residence',

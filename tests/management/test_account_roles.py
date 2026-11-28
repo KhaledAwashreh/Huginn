@@ -73,10 +73,6 @@ def test_role_assignment_updates_only_the_role_and_commits():
         def __init__(self):
             self.updated = None
 
-        def get_by_normalized_username(self, username):
-            assert username == " Alice "
-            return account
-
         def set_role(self, account_id, role):
             assert account_id == account.id
             self.updated = role
@@ -84,7 +80,8 @@ def test_role_assignment_updates_only_the_role_and_commits():
 
     uow, accounts = FakeUnitOfWork(), Accounts()
     service = AssignAccountRoleService(lambda: uow, accounts_factory=lambda _: accounts)
-    result = service.execute(AssignAccountRoleRequest(" Alice ", AccountRole("admin")))
+    result = service.execute(AssignAccountRoleRequest(account.id, AccountRole("admin")))
+    assert result.account_id == account.id
     assert result.role == AccountRole("admin")
     assert accounts.updated == AccountRole("admin")
     assert account.status == "disabled"

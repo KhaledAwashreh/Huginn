@@ -15,6 +15,7 @@ from huginn.matchmaking_control.persistence.queries.run_reader import PostgresRu
 def test_stored_run_and_target_history_remain_readable(integration_database_url):
     now = datetime(2026, 11, 15, tzinfo=UTC)
     account_id, run_id, request_id, user_id = (uuid4() for _ in range(4))
+    missing_user_id = uuid4()
     with psycopg.connect(integration_database_url) as connection:
         connection.execute(
             "INSERT INTO operational.accounts(id,username,password_hash) "
@@ -22,9 +23,15 @@ def test_stored_run_and_target_history_remain_readable(integration_database_url)
             (account_id, f"history-{account_id}"),
         )
         connection.execute(
+            "INSERT INTO operational.users "
+            "(id,account_id,first_name,last_name,email,phone_number,country_of_residence) "
+            "VALUES (%s,%s,'Ada','Lovelace',%s,'+12025550123','US')",
+            (user_id, account_id, f"{user_id}@example.test"),
+        )
+        connection.execute(
             "INSERT INTO ops.matchmaking_runs "
             "(id,requester_account_id,request_id,canonical_request,target_kind,cutoff,as_of,state,requested_at,finished_at,target_count,settled_target_count,safe_error_code) "
-            "VALUES (%s,%s,%s,%s,'user',%s,%s,'interrupted',%s,%s,1,1,'executor_interrupted')",
+            "VALUES (%s,%s,%s,%s,'all_eligible',%s,%s,'interrupted',%s,%s,2,2,'executor_interrupted')",
             (
                 run_id,
                 account_id,
@@ -38,8 +45,8 @@ def test_stored_run_and_target_history_remain_readable(integration_database_url)
         )
         connection.execute(
             "INSERT INTO ops.matchmaking_run_users(run_id,user_id,ordinal,state,finished_at,safe_reason) "
-            "VALUES (%s,%s,0,'not_executed',%s,NULL)",
-            (run_id, user_id, now),
+            "VALUES (%s,%s,0,'not_executed',%s,NULL),(%s,%s,1,'user_not_found',%s,NULL)",
+            (run_id, user_id, now, run_id, missing_user_id, now),
         )
         connection.commit()
 
@@ -55,6 +62,9 @@ def test_stored_run_and_target_history_remain_readable(integration_database_url)
     assert detail.state.value == "interrupted"
     assert detail.safe_error_code == "executor_interrupted"
     assert results is not None
-    assert len(results.items) == 1
+    assert len(results.items) == 2
     assert results.items[0].user_id == user_id
     assert results.items[0].state.value == "not_executed"
+    assert results.items[0].user_name == "Ada Lovelace"
+    assert results.items[1].user_id == missing_user_id
+    assert results.items[1].user_name is None

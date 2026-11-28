@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from huginn.management.domain.entities.professional_profile import ProfessionalProfile
 from huginn.management.domain.entities.user import User
-from huginn.management.domain.errors.errors import NotFoundError
+from huginn.management.domain.errors.errors import ConflictError, NotFoundError
 from huginn.management.domain.value_objects.common import Principal
 from huginn.management.domain.value_objects.professional_profile import (
     ProfessionalProfileChanges,
@@ -40,7 +40,26 @@ class UserProfileService:
 
     def update_user(self, principal: Principal, changes: UserChanges) -> User:
         with self._uow_factory() as uow:
-            user = self._users_factory(uow).update(principal.user_id, changes)
+            users = self._users_factory(uow)
+            if "email" in changes.supplied_fields:
+                current = users.get_by_id(principal.user_id)
+                if current is None:
+                    raise NotFoundError("User not found")
+                email = changes.values["email"]
+                if (
+                    not isinstance(email, str)
+                    or email.strip().lower() != current.email.strip().lower()
+                ):
+                    raise ConflictError(
+                        "Change your account email in Security and verify the new address."
+                    )
+                remaining = changes.supplied_fields - {"email"}
+                if not remaining:
+                    return current
+                changes = UserChanges(
+                    {field: changes.values[field] for field in remaining}, remaining
+                )
+            user = users.update(principal.user_id, changes)
             if user is None:
                 raise NotFoundError("User not found")
             uow.commit()

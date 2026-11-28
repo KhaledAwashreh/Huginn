@@ -61,3 +61,11 @@ def test_configuration_and_control_resolve_each_users_sole_business():
         assert {item.id for item in page.items} == {owner[0] for owner in owners}
         assert all(item.has_active_strategies for item in page.items)
         assert targets.eligible_count() == 2
+
+        names = targets.search("  FIRST Tester  ", 0, 10).items
+        assert [item.id for item in names] == [owners[0][0]]
+        assert (names[0].first_name, names[0].last_name) == ("first", "Tester")
+        assert targets.search("business-first-", 0, 10).items == ()
+        assert [item.id for item in targets.search(str(owners[1][0]), 0, 10).items] == [
+            owners[1][0]
+        ]

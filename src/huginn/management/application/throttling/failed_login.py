@@ -4,8 +4,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import RLock
+from typing import Literal
 
 from huginn.management.application.errors.errors import RateLimitError
+
+type _LoginKey = tuple[str, str, Literal["username", "email"]]
 
 
 @dataclass(eq=False)
@@ -19,13 +22,13 @@ class _Window:
 class LoginReservation:
     """A slot held while one password verification is in progress."""
 
-    key: tuple[str, str]
+    key: _LoginKey
     window: _Window
     token: object
 
 
 class FailedLoginThrottle:
-    """Count failures by client IP and normalized username in fixed windows.
+    """Count failures by client IP and normalized sign-in identifier.
 
     State is process-local, so this adapter is intended for one process until a
     shared store is configured.
@@ -43,14 +46,18 @@ class FailedLoginThrottle:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._max_failures = max_failures
         self._window = window
-        self._windows: dict[tuple[str, str], _Window] = {}
+        self._windows: dict[_LoginKey, _Window] = {}
         self._lock = RLock()
 
     @staticmethod
-    def _key(client_ip: str, username: str) -> tuple[str, str]:
-        return client_ip.strip(), username.strip().lower()
+    def _key(
+        client_ip: str,
+        identifier: str,
+        namespace: Literal["username", "email"] = "username",
+    ) -> _LoginKey:
+        return client_ip.strip(), identifier.strip().lower(), namespace
 
-    def _current(self, key: tuple[str, str], now: datetime) -> _Window | None:
+    def _current(self, key: _LoginKey, now: datetime) -> _Window | None:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("throttle clock must return a timezone-aware datetime")
         for expired_key, state in tuple(self._windows.items()):
@@ -62,10 +69,16 @@ class FailedLoginThrottle:
             return None
         return state
 
-    def reserve(self, client_ip: str, username: str) -> LoginReservation:
+    def reserve(
+        self,
+        client_ip: str,
+        identifier: str,
+        *,
+        namespace: Literal["username", "email"] = "username",
+    ) -> LoginReservation:
         """Atomically reserve one attempt before password verification."""
         with self._lock:
-            key = self._key(client_ip, username)
+            key = self._key(client_ip, identifier, namespace)
             now = self._clock()
             state = self._current(key, now)
             if state is None:

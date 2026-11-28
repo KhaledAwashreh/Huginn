@@ -60,9 +60,22 @@ class PostgresAccountRecoveryIdentityRepository(
         return self._map(row) if row else None
 
     def get_by_email(self, email: str) -> AccountRecoveryIdentity | None:
+        return self._find_address(
+            email, "%s IN (lower(btrim(pending_email)), lower(btrim(verified_email)))"
+        )
+
+    def get_by_pending_email(self, email: str) -> AccountRecoveryIdentity | None:
+        return self._find_address(email, "lower(btrim(pending_email)) = %s")
+
+    def get_by_verified_email(self, email: str) -> AccountRecoveryIdentity | None:
+        return self._find_address(email, "lower(btrim(verified_email)) = %s")
+
+    def _find_address(
+        self, email: str, predicate: str
+    ) -> AccountRecoveryIdentity | None:
         row = self._one(
             f"SELECT {self._columns} FROM operational.account_recovery_identity "
-            "WHERE lower(btrim(COALESCE(pending_email, verified_email))) = %s",
+            f"WHERE {predicate}",
             (email.strip().lower(),),
         )
         return self._map(row) if row else None
@@ -88,13 +101,14 @@ class PostgresAccountRecoveryIdentityRepository(
     def set_pending_email(
         self, account_id: UUID, email: str
     ) -> AccountRecoveryIdentity | None:
+        email = email.strip().lower()
         try:
             row = self._one(
                 "UPDATE operational.account_recovery_identity "
                 "SET pending_email = %s, updated_at = clock_timestamp() "
-                "WHERE account_id = %s AND verified_email IS NULL "
+                "WHERE account_id = %s AND lower(btrim(verified_email)) IS DISTINCT FROM %s "
                 f"RETURNING {self._columns}",
-                (email, account_id),
+                (email, account_id, email),
             )
         except IntegrityError as exc:
             raise self._translate(exc) from exc
@@ -106,14 +120,26 @@ class PostgresAccountRecoveryIdentityRepository(
         try:
             row = self._one(
                 "UPDATE operational.account_recovery_identity SET "
-                "pending_email = NULL, verified_email = %s, "
+                "pending_email = NULL, verified_email = lower(btrim(%s)), "
                 "verified_at = GREATEST(%s, clock_timestamp()), "
                 "updated_at = GREATEST(%s, clock_timestamp()) "
                 "WHERE account_id = %s AND pending_email = %s "
-                "AND verified_email IS NULL "
                 f"RETURNING {self._columns}",
                 (destination, now, now, account_id, destination),
             )
         except IntegrityError as exc:
             raise self._translate(exc) from exc
         return self._map(row) if row else None
+
+    def cancel_pending_replacement(self, account_id: UUID) -> bool:
+        return (
+            self._one(
+                "UPDATE operational.account_recovery_identity "
+                "SET pending_email = NULL, updated_at = clock_timestamp() "
+                "WHERE account_id = %s AND pending_email IS NOT NULL "
+                "AND (NOT verification_required OR verified_email IS NOT NULL) "
+                "RETURNING account_id",
+                (account_id,),
+            )
+            is not None
+        )

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from huginn.management.application.commands.provisioning import ProvisionIdentity
 from huginn.management.domain.errors.errors import (
@@ -36,7 +36,6 @@ class ProvisionedIdentity:
     account_id: UUID
     user_id: UUID
     profile_id: UUID
-    username: str
     status: str
 
 
@@ -75,7 +74,9 @@ class IdentityProvisioningService:
             country,
             timezone,
         ) = validated_identity_fields(
-            username=identity.username,
+            username=identity.username
+            if identity.username is not None
+            else f"account-{uuid4()}",
             first_name=identity.first_name,
             last_name=identity.last_name,
             email=identity.email,
@@ -93,8 +94,12 @@ class IdentityProvisioningService:
             users = self._users_factory(uow)
             profiles = self._profiles_factory(uow)
             recovery_identities = self._recovery_identities_factory(uow)
-            if accounts.get_by_normalized_username(username):
+            if identity.username is not None and accounts.get_by_normalized_username(
+                username
+            ):
                 raise ConflictError("username is already in use")
+            if recovery_identities.get_by_email(email) is not None:
+                raise ConflictError("email is already in use")
             account = accounts.create(NewAccount(username, self._hash_password(secret)))
             user = users.create(
                 NewUser(
@@ -110,6 +115,4 @@ class IdentityProvisioningService:
             profile = profiles.create(NewProfessionalProfile(user.id))
             recovery_identities.create(account.id, verification_required=False)
             uow.commit()
-            return ProvisionedIdentity(
-                account.id, user.id, profile.id, account.username, account.status
-            )
+            return ProvisionedIdentity(account.id, user.id, profile.id, account.status)

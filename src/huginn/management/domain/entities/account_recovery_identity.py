@@ -57,7 +57,11 @@ class AccountRecoveryIdentity:
             _require_aware("verified_at", self.verified_at)
         if (self.verified_email is None) != (self.verified_at is None):
             raise LifecycleProofError("invalid lifecycle field: verified_at")
-        if self.pending_email is not None and self.verified_email is not None:
+        if (
+            self.pending_email is not None
+            and self.verified_email is not None
+            and self.pending_email.lower() == self.verified_email.lower()
+        ):
             raise LifecycleProofError("invalid lifecycle field: pending_email")
         if (
             self.verification_required

@@ -2,13 +2,18 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from uuid import UUID
 
+from huginn.management.domain.entities.account import AccountStatus
 from huginn.management.domain.errors.errors import (
     NotFoundError,
     ValidationDomainError,
 )
 from huginn.management.persistence.contracts.repositories.account import (
     AccountRepository,
+)
+from huginn.management.persistence.contracts.repositories.account_recovery_identity import (
+    AccountRecoveryIdentityRepository,
 )
 from huginn.management.persistence.contracts.repositories.session import (
     SessionRepository,
@@ -23,46 +28,47 @@ class AccountAdminService:
         unit_of_work_factory: Callable[[], UnitOfWorkProtocol],
         *,
         accounts_factory: Callable[[UnitOfWorkProtocol], AccountRepository],
+        recovery_identities_factory: Callable[
+            [UnitOfWorkProtocol], AccountRecoveryIdentityRepository
+        ],
         sessions_factory: Callable[[UnitOfWorkProtocol], SessionRepository],
         clock: Callable[[], datetime] | None = None,
         hash_password_fn: Callable[[Password], str] | None = None,
     ) -> None:
         self._uow_factory = unit_of_work_factory
         self._accounts_factory = accounts_factory
+        self._recovery_identities_factory = recovery_identities_factory
         self._sessions_factory = sessions_factory
         self._clock = clock or (lambda: datetime.now(UTC))
         self._hash_password = hash_password_fn or hash_password
 
-    def set_status(self, username: str, status: str) -> None:
+    def set_status(self, account_id: UUID, status: AccountStatus) -> None:
         if status not in {"active", "disabled"}:
             raise ValidationDomainError("invalid account status")
         with self._uow_factory() as uow:
             accounts = self._accounts_factory(uow)
-            account = accounts.get_by_normalized_username(username)
-            if account is None:
-                raise NotFoundError("account not found")
-            if accounts.set_status(account.id, status) is None:
+            if accounts.set_status(account_id, status) is None:
                 raise NotFoundError("account not found")
             if status == "disabled":
-                self._sessions_factory(uow).revoke_for_account(account.id, self._now())
+                self._sessions_factory(uow).revoke_for_account(account_id, self._now())
             uow.commit()
 
-    def reset_password(self, username: str, password: str) -> None:
+    def reset_password(self, account_id: UUID, password: str) -> None:
         try:
             secret = Password(password)
         except (TypeError, ValueError) as exc:
             raise ValidationDomainError("invalid identity field: password") from exc
         with self._uow_factory() as uow:
             accounts = self._accounts_factory(uow)
-            account = accounts.get_by_normalized_username(username)
-            if account is None:
-                raise NotFoundError("account not found")
             if (
-                accounts.set_password_hash(account.id, self._hash_password(secret))
+                accounts.set_password_hash(account_id, self._hash_password(secret))
                 is None
             ):
                 raise NotFoundError("account not found")
-            self._sessions_factory(uow).revoke_for_account(account.id, self._now())
+            self._recovery_identities_factory(uow).cancel_pending_replacement(
+                account_id
+            )
+            self._sessions_factory(uow).revoke_for_account(account_id, self._now())
             uow.commit()
 
     def _now(self) -> datetime:

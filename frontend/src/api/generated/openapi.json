@@ -3,6 +3,10 @@
     "schemas": {
       "AccountSecurityResponse": {
         "properties": {
+          "account_email": {
+            "title": "Account Email",
+            "type": "string"
+          },
           "email_verification_required": {
             "title": "Email Verification Required",
             "type": "boolean"
@@ -11,7 +15,7 @@
             "title": "Email Verified",
             "type": "boolean"
           },
-          "recovery_email": {
+          "pending_email": {
             "anyOf": [
               {
                 "type": "string"
@@ -20,18 +24,14 @@
                 "type": "null"
               }
             ],
-            "title": "Recovery Email"
-          },
-          "username": {
-            "title": "Username",
-            "type": "string"
+            "title": "Pending Email"
           }
         },
         "required": [
-          "username",
+          "account_email",
+          "pending_email",
           "email_verification_required",
-          "email_verified",
-          "recovery_email"
+          "email_verified"
         ],
         "title": "AccountSecurityResponse",
         "type": "object"
@@ -448,10 +448,17 @@
             "type": "string"
           },
           "email": {
-            "maxLength": 254,
-            "minLength": 3,
-            "title": "Email",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "ideal_client_profile": {
             "$ref": "#/components/schemas/IdealClientProfileCreateRequest"
@@ -470,7 +477,6 @@
         "required": [
           "business_name",
           "your_name",
-          "email",
           "service_description",
           "ideal_client_profile"
         ],
@@ -1330,7 +1336,32 @@
       },
       "EnrollRecoveryEmailRequest": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "current_password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Password"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
         "title": "EnrollRecoveryEmailRequest",
         "type": "object"
       },
@@ -2792,18 +2823,37 @@
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "password": {
             "title": "Password",
             "type": "string"
           },
           "username": {
-            "minLength": 1,
-            "title": "Username",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
-          "username",
           "password"
         ],
         "title": "LoginRequest",
@@ -5319,13 +5369,19 @@
             "title": "Timezone"
           },
           "username": {
-            "minLength": 1,
-            "title": "Username",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
-          "username",
           "password",
           "first_name",
           "last_name",
@@ -5853,15 +5909,10 @@
           "last_name": {
             "title": "Last Name",
             "type": "string"
-          },
-          "username": {
-            "title": "Username",
-            "type": "string"
           }
         },
         "required": [
           "id",
-          "username",
           "first_name",
           "last_name",
           "has_active_strategies"
@@ -6151,6 +6202,17 @@
             "format": "uuid",
             "title": "User Id",
             "type": "string"
+          },
+          "user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Name"
           }
         },
         "required": [
@@ -17254,6 +17316,41 @@
               }
             },
             "description": "Request or domain validation failed"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request failed"
           },
           "503": {
             "content": {

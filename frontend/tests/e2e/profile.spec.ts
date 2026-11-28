@@ -7,12 +7,15 @@ test('the minimal profile saves business, service and ICP together and reuses th
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-bob');
+  await page.getByLabel('Email', { exact: true }).fill('browser-bob@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
+  const accountEmail = page.getByLabel('Account email', { exact: true });
+  await expect(accountEmail).toHaveValue('browser-bob@example.test');
+  await expect(accountEmail).toHaveJSProperty('readOnly', true);
   await expect(page.getByRole('heading', { name: 'Professional summary' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add a service' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Discovery strategy', exact: true })).toHaveCount(
@@ -44,7 +47,9 @@ test('the minimal profile saves business, service and ICP together and reuses th
       response.request().method() === 'PUT' && response.url().endsWith('/api/v1/me/business/setup'),
   );
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
-  expect((await saving).status()).toBe(200);
+  const savedProfile = await saving;
+  expect(savedProfile.status()).toBe(200);
+  expect(savedProfile.request().postDataJSON()).not.toHaveProperty('email');
   await expect(page.getByRole('status').filter({ hasText: 'Profile saved.' })).toBeVisible();
   const first = await (await page.request.get('/api/v1/me/business/setup')).json();
   expect(first.business.name).toBe('Early-stage product studio');
@@ -125,7 +130,8 @@ test('the minimal profile saves business, service and ICP together and reuses th
   await page.getByRole('button', { name: 'Bob Browser', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'ICP definition' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Account', exact: true })).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'Security', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Change email', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Security', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

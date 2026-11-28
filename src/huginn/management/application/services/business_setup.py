@@ -103,7 +103,7 @@ class BusinessSetupService:
         *,
         business_name: str,
         your_name: str,
-        email: str,
+        email: str | None = None,
         service_description: str,
         ideal_client_profile: IdealClientProfileChanges,
     ) -> BusinessSetup:
@@ -131,6 +131,13 @@ class BusinessSetupService:
             if business is None:
                 raise NotFoundError("Business not found")
             current = self._read(uow, principal, business)
+            if (
+                email is not None
+                and email.strip().lower() != current.user.email.strip().lower()
+            ):
+                raise ConflictError(
+                    "Change your account email in Security and verify the new address."
+                )
             if business.name != business_name:
                 business = businesses.update(
                     business_id,
@@ -139,7 +146,6 @@ class BusinessSetupService:
             name_values = {
                 "first_name": first_name,
                 "last_name": last_name,
-                "email": email,
             }
             # Leave the existing first/last boundary alone when the displayed name is unchanged.
             if your_name == f"{current.user.first_name} {current.user.last_name}":

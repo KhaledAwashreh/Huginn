@@ -25,7 +25,7 @@ it('preserves username and explains rejected login without duplicate submission'
     history: createMemoryHistory(),
     routes: [{ path: '/login', component: LoginPage }],
   });
-  await router.push('/login');
+  await router.push('/login?method=username');
   const wrapper = mount(LoginPage, { global: { plugins: [router, PrimeVue] } });
   await wrapper.get('#login-username').setValue('ada');
   await wrapper.get('#login-password').setValue('wrong-password');

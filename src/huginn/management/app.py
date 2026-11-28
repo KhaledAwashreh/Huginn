@@ -296,14 +296,17 @@ def create_account_administration_services(
     def accounts(work: UnitOfWork) -> PostgresAccountRepository:
         return PostgresAccountRepository(work.connection)
 
+    def recovery_identities(
+        work: UnitOfWork,
+    ) -> PostgresAccountRecoveryIdentityRepository:
+        return PostgresAccountRecoveryIdentityRepository(work.connection)
+
     return AccountAdministrationServices(
         role_assignment=AssignAccountRoleService(make_uow, accounts_factory=accounts),
         provisioning=IdentityProvisioningService(
             make_uow,
             accounts_factory=accounts,
-            recovery_identities_factory=lambda work: (
-                PostgresAccountRecoveryIdentityRepository(work.connection)
-            ),
+            recovery_identities_factory=recovery_identities,
             users_factory=lambda work: PostgresUserRepository(work.connection),
             profiles_factory=lambda work: PostgresProfessionalProfileRepository(
                 work.connection
@@ -313,6 +316,7 @@ def create_account_administration_services(
         lifecycle=AccountAdminService(
             make_uow,
             accounts_factory=accounts,
+            recovery_identities_factory=recovery_identities,
             sessions_factory=lambda work: PostgresSessionRepository(work.connection),
             hash_password_fn=hash_password,
         ),

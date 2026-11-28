@@ -277,7 +277,7 @@ test('renders assessment lineage, searches server-side, reports feedback, and sa
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -488,7 +488,7 @@ test('confirms first presentation only after the exact assessment revision is re
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -624,7 +624,7 @@ test('keeps an email assessment historical while confirming an unrelated repeat 
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();
@@ -725,7 +725,7 @@ test('searches recommendations beyond page one and resets pagination offset', as
   );
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill('browser-matches');
+  await page.getByLabel('Email', { exact: true }).fill('browser-matches@example.test');
   await page.getByLabel('Password', { exact: true }).fill('browser-only-correct-horse-battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recommendations', exact: true })).toBeVisible();

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
@@ -8,26 +8,36 @@ import { ApiError } from '../../../api/apiError';
 import FieldFeedback from '../../../shared/ui/FieldFeedback.vue';
 import { validateReturnPath } from '../../../shared/navigation/validateReturnPath';
 import { useSession } from '../composables/useSession';
-import type { LoginDraft } from '../forms/loginDraft';
 
 const router = useRouter();
 const route = useRoute();
 const session = useSession();
-const draft = reactive<LoginDraft>({ username: '', password: '' });
+const emailMode = computed(() => route.query.method !== 'username');
+const identifierId = computed(() => (emailMode.value ? 'login-email' : 'login-username'));
+const draft = reactive({ identifier: '', password: '' });
 const pending = ref(false);
 const message = ref('');
+watch(emailMode, () => {
+  draft.identifier = '';
+  draft.password = '';
+  message.value = '';
+});
 async function submit(): Promise<void> {
   if (pending.value) return;
   pending.value = true;
   message.value = '';
   try {
-    await session.login({ ...draft });
+    const identifier = draft.identifier.trim();
+    await session.login({
+      ...(emailMode.value ? { email: identifier } : { username: identifier }),
+      password: draft.password,
+    });
     await router.replace(validateReturnPath(route.query.return));
   } catch (error) {
     message.value =
       error instanceof ApiError
         ? error.status === 401
-          ? 'Unable to sign in. Check your username and password. If you just created an account, verify your email first.'
+          ? `Unable to sign in. Check your ${emailMode.value ? 'email' : 'username'} and password. If you just created an account, verify your email first.`
           : error.message
         : 'Sign in could not be completed. Check your connection and try again.';
   } finally {
@@ -45,10 +55,11 @@ async function submit(): Promise<void> {
       <p class="muted">Sign in to your workspace.</p>
       <form class="form-stack" @submit.prevent="submit">
         <div class="field-group">
-          <label for="login-username">Username</label>
+          <label :for="identifierId">{{ emailMode ? 'Email' : 'Username' }}</label>
           <InputText
-            id="login-username"
-            v-model="draft.username"
+            :id="identifierId"
+            v-model="draft.identifier"
+            :type="emailMode ? 'email' : 'text'"
             autocomplete="username"
             required
             :disabled="pending"
@@ -73,6 +84,16 @@ async function submit(): Promise<void> {
         <FieldFeedback id="login-error" :message="message" />
         <Button type="submit" label="Sign in" :loading="pending" :disabled="pending" />
       </form>
+      <p>
+        <RouterLink
+          :to="{
+            path: '/login',
+            query: { ...route.query, method: emailMode ? 'username' : undefined },
+          }"
+        >
+          {{ emailMode ? 'Sign in with username' : 'Sign in with email' }}
+        </RouterLink>
+      </p>
       <p><RouterLink to="/create-account">Create account</RouterLink></p>
       <p><RouterLink to="/forgot-password">Forgot password</RouterLink></p>
     </section>

@@ -122,9 +122,7 @@ async function submit() {
     return;
   }
   if (
-    ![value.business_name, value.your_name, value.email, value.service_description].every((item) =>
-      item.trim(),
-    )
+    ![value.business_name, value.your_name, value.service_description].every((item) => item.trim())
   ) {
     error.value = 'Complete each required field before saving.';
     return;
@@ -134,7 +132,6 @@ async function submit() {
     const saved = await save.mutateAsync({
       business_name: value.business_name.trim(),
       your_name: value.your_name.trim(),
-      email: value.email.trim(),
       service_description: value.service_description.trim(),
       ideal_client_profile: createIdealClientProfileDraft(value.ideal_client_profile),
     });
@@ -237,27 +234,25 @@ function fieldError(field: string) {
             }}</small>
           </div>
           <div class="field">
-            <label for="profile-email">Email <span>(required)</span></label>
+            <label for="profile-email">Account email</label>
             <InputText
               id="profile-email"
-              v-model="draft.email"
-              type="email"
-              autocomplete="email"
-              required
-              :disabled="pending"
-              :aria-invalid="Boolean(fieldError('email'))"
-              :aria-describedby="
-                fieldError('email')
-                  ? 'profile-email-help profile-email-error'
-                  : 'profile-email-help'
-              "
+              :model-value="security.data.value?.account_email ?? ''"
+              :placeholder="security.isPending.value ? 'Loading email…' : 'Email unavailable'"
+              readonly
+              aria-describedby="profile-email-help"
             />
             <small id="profile-email-help"
-              >Changing your contact email does not change your verified delivery address.</small
+              >Used for sign-in, recovery, and weekly recommendations.</small
             >
-            <small v-if="fieldError('email')" id="profile-email-error" class="field-error">{{
-              fieldError('email')
-            }}</small>
+            <Button
+              v-if="openSettings"
+              type="button"
+              label="Change email"
+              severity="secondary"
+              text
+              @click="openSettings('security')"
+            />
           </div>
           <div class="field full">
             <label for="service-description"
@@ -317,18 +312,12 @@ function fieldError(field: string) {
         <Mail :size="24" aria-hidden="true" />
         <div>
           <h2>Weekly recommendations</h2>
-          <p v-if="security.data.value?.email_verified && security.data.value.recovery_email">
-            Verified delivery email: {{ security.data.value.recovery_email }}. Weekly
-            recommendations use your saved service and ICP when enabled.
+          <p v-if="security.data.value?.email_verified">
+            Weekly recommendations use your saved service and ICP when enabled.
           </p>
-          <p v-else>Verify your email in Security before your first delivery.</p>
-          <Button
-            v-if="openSettings && !security.data.value?.email_verified"
-            label="Open Security"
-            severity="secondary"
-            text
-            @click="openSettings('security')"
-          />
+          <p v-else-if="security.data.value">
+            Verify your email in Security before your first delivery.
+          </p>
         </div>
       </section>
       <div class="profile-footer">

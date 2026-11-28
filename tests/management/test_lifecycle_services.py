@@ -327,7 +327,7 @@ def test_reset_concurrent_atomic_revocation_and_contact_separate(
         .execute(GetAccountSecurityRequest(Principal(account_id, user_id)))
         .security
     )
-    assert security.recovery_email == request.email and security.email_verified
+    assert security.account_email == request.email and security.email_verified
     with pytest.raises(LifecycleConflictError):
         build(EnrollRecoveryEmailService).execute(
             EnrollRecoveryEmailRequest(Principal(account_id, user_id))
@@ -335,6 +335,105 @@ def test_reset_concurrent_atomic_revocation_and_contact_separate(
     with pytest.raises(AuthorizationError):
         build(GetAccountSecurityService).execute(
             GetAccountSecurityRequest(Principal(account_id, uuid4()))
+        )
+
+
+def test_verifying_replacement_switches_contact_and_invalidates_old_reset_proof(
+    lifecycle_database_url,
+):
+    url = lifecycle_database_url
+    now = datetime.now(UTC)
+    build, cipher, request, account_id, user_id = _signup(url, clock=lambda: now)
+    _verify(build, cipher, url, account_id)
+    replacement = f"{uuid4()}@example.test"
+    with psycopg.connect(url) as conn:
+        conn.execute(
+            "UPDATE operational.account_recovery_identity SET pending_email=%s WHERE account_id=%s",
+            (replacement, account_id),
+        )
+    now += timedelta(minutes=2)
+    build(ForgotPasswordService).execute(
+        ForgotPasswordRequest(replacement, str(uuid4()))
+    )
+    with psycopg.connect(url) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM operational.account_lifecycle_proofs "
+            "WHERE account_id=%s AND purpose='reset_password'",
+            (account_id,),
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT email FROM operational.users WHERE id=%s", (user_id,)
+        ).fetchone() == (request.email,)
+    build(ForgotPasswordService).execute(
+        ForgotPasswordRequest(request.email, str(uuid4()))
+    )
+    reset = queued(url, cipher, account_id, "reset_password")
+    assert reset.recipient == request.email
+    build(ResendVerificationService).execute(
+        ResendVerificationRequest(replacement, str(uuid4()))
+    )
+    verify = queued(url, cipher, account_id, "verify_email")
+    assert verify.recipient == replacement
+    build(VerifyEmailService).execute(VerifyEmailRequest(verify.token, str(uuid4())))
+
+    with psycopg.connect(url) as conn:
+        assert conn.execute(
+            "SELECT u.email,r.verified_email,r.pending_email FROM operational.users u "
+            "JOIN operational.account_recovery_identity r USING (account_id) WHERE u.id=%s",
+            (user_id,),
+        ).fetchone() == (replacement, replacement, None)
+        assert conn.execute(
+            "SELECT superseded,consumed_at FROM operational.account_lifecycle_proofs "
+            "WHERE account_id=%s AND purpose='reset_password'",
+            (account_id,),
+        ).fetchone() == (True, None)
+    with pytest.raises(LifecycleProofError, match="invalid or expired"):
+        build(ResetPasswordService).execute(
+            ResetPasswordRequest(reset.token, "ResetNow!12345", str(uuid4()))
+        )
+
+
+def test_reset_cancels_pending_email_change_without_changing_verified_email(
+    lifecycle_database_url,
+):
+    url = lifecycle_database_url
+    now = datetime.now(UTC)
+    build, cipher, request, account_id, _ = _signup(url, clock=lambda: now)
+    _verify(build, cipher, url, account_id)
+    replacement = f"{uuid4()}@example.test"
+    with psycopg.connect(url) as conn:
+        conn.execute(
+            "UPDATE operational.account_recovery_identity SET pending_email=%s "
+            "WHERE account_id=%s",
+            (replacement, account_id),
+        )
+    now += timedelta(minutes=2)
+    build(ResendVerificationService).execute(
+        ResendVerificationRequest(replacement, str(uuid4()))
+    )
+    verify = queued(url, cipher, account_id, "verify_email")
+    build(ForgotPasswordService).execute(
+        ForgotPasswordRequest(request.email, str(uuid4()))
+    )
+    reset = queued(url, cipher, account_id, "reset_password")
+    build(ResetPasswordService).execute(
+        ResetPasswordRequest(reset.token, "ResetNow!12345", str(uuid4()))
+    )
+
+    with psycopg.connect(url) as conn:
+        assert conn.execute(
+            "SELECT verified_email,pending_email FROM operational.account_recovery_identity "
+            "WHERE account_id=%s",
+            (account_id,),
+        ).fetchone() == (request.email, None)
+        assert conn.execute(
+            "SELECT superseded FROM operational.account_lifecycle_proofs "
+            "WHERE account_id=%s AND purpose='verify_email' AND consumed_at IS NULL",
+            (account_id,),
+        ).fetchone() == (True,)
+    with pytest.raises(LifecycleProofError):
+        build(VerifyEmailService).execute(
+            VerifyEmailRequest(verify.token, str(uuid4()))
         )
 
 
@@ -370,7 +469,7 @@ def test_initial_trusted_enrollment_snapshots_contact_and_missing_identity_fails
     assert (
         build(GetAccountSecurityService)
         .execute(GetAccountSecurityRequest(Principal(account_id, user_id)))
-        .security.recovery_email
+        .security.account_email
         == message.recipient
     )
     with psycopg.connect(url) as conn:

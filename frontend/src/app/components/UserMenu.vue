@@ -19,16 +19,17 @@ const expanded = ref(false);
 const signingOut = ref(false);
 const message = ref('');
 
-const name = computed(() => {
+const nameParts = computed(() => {
   const data = account.data.value;
-  return data ? `${data.first_name} ${data.last_name}`.trim() : 'Your account';
+  return data ? [data.first_name.trim(), data.last_name.trim()].filter(Boolean) : [];
 });
-const email = computed(() => account.data.value?.email ?? '');
-const initials = computed(() => {
-  const data = account.data.value;
-  if (!data) return '';
-  return `${data.first_name.charAt(0)}${data.last_name.charAt(0)}`.toUpperCase();
-});
+const name = computed(() => nameParts.value.join(' ') || 'Your account');
+const initials = computed(() =>
+  nameParts.value
+    .map((part) => [...part][0])
+    .join('')
+    .toUpperCase(),
+);
 
 const items = computed(() => [
   { label: 'Profile', lucide: UserRound, command: () => void router.push('/profile') },
@@ -94,7 +95,6 @@ async function signOut(): Promise<void> {
       <template #start>
         <div class="identity">
           <span class="identity-name">{{ name }}</span>
-          <span v-if="email" class="identity-email">{{ email }}</span>
         </div>
       </template>
       <template #item="{ item, props }">
@@ -137,17 +137,11 @@ async function signOut(): Promise<void> {
   color: var(--color-surface);
 }
 .identity {
-  display: grid;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 .identity-name {
   font-weight: 600;
-}
-.identity-email {
-  color: var(--color-text-muted);
-  font-size: 14px;
-  overflow-wrap: anywhere;
 }
 .user-menu-item {
   display: flex;

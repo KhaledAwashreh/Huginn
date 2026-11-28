@@ -185,7 +185,7 @@ def test_live_session_promotion_demotion_and_durable_api_receipt(
         assert client.get("/api/v1/sessions/current").json()["role"] == "user"
         assert client.get(prefix).status_code == 403
         administration.role_assignment.execute(
-            AssignAccountRoleRequest(username, AccountRole("admin"))
+            AssignAccountRoleRequest(identity.account_id, AccountRole("admin"))
         )
         assert client.get("/api/v1/sessions/current").json()["role"] == "admin"
         request = {"request_id": str(uuid4())}
@@ -203,7 +203,7 @@ def test_live_session_promotion_demotion_and_durable_api_receipt(
             == "tracked"
         )
         administration.role_assignment.execute(
-            AssignAccountRoleRequest(username, AccountRole("user"))
+            AssignAccountRoleRequest(identity.account_id, AccountRole("user"))
         )
         assert client.get(prefix).status_code == 403
         assert client.get("/api/v1/sessions/current").json()["role"] == "user"

@@ -6,7 +6,7 @@ import pytest
 from huginn.management.application.services.user_profile import UserProfileService
 from huginn.management.domain.entities.professional_profile import ProfessionalProfile
 from huginn.management.domain.entities.user import User
-from huginn.management.domain.errors.errors import NotFoundError
+from huginn.management.domain.errors.errors import ConflictError, NotFoundError
 from huginn.management.domain.value_objects.common import Principal
 from huginn.management.domain.value_objects.professional_profile import (
     ProfessionalProfileChanges,
@@ -121,6 +121,30 @@ def test_self_service_uses_principal_and_preserves_patch_field_presence():
     }
     assert profiles.calls[-1][2].supplied_fields == frozenset({"headline", "skills"})
     assert (uow.commits, uow.rollbacks) == (2, 2)
+
+    with pytest.raises(ConflictError, match="Change your account email in Security"):
+        service.update_user(
+            principal,
+            UserChanges(
+                {"email": "new@example.test", "first_name": "Grace"},
+                frozenset({"email", "first_name"}),
+            ),
+        )
+    assert users.calls[-1] == ("get", user_id)
+    assert uow.commits == 2
+
+    service.update_user(
+        principal,
+        UserChanges(
+            {"email": users.record.email, "first_name": "Grace"},
+            frozenset({"email", "first_name"}),
+        ),
+    )
+    assert users.calls[-1] == (
+        "update",
+        user_id,
+        UserChanges({"first_name": "Grace"}, frozenset({"first_name"})),
+    )
 
 
 def test_missing_user_is_indistinguishable_from_missing_profile_owner_record():

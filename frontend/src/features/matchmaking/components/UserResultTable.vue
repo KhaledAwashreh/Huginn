@@ -68,6 +68,7 @@ function count(value: number | null | undefined) {
           <template v-for="item in items" :key="item.user_id"
             ><tr>
               <td>
+                <strong v-if="item.user_name" class="target-name">{{ item.user_name }}</strong>
                 <code>{{ item.user_id }}</code>
               </td>
               <td>{{ item.state.replaceAll('_', ' ') }}</td>
@@ -82,7 +83,7 @@ function count(value: number | null | undefined) {
                   type="button"
                   severity="secondary"
                   :aria-expanded="expanded === item.user_id"
-                  :aria-label="`${expanded === item.user_id ? 'Hide' : 'Show'} details for user ${item.user_id}`"
+                  :aria-label="`${expanded === item.user_id ? 'Hide' : 'Show'} details for user ${item.user_name || item.user_id}`"
                   @click="expanded = expanded === item.user_id ? undefined : item.user_id"
                 >
                   {{ expanded === item.user_id ? 'Hide' : 'Show' }} details
@@ -98,7 +99,7 @@ function count(value: number | null | undefined) {
                 </p>
                 <SkippedStrategyList
                   v-if="item.strategies_skipped"
-                  :label="`Skipped strategies for user ${item.user_id}`"
+                  :label="`Skipped strategies for user ${item.user_name || item.user_id}`"
                   :run-id="runId"
                   :user-id="item.user_id"
                 />
@@ -161,6 +162,10 @@ td {
   padding: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+.target-name {
+  display: block;
+}
+.target-name,
 td code {
   overflow-wrap: anywhere;
 }

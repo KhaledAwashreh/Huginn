@@ -27,12 +27,10 @@ class AssignAccountRoleService:
 
     def execute(self, request: AssignAccountRoleRequest) -> AssignAccountRoleResponse:
         with self._uow_factory() as uow:
-            accounts = self._accounts_factory(uow)
-            account = accounts.get_by_normalized_username(request.username)
-            if account is None:
-                raise NotFoundError("account not found")
-            updated = accounts.set_role(account.id, request.role)
+            updated = self._accounts_factory(uow).set_role(
+                request.account_id, request.role
+            )
             if updated is None:
                 raise NotFoundError("account not found")
             uow.commit()
-            return AssignAccountRoleResponse(updated.id, updated.username, updated.role)
+            return AssignAccountRoleResponse(updated.id, updated.role)

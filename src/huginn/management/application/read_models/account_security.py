@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True, slots=True)
 class AccountSecurity:
-    username: str
+    account_email: str = field(repr=False)
+    pending_email: str | None = field(repr=False)
     email_verification_required: bool
     email_verified: bool
-    recovery_email: str | None = field(repr=False)

@@ -9,14 +9,15 @@ import CompanySizeRows from '@/features/configuration/ideal-client-profiles/comp
 import GeographyRows from '@/features/configuration/ideal-client-profiles/components/GeographyRows.vue';
 import ExclusionRows from '@/features/configuration/ideal-client-profiles/components/ExclusionRows.vue';
 import ProfilePage from '@/features/profile/pages/ProfilePage.vue';
+import { openSettingsKey } from '@/shared/navigation/settingsSections';
 
 const state = vi.hoisted(() => ({
   request: vi.fn(),
   session: { value: null as unknown },
-  security: { value: { recovery_email: 'delivery@example.com', email_verified: true } },
+  security: { value: { account_email: 'account@example.com', email_verified: true } },
 }));
 vi.mock('@/features/account-lifecycle/composables/useAccountSecurity', () => ({
-  useAccountSecurity: () => ({ data: state.security }),
+  useAccountSecurity: () => ({ data: state.security, isPending: { value: false } }),
 }));
 vi.mock('@/api/client', () => ({ apiRequest: state.request, configureApiClient: vi.fn() }));
 vi.mock('@/features/session/composables/useSession', () => ({
@@ -55,13 +56,15 @@ const saved = {
 };
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const openSettings = vi.fn();
   const wrapper = mount(ProfilePage, {
     global: {
       plugins: [PrimeVue, [VueQueryPlugin, { queryClient: client }]],
+      provide: { [openSettingsKey]: openSettings },
       stubs: { Dialog: { props: ['visible'], template: '<div v-if="visible"><slot /></div>' } },
     },
   });
-  return { wrapper, client };
+  return { wrapper, client, openSettings };
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -74,7 +77,6 @@ beforeEach(() => {
             business: { ...saved.business, name: options.body.business_name },
             user: {
               ...saved.user,
-              email: options.body.email,
               first_name: options.body.your_name.split(' ')[0],
               last_name: options.body.your_name.split(' ').slice(1).join(' '),
             },
@@ -96,7 +98,6 @@ it('shows the approved minimal fields without services, strategy or professional
   await flushPromises();
   expect(wrapper.find('#business-name').exists()).toBe(true);
   expect(wrapper.get('#your-name').element).toHaveProperty('value', 'Craig Phillips');
-  expect(wrapper.get('#profile-email').element).toHaveProperty('value', 'craig@example.com');
   expect(wrapper.get('#service-description').element).toHaveProperty(
     'value',
     'Product design for startups.',
@@ -121,7 +122,6 @@ it('keeps ICP edits local and saves the entire profile in one request', async ()
     body: {
       business_name: 'Fluke Design',
       your_name: 'Craig Phillips',
-      email: 'craig@example.com',
       service_description: 'Research and product design.',
       ideal_client_profile: {
         name: 'Seed-stage engineering teams',
@@ -189,14 +189,14 @@ it('retains the draft after a failed save and does not claim it was saved', asyn
   expect(wrapper.text()).not.toContain('Profile saved');
 });
 
-it('shows the verified delivery address separately from the editable contact email', async () => {
-  const { wrapper } = setup();
+it('shows the account email as read-only and opens Security for changes', async () => {
+  const { wrapper, openSettings } = setup();
   await flushPromises();
-  expect(wrapper.get('#profile-email').element).toHaveProperty('value', 'craig@example.com');
-  expect(wrapper.text()).toContain('Verified delivery email: delivery@example.com');
-  expect(wrapper.text()).toContain(
-    'Changing your contact email does not change your verified delivery address.',
-  );
+  const address = wrapper.get('#profile-email').element;
+  expect(address).toHaveProperty('value', 'account@example.com');
+  expect(address).toHaveProperty('readOnly', true);
+  await wrapper.get('button[aria-label="Change email"]').trigger('click');
+  expect(openSettings).toHaveBeenCalledExactlyOnceWith('security');
 });
 
 it('opens the ICP draft with nested server validation errors and retains other edits', async () => {
@@ -305,7 +305,6 @@ it('keeps the confirmed PUT result when an older profile GET finishes later', as
 it.each([
   ['business_name', '#business-name'],
   ['your_name', '#your-name'],
-  ['email', '#profile-email'],
   ['service_description', '#service-description'],
 ])('associates the %s validation error with its field', async (field, selector) => {
   const { wrapper } = setup();
@@ -324,7 +323,7 @@ it.each([
   ).toBe(true);
 });
 
-it('keeps the confirmed contact email when an older account GET finishes later', async () => {
+it('keeps the confirmed name when an older account GET finishes later', async () => {
   const { wrapper, client } = setup();
   await flushPromises();
   let finishGet!: (value: unknown) => void;
@@ -338,13 +337,17 @@ it('keeps the confirmed contact email when an older account GET finishes later',
         }),
     })
     .catch(() => undefined);
-  await wrapper.get('#profile-email').setValue('updated@example.com');
+  await wrapper.get('#your-name').setValue('Updated Owner');
   await wrapper.get('form.profile-form').trigger('submit');
   await flushPromises();
   finishGet(structuredClone(saved.user));
   await accountGet;
   await flushPromises();
-  expect(client.getQueryData(accountKey)).toMatchObject({ email: 'updated@example.com' });
+  expect(client.getQueryData(accountKey)).toMatchObject({
+    first_name: 'Updated',
+    last_name: 'Owner',
+    email: saved.user.email,
+  });
 });
 
 it('does not write the previous identity result after waiting for query cancellation', async () => {

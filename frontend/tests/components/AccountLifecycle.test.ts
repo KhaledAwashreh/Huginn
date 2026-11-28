@@ -64,7 +64,6 @@ it('requires signup identity fields, serializes its contract, guards pending and
   vi.stubGlobal('fetch', fetch);
   const wrapper = await render(CreateAccountPage, '/create-account');
   const fields = {
-    username: 'ada',
     password: 'SignUp!12345',
     first_name: 'Ada',
     last_name: 'Lovelace',
@@ -79,6 +78,7 @@ it('requires signup identity fields, serializes its contract, guards pending and
     await input.setValue(value);
   }
   expect(wrapper.text()).toContain('Verify your email before signing in');
+  expect(wrapper.find('#signup-username').exists()).toBe(false);
   expect(wrapper.get('#signup-password').attributes('autocomplete')).toBe('new-password');
   await wrapper.get('form').trigger('submit');
   await wrapper.get('form').trigger('submit');
@@ -132,7 +132,6 @@ it('offers every calling region in name order and keeps the national number when
   );
 
   await wrapper.get('#signup-password').setValue('SignUp!12345');
-  await wrapper.get('#signup-username').setValue('ada');
   await wrapper.get('#signup-first_name').setValue('Ada');
   await wrapper.get('#signup-last_name').setValue('Lovelace');
   await wrapper.get('#signup-email').setValue('ada@example.test');
@@ -149,7 +148,6 @@ it('rejects invalid phone input locally and focuses its field without posting', 
   vi.stubGlobal('fetch', fetch);
   const wrapper = await render(CreateAccountPage, '/create-account');
   await wrapper.get('#signup-password').setValue('SignUp!12345');
-  await wrapper.get('#signup-username').setValue('ada');
   await wrapper.get('#signup-first_name').setValue('Ada');
   await wrapper.get('#signup-last_name').setValue('Lovelace');
   await wrapper.get('#signup-email').setValue('ada@example.test');
@@ -169,7 +167,6 @@ it('requires a country selection before submitting signup', async () => {
   vi.stubGlobal('fetch', fetch);
   const wrapper = await render(CreateAccountPage, '/create-account');
   await wrapper.get('#signup-password').setValue('SignUp!12345');
-  await wrapper.get('#signup-username').setValue('ada');
   await wrapper.get('#signup-first_name').setValue('Ada');
   await wrapper.get('#signup-last_name').setValue('Lovelace');
   await wrapper.get('#signup-email').setValue('ada@example.test');
@@ -188,7 +185,6 @@ it.each(['   ', 'not-an-email'])(
     vi.stubGlobal('fetch', fetch);
     const wrapper = await render(CreateAccountPage, '/create-account');
     for (const [name, value] of Object.entries({
-      username: 'ada',
       password: 'SignUp!12345',
       first_name: 'Ada',
       last_name: 'Lovelace',
@@ -364,10 +360,10 @@ it('initial enrollment has no replacement address control and sends empty JSON w
           })
         : url.endsWith('/account-security')
           ? Response.json({
-              username: 'ada',
+              account_email: 'ada@example.test',
+              pending_email: null,
               email_verification_required: false,
               email_verified: false,
-              recovery_email: null,
             })
           : Response.json({ message: 'Check your email for next steps' }, { status: 202 }),
     ),
@@ -376,9 +372,9 @@ it('initial enrollment has no replacement address control and sends empty JSON w
   await useSession().bootstrap();
   const wrapper = await render(RecoveryEmailEnrollment, '/');
   await flushPromises();
-  expect(wrapper.text()).toContain('contact email');
+  expect(wrapper.text()).toContain('ada@example.test');
   expect(wrapper.find('input').exists()).toBe(false);
-  await wrapper.get('button').trigger('click');
+  await wrapper.get('button[aria-label="Verify current email"]').trigger('click');
   await flushPromises();
   const enrollment = fetch.mock.calls.find(([url]) =>
     url.endsWith('/recovery-email-verifications'),
@@ -387,6 +383,47 @@ it('initial enrollment has no replacement address control and sends empty JSON w
   const options = enrollment?.[1];
   expect(options?.body).toBe('{}');
   expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('csrf-proof');
+});
+
+it('requests an email change without replacing the displayed address before verification', async () => {
+  let pendingEmail: string | null = null;
+  const fetch = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>(
+    async (url, options) => {
+      if (url.endsWith('/sessions/current'))
+        return Response.json({
+          account_id: '1',
+          user_id: '2',
+          csrf_token: 'csrf-proof',
+          expires_at: '2030-01-01T00:00:00Z',
+        });
+      if (url.endsWith('/account-security'))
+        return Response.json({
+          account_email: 'current@example.test',
+          pending_email: pendingEmail,
+          email_verification_required: true,
+          email_verified: true,
+        });
+      expect(JSON.parse(options?.body as string)).toEqual({
+        email: 'replacement@example.test',
+        current_password: 'Current!12345',
+      });
+      pendingEmail = 'replacement@example.test';
+      return Response.json({ message: 'Check your email for next steps' }, { status: 202 });
+    },
+  );
+  vi.stubGlobal('fetch', fetch);
+  await useSession().bootstrap();
+  const wrapper = await render(RecoveryEmailEnrollment, '/');
+  await flushPromises();
+  await wrapper.get('button[aria-label="Change email"]').trigger('click');
+  await wrapper.get('#new-account-email').setValue('replacement@example.test');
+  await wrapper.get('#email-current-password').setValue('Current!12345');
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(wrapper.text()).toContain('current@example.test');
+  expect(wrapper.text()).toContain('Waiting for verification at replacement@example.test');
+  expect(wrapper.get('[role="status"]').text()).toContain('Verification requested');
+  expect(wrapper.find('#email-current-password').exists()).toBe(false);
 });
 
 it('missing proofs require reopening a mail link without issuing a request', async () => {
@@ -442,10 +479,10 @@ it.each([
                 expires_at: '2030-01-01T00:00:00Z',
               })
             : Response.json({
-                username: 'ada',
+                account_email: email ?? 'ada@example.test',
+                pending_email: null,
                 email_verification_required: required,
                 email_verified: verified,
-                recovery_email: email,
               }),
         ),
       ),
@@ -453,10 +490,9 @@ it.each([
     await useSession().bootstrap();
     const wrapper = await render(RecoveryEmailEnrollment, '/');
     await flushPromises();
-    expect(wrapper.find('button').exists()).toBe(false);
+    expect(wrapper.find('button[aria-label="Verify current email"]').exists()).toBe(false);
     expect(wrapper.find('input').exists()).toBe(false);
-    if (verified)
-      expect(wrapper.text()).toContain('Verified recovery email: verified@example.test');
+    if (verified) expect(wrapper.text()).toContain('verified@example.test');
   },
 );
 
@@ -467,7 +503,6 @@ it('signup omits blank timezone and routes to a generic receipt with email and p
   vi.stubGlobal('fetch', fetch);
   const wrapper = await render(CreateAccountPage, '/create-account');
   const fields = {
-    username: 'ada',
     password: 'SignUp!12345',
     first_name: 'Ada',
     last_name: 'Lovelace',
@@ -498,7 +533,6 @@ it('submits a valid 16-code-point password containing an emoji verbatim', async 
   vi.stubGlobal('fetch', fetch);
   const wrapper = await render(CreateAccountPage, '/create-account');
   for (const [name, value] of Object.entries({
-    username: 'ada',
     password,
     first_name: 'Ada',
     last_name: 'Lovelace',

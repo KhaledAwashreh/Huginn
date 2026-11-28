@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ProvisionIdentity:
-    username: str
+    """Use `None` to generate an opaque account handle."""
+
+    username: str | None
     first_name: str
     last_name: str
     email: str

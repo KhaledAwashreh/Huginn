@@ -10,8 +10,12 @@ from huginn.management.application.authentication_policy import (
     GENERIC_AUTHENTICATION_FAILURE,
     SESSION_TTL_SECONDS,
 )
-from huginn.management.application.errors.errors import AuthenticationError
+from huginn.management.application.errors.errors import (
+    AuthenticationError,
+    RateLimitError,
+)
 from huginn.management.application.errors.lifecycle import LifecycleIntegrityError
+from huginn.management.domain.entities.account import Account
 from huginn.management.domain.entities.session import Session
 from huginn.management.domain.errors.errors import ValidationDomainError
 from huginn.management.domain.value_objects.common import Principal
@@ -182,21 +186,64 @@ class AuthenticationService:
             ),
         )
 
-    def login(self, *, username: str, password: str, client_ip: str) -> IssuedSession:
+    def _account_for_email(self, email: str) -> Account | None:
+        if self._recovery_identities_factory is None:
+            raise LifecycleIntegrityError("account recovery identity is unavailable")
+        with self._uow_factory() as uow:
+            recovery = self._recovery_identities_factory(uow).get_by_verified_email(
+                email
+            )
+            accounts = self._accounts(uow)
+            if recovery is not None:
+                return accounts.get_by_id(recovery.account_id)
+            return accounts.get_by_trusted_owner_email(email)
+
+    def login(
+        self,
+        *,
+        username: str | None = None,
+        email: str | None = None,
+        password: str,
+        client_ip: str,
+    ) -> IssuedSession:
         """Verify credentials and issue a new session in one unit of work."""
-        reservation = self._throttle.reserve(client_ip, username)
-        completed = False
+        if username is not None and email is None:
+            login_key = username
+        elif email is not None and username is None:
+            email = email.strip().lower()
+            login_key = email
+        else:
+            raise AuthenticationError(GENERIC_AUTHENTICATION_FAILURE)
+        first = (
+            self._throttle.reserve(client_ip, login_key, namespace="email")
+            if email is not None
+            else self._throttle.reserve(client_ip, login_key)
+        )
+        reservations = [(login_key, first)]
         try:
             try:
                 secret = Password(password)
             except (TypeError, ValueError) as exc:
-                self._throttle.record_failure(client_ip, username, reservation)
-                completed = True
                 raise AuthenticationError(GENERIC_AUTHENTICATION_FAILURE) from exc
+
+            candidate = self._account_for_email(email) if email is not None else None
+            if candidate is not None:
+                # Limit the submitted email before lookup and share the account's
+                # username budget until username sign-in is retired.
+                try:
+                    reservation = self._throttle.reserve(client_ip, candidate.username)
+                except RateLimitError as exc:
+                    raise AuthenticationError(GENERIC_AUTHENTICATION_FAILURE) from exc
+                reservations.append((candidate.username, reservation))
 
             with self._uow_factory() as uow:
                 accounts = self._accounts(uow)
-                account = accounts.get_by_normalized_username_for_update(username)
+                if email is None:
+                    account = accounts.get_by_normalized_username_for_update(login_key)
+                elif candidate is not None:
+                    account = accounts.get_by_id_for_update(candidate.id)
+                else:
+                    account = None
                 encoded_hash = (
                     account.password_hash
                     if account is not None and account.status == "active"
@@ -221,9 +268,16 @@ class AuthenticationService:
                         and recovery.verified_email is None
                     ):
                         verified = False
+                    # The verified address may have changed before we acquired the lock.
+                    if email is not None:
+                        if recovery.verified_email is not None:
+                            verified = (
+                                verified and recovery.verified_email.lower() == email
+                            )
+                        elif verified:
+                            trusted = accounts.get_by_trusted_owner_email(email)
+                            verified = trusted is not None and trusted.id == account.id
                 if account is None or account.status != "active" or not verified:
-                    self._throttle.record_failure(client_ip, username, reservation)
-                    completed = True
                     raise AuthenticationError(GENERIC_AUTHENTICATION_FAILURE)
 
                 if self._needs_rehash(account.password_hash):
@@ -236,11 +290,16 @@ class AuthenticationService:
                     account.id
                 )
                 uow.commit()
-            self._throttle.record_success(client_ip, username, reservation)
-            completed = True
+        except AuthenticationError:
+            for key, reservation in reservations:
+                self._throttle.record_failure(client_ip, key, reservation)
+            raise
+        else:
+            for key, reservation in reservations:
+                self._throttle.record_success(client_ip, key, reservation)
             return issued
         finally:
-            if not completed:
+            for _, reservation in reservations:
                 self._throttle.release(reservation)
 
     def authenticate(self, token: str) -> Principal | None:
@@ -294,6 +353,10 @@ class AuthenticationService:
                 raise AuthenticationError("current password is incorrect")
             if accounts.set_password_hash(account.id, self._hasher()(new)) is None:
                 raise AuthenticationError("current password is incorrect")
+            if self._recovery_identities_factory is not None:
+                self._recovery_identities_factory(uow).cancel_pending_replacement(
+                    account.id
+                )
             self._session_operations(self._sessions(uow)).revoke_account(account.id)
             uow.commit()
 

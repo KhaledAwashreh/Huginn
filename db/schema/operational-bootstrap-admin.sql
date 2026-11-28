@@ -1,6 +1,7 @@
 -- Explicit, repeatable admin data migration. Run in a transaction after
 -- operational-account-role.sql. The deployment runner supplies a transaction-local
--- huginn.bootstrap_admin JSON setting containing username, email and a scrypt hash.
+-- huginn.bootstrap_admin JSON setting containing an internal account identifier,
+-- optional legacy selector, email and a scrypt hash.
 -- No plaintext password or shared credential is stored in this migration.
 DO $seed$
 DECLARE
@@ -19,12 +20,18 @@ BEGIN
     END IF;
 
     PERFORM pg_advisory_xact_lock(hashtext('huginn.bootstrap_admin'));
-    SELECT a.id, a.role INTO v_account_id, existing_role
-      FROM operational.accounts a
-      WHERE lower(a.username) = lower(seed->>'username') FOR UPDATE;
-    IF FOUND THEN
+    BEGIN
+        SELECT a.id, a.role INTO STRICT v_account_id, existing_role
+          FROM operational.accounts a
+          WHERE lower(a.username) IN (lower(seed->>'username'), lower(seed->>'legacy_username'))
+          FOR UPDATE;
+    EXCEPTION
+        WHEN no_data_found THEN v_account_id := NULL;
+        WHEN too_many_rows THEN RAISE EXCEPTION 'Multiple records match the bootstrap identity';
+    END;
+    IF v_account_id IS NOT NULL THEN
         IF existing_role <> 'admin' THEN
-            RAISE EXCEPTION 'Bootstrap username belongs to a non-admin account; refusing promotion';
+            RAISE EXCEPTION 'Bootstrap identity belongs to a non-admin account; refusing promotion';
         END IF;
         IF NOT EXISTS (
             SELECT 1 FROM operational.users u

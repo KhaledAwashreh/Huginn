@@ -35,12 +35,12 @@ def test_compose_configuration_generates_private_persistent_secrets(tmp_path):
     assert os.stat(target).st_mode & 0o777 == 0o600
     assert values["POSTGRES_PASSWORD"] not in result.stdout + result.stderr
     assert values["HUGINN_LIFECYCLE_PROOF_KEY"] not in result.stdout + result.stderr
-    assert values["HUGINN_BOOTSTRAP_ADMIN_USERNAME"] == "Khaled"
+    assert "HUGINN_BOOTSTRAP_ADMIN_USERNAME" not in values
     assert 8 <= len(values["HUGINN_BOOTSTRAP_ADMIN_PASSWORD"]) <= 16
     assert (
         values["HUGINN_BOOTSTRAP_ADMIN_PASSWORD"] not in result.stdout + result.stderr
     )
-    assert values["HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME"] == "Craig"
+    assert "HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME" not in values
     second = values["HUGINN_BOOTSTRAP_SECOND_ADMIN_PASSWORD"]
     assert 8 <= len(second) <= 16
     assert second != values["HUGINN_BOOTSTRAP_ADMIN_PASSWORD"]
@@ -63,7 +63,8 @@ def test_adding_admin_to_older_config_preserves_existing_secrets(tmp_path):
     assert subprocess.run(command, capture_output=True).returncode == 0
     updated = target.read_text()
     assert updated.startswith(original)
-    assert "HUGINN_BOOTSTRAP_ADMIN_USERNAME=Khaled" in updated
+    assert "HUGINN_BOOTSTRAP_ADMIN_EMAIL=" in updated
+    assert "HUGINN_BOOTSTRAP_ADMIN_USERNAME=" not in updated
     assert subprocess.run(command, capture_output=True).returncode == 0
     assert target.read_text() == updated
     assert os.stat(target).st_mode & 0o777 == 0o600
@@ -94,7 +95,8 @@ def test_adding_second_admin_preserves_complete_existing_primary(tmp_path):
     assert subprocess.run(command, capture_output=True).returncode == 0
     updated = target.read_text()
     assert updated.startswith(original)
-    assert "HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME=Craig" in updated
+    assert "HUGINN_BOOTSTRAP_SECOND_ADMIN_EMAIL=" in updated
+    assert "HUGINN_BOOTSTRAP_SECOND_ADMIN_USERNAME=" not in updated
     assert subprocess.run(command, capture_output=True).returncode == 0
     assert target.read_text() == updated
 
